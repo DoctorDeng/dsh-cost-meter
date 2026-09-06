@@ -357,10 +357,14 @@ window.__ModuleLoader__.load({
       '.cm-bal-line{font-size:13px;color:var(--dsw-alias-label-secondary)}',
       '.cm-bal-line.warn{color:var(--dsw-alias-state-warning-primary,#b45309)}',
       '.cm-bal-line.err,.cm-bal-err{color:var(--dsw-alias-state-error-primary)}',
-      '.cm-footer-stack{display:flex;flex-direction:column;gap:6px;width:100%;align-items:stretch;box-sizing:border-box}',
+      '.cm-footer-stack{display:flex;flex-direction:column;gap:10px;width:100%;align-items:stretch;box-sizing:border-box}',
       '.cm-footer-stack.rail{align-items:center}',
-      // 侧边栏全部信息卡(费用/余额/Plan/网关/预算/Go)背景透明:直接透出侧边栏主题底色,不再用白色底。
-      '.cm-footer-stack .cm-bbox{width:100%;min-width:0;background:transparent}',
+      // 侧边栏全部信息卡(费用/余额/Plan/网关/预算/Go):卡面按主题明暗分向提亮——
+      // 亮色主题(默认):bg-base 向白提亮 45%(比底色亮一档且保留底色暖调);纯白底时由投影+边框承担卡片感;
+      // 暗色主题:挂宿主自身的暗色标记 body[data-ds-dark-theme]
+      // (dsh-client-ui-layout ThemePresenter 随主题快照同步设置/移除),bg-base 向文字色提亮 8%。
+      '.cm-footer-stack .cm-bbox{width:100%;min-width:0;background:color-mix(in srgb,var(--dsw-alias-bg-base) 55%,#fff 45%);border-color:color-mix(in srgb,var(--dsw-alias-border-l1) 55%,transparent);box-shadow:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.08)}',
+      'body[data-ds-dark-theme] .cm-footer-stack .cm-bbox{background:color-mix(in srgb,var(--dsw-alias-bg-base) 92%,var(--dsw-alias-label-primary) 8%)}',
       '.cm-footer-stack .cm-foot{width:100%;box-sizing:border-box}',
       // 今日费用+余额+峰谷条合并卡(展开态):头行两组「标签+金额」,下接余额条/Token 行/峰谷条。
       // 费用/Token 两行共享的 四列对齐网格:标签列与金额列跨行共用列边界,今日/余额/累计 严格纵向对齐。
