@@ -4,6 +4,13 @@
 > [Commits](https://github.com/Han-1413141/dsh-cost-meter/commits/master)。
 
 
+## v1.7.13(2026-09-06)—— 千问 / 阿里云余额与网关重试
+
+- 新增千问 / 阿里云余额入口，使用 RAM AccessKey 查询账户可用金，按响应币种显示；凭据只写入 DSH 凭据库，支持可选 STS 临时 token。[使用说明](qianwen-balance.md)
+- 合入 PR #99：CLIProxyAPI 两跳链路对暂态 HTTP 错误重试一次，补充错误响应连接释放及失败边界测试，缩短 Codex 主限额窗口标签。
+- 修复最后一条自定义余额无法删除，以及带空白的凭据占位符未触发缓存作废。
+- 发布包含此前已合入的 1.7.11 / 1.7.12 修复：网关侧边栏卡片、来源折叠/删除、源码大小约束和安装脚本修复。
+
 ## v1.7.12(2026-09-03)—— 🏪 DSH STORE 重新上架修复 + 网关额度侧边栏卡片(源码切片 + 逐版本兼容声明,issue #239/#96)
 - **更新暂缓根因**:`src/client.js` 人类可读源码 437,004 字节,超过 DSH STORE 固定 Commit 自动审核的 256 KiB(262,144 字节)单文件上限(此前只有压缩产物 `lib/client.js` 受控)。浏览器端是单个 factory 闭包、无法按 ES 模块拆分,故按区段切为 `src/client/` 三个顺序片段,`scripts/build.mjs` 按文件名排序拼接构建;verify 新增逐片段字节门禁防复发。
 - **兼容性下架根因**:`package.json` 新增 `dsh.compatibility` 块,对官方最新三个 DSH 发行版(0.1.2-alpha.3/4/5)逐项声明 `dshReleases: compatible`(与 `dshhub` 的 `>=0.1.0-rc.5` 范围同口径),并补 `os` 三系统声明;SemVer 提升至 1.7.12(商城仅接受高于商城版本的新固定 Commit),版本链五处对齐。修复推送 master 后商城每八小时自动复检(issue #239)。

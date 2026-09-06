@@ -6517,4 +6517,7 @@ function m_costOf85(entry, tokens) {
   console.log('[ok] 模块导入图无环 + 独立首导入(v1.7.8 Desktop TDZ 崩溃回归)通过')
 }
 
+await import('./aliyun-balance.mjs')
+await import('./gateway-retry.mjs')
+await import('./custom-balance-ui.mjs')
 console.log('[ok] 全部验证通过')
