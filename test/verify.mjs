@@ -615,6 +615,10 @@ assert.ok(patchStyleBad.errors.length > 0, 'peakStyle 非法值被拒')
 const patchStyleOk = applyConfigPatch(reloaded.config, { peakStyle: 'classic' })
 assert.equal(patchStyleOk.errors.length, 0, 'peakStyle=classic 合法')
 assert.equal(patchStyleOk.config.peakStyle, 'classic', 'peakStyle=classic 生效')
+const patchStyleDot = applyConfigPatch(reloaded.config, { peakStyle: 'dot' })
+assert.equal(patchStyleDot.errors.length, 0, 'peakStyle=dot 合法')
+assert.equal(patchStyleDot.config.peakStyle, 'dot', 'peakStyle=dot 生效')
+assert.ok(readClientSource().includes("style === 'dot' ? PeakStripDot : PeakStrip"), '圆点样式接入展开态峰谷条分发')
 console.log('[ok] peakStyle 样式配置校验通过')
 // prices.models 使用替换语义,删除模型后不会被 mergeDeep 恢复。
 const priceDeletePatch = applyConfigPatch(reloaded.config, {
@@ -1272,12 +1276,12 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   assert.ok(clientSource.includes('function useClickRefresh('), 'useClickRefresh helper 存在')
   assert.ok(clientSource.includes("if (busy || typeof call !== 'function') return"), 'busy 期间忽略连点(防并发打接口)')
   assert.ok(clientSource.includes('catch(error => { setErr(error?.message ?? String(error)) })'), '失败原因留存供 tooltip')
-  // 六类图框接线:官方余额(框+行)、自定义余额(框+行)、Coding Plan(通用+MiniMax)。
-  assert.equal((clientSource.match(/useClickRefresh\(api \? \(\) => api\.refreshBalance\(\) : null\)/g) ?? []).length, 2, '官方余额框/行均接 refreshBalance')
+  // 六类图框接线:官方余额(框+行+今日/余额合并卡)、自定义余额(框+行)、Coding Plan(通用+MiniMax)。
+  assert.equal((clientSource.match(/useClickRefresh\(api \? \(\) => api\.refreshBalance\(\) : null\)/g) ?? []).length, 3, '官方余额框/行/今日余额合并卡均接 refreshBalance')
   assert.equal((clientSource.match(/useClickRefresh\(api \? \(\) => api\.refreshCustomBalance\(index\) : null\)/g) ?? []).length, 2, '自定义余额框/行均接 refreshCustomBalance(多配置形态按条目 index 刷新,issue #79)')
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan(id) : null)"), '通用 Coding Plan 图框接 refreshCodingPlan(id)')
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan('minimax') : null)"), 'MiniMax 图框接 refreshCodingPlan(minimax)')
-  assert.equal((clientSource.match(/api: props\.api/g) ?? []).length, 7, 'SidebarFooter 七处渲染均透传 api(六类图框 + Codex 卡片)')
+  assert.equal((clientSource.match(/api: props\.api/g) ?? []).length, 8, 'SidebarFooter 八处渲染均透传 api(六类图框 + Codex 卡片 + 今日/余额合并卡)')
   // 可点击语义与视觉反馈:a11y(role/tabIndex/aria-busy/键盘)、CSS(cursor/hover/busy 呼吸)。
   assert.ok(clientSource.includes('const clickableRefreshProps = (busy, run) => ({'), '可点击属性 helper 存在')
   assert.ok(clientSource.includes("role: 'button'") && clientSource.includes("tabIndex: 0") && clientSource.includes("'aria-busy': busy ? 'true' : 'false'"), 'role=button + tabIndex + aria-busy')
@@ -3611,7 +3615,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // issue #59-1:充值直达链接。
   // CodeQL #7 误报:这是断言源码里「充值链接字符串存在」的存在性检查,并非用子串匹配做 URL 净化。
   assert.ok(src.includes("https://platform.deepseek.com/usage"), 'issue #59: DeepSeek 充值页 URL 在册') // codeql[js/incomplete-url-substring-sanitization]
-  assert.equal([...src.matchAll(/rechargeLinkEl\(t\)/g)].length, 3, 'issue #59: 充值链接在 helper 定义与余额行/图框两处渲染共出现三次')
+  assert.equal([...src.matchAll(/rechargeLinkEl\(t\)/g)].length, 4, 'issue #59: 充值链接在 helper 定义与余额行/图框/今日余额合并卡三处渲染共出现四次')
   assert.ok(src.includes('.cm-bal-link{'), 'issue #59: 充值链接样式存在')
   assert.ok(src.includes('balanceRechargeLink:') && [...src.matchAll(/balanceRechargeLink:/g)].length === 2, 'issue #59: 充值提示文案 zh/en 各一份')
   // issue #59-2:Codex 周额度客户端探测模块。

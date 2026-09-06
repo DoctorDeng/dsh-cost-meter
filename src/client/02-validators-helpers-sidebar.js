@@ -151,7 +151,7 @@
         peakAlertTarget: v.peakAlertTarget === 'peak' || v.peakAlertTarget === 'offpeak' ? v.peakAlertTarget : 'both',
         peakAlertPosition: v.peakAlertPosition === 'center' ? 'center' : 'corner',
         peakAlertWebNotify: v.peakAlertWebNotify === true,
-        peakStyle: v.peakStyle === 'classic' ? 'classic' : 'compact',
+        peakStyle: v.peakStyle === 'classic' || v.peakStyle === 'dot' ? v.peakStyle : 'compact',
         priceMatch: v.priceMatch === 'exact' ? 'exact' : 'auto',
         priceOverrides: (() => {
           const out = {}
@@ -1161,7 +1161,7 @@
       }
     }
 
-    const { createElement: el, Fragment, useState, useEffect, useRef } = React
+    const { createElement: el, Fragment, useState, useEffect, useLayoutEffect, useRef } = React
 
     /**
      * 密钥输入控件(v1.6.8,write-only)。
@@ -1852,7 +1852,7 @@
 
     /** 相位标签键:周末全谷价 / 峰时 / 谷时(chip = 展开态文案,short = 收起态短词,notice = 悬停说明)。 */
     function phaseLabelKeys(view) {
-      if (view.weekend === true) return { short: 'weekendShort', chip: 'weekendChip', notice: 'weekendAllOffPeak' }
+      if (view.weekend === true) return { short: 'weekendShort', chip: 'weekendShort', notice: 'weekendAllOffPeak' }
       return view.inPeak
         ? { short: 'peakShort', chip: 'peakShort', notice: 'peakNotice' }
         : { short: 'offPeakShort', chip: 'offPeakShort', notice: 'offPeakActive' }
@@ -2025,8 +2025,29 @@
             el('div', { className: 'cm-peak-segment cm-peak-low' })),
           el('span', { className: 'cm-peak-classic-chip' }, t(keys.chip) + ' · ' + chipText)))
     }
+    /** 圆点样式(展开态):单状态圆点按当前时段变色(峰时橙/平价蓝/周末绿),右侧配时段名与倒计时文字。 */
+    function PeakStripDot(props) {
+      const { config, t } = props
+      const [now, setNow] = useState(Date.now())
+      useEffect(() => {
+        const timer = window.setInterval(() => setNow(Date.now()), 30000)
+        return () => window.clearInterval(timer)
+      }, [])
+      const view = peakView(config, now)
+      if (view === null) return null
+      const keys = phaseLabelKeys(view)
+      const chipText = view.nextIntoPeak
+        ? t('nextPeakIn', { time: countdownText(view, now, t) })
+        : t('nextOffPeakIn', { time: countdownText(view, now, t) })
+      const detail = [t(keys.notice), chipText]
+      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+        el('div', { className: 'cm-peak-dot ' + (view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
+          el('span', { className: 'cm-peak-dot-circle' }),
+          el('span', { className: 'cm-peak-dot-text' }, t(keys.chip) + ' · ' + chipText)))
+    }
     function peakNoticeEl(state, config, t) {
-      return el(config?.peakStyle === 'classic' ? PeakStripClassic : PeakStrip, { config, t })
+      const style = config?.peakStyle
+      return el(style === 'classic' ? PeakStripClassic : style === 'dot' ? PeakStripDot : PeakStrip, { config, t })
     }
 
     /** 收起(rail)态简洁样式:竖向同构时段条 + 横排短词(「峰时/平价」),倒计时与完整文案在悬停提示中。 */
@@ -2076,8 +2097,29 @@
             el('div', { className: 'cm-peak-rail-classic-marker', style: { top: view.weekend ? '50%' : view.inPeak ? '25%' : '75%' } })),
           el('span', { className: 'cm-peak-rail-classic-label' }, t(keys.short))))
     }
+    /** 圆点样式(收起 rail 态):竖排状态圆点(随时段变色)+ 短词,倒计时与完整文案在悬停提示中。 */
+    function PeakRailStripDot(props) {
+      const { config, t } = props
+      const [now, setNow] = useState(Date.now())
+      useEffect(() => {
+        const timer = window.setInterval(() => setNow(Date.now()), 30000)
+        return () => window.clearInterval(timer)
+      }, [])
+      const view = peakView(config, now)
+      if (view === null) return null
+      const keys = phaseLabelKeys(view)
+      const chipText = view.nextIntoPeak
+        ? t('nextPeakIn', { time: countdownText(view, now, t) })
+        : t('nextOffPeakIn', { time: countdownText(view, now, t) })
+      const detail = [t(keys.notice), chipText]
+      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+        el('div', { className: 'cm-peak-rail-dot ' + (view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
+          el('span', { className: 'cm-peak-dot-circle' }),
+          el('span', { className: 'cm-peak-rail-label' }, t(keys.short))))
+    }
     function peakNoticeRailEl(state, config, t) {
-      return el(config?.peakStyle === 'classic' ? PeakRailStripClassic : PeakRailStrip, { config, t })
+      const style = config?.peakStyle
+      return el(style === 'classic' ? PeakRailStripClassic : style === 'dot' ? PeakRailStripDot : PeakRailStrip, { config, t })
     }
 
     /** 预算图框内容(不含外框),供单独显示与「Go+预算」合并卡片复用;详细信息按 budget.detail 开关。 */
@@ -2116,8 +2158,7 @@
                 })),
               el('div', { className: 'cm-bbox-line cm-num' },
                 t('usedOf', { used: formatMoneyValue(used, config), amount: formatMoneyValue(amount, config) })))
-            : null,
-          peakNoticeEl(state, config, t)),
+            : null),
       }
     }
 
@@ -2813,6 +2854,133 @@
           wide ? peakNoticeEl(state, config, t) : null))
     }
 
+    /**
+     * 今日费用 + 官方余额 + 峰谷条合并卡片(展开态):
+     * 头行「今日费用 | 余额(+充值链接)」,下接余额进度条(可选)、今日/累计 Token 量、峰谷时段条。
+     * 余额错误态显示「查询失败」并可点击重试;官方余额关闭/未查询时只渲染其余区块。
+     * 收起(rail)态不渲染——由 SidebarFooter 维持余额框/钱包行/竖向峰谷条的原排布。
+     */
+    function TodayBalanceCard(props) {
+      const { state, wide, api, showBalance, showBalanceBar, showToday } = props
+      const config = state.config
+      const balance = state.balance
+      const t = makeT(resolveLocale(config?.locale))
+      const refresh = useClickRefresh(api ? () => api.refreshBalance() : null)
+      // 悬停富弹层(用量速览):宿主 Tooltip 仅支持纯文本 label,这里自建固定定位气泡,
+      // 定位/视口夹紧策略与宿主 Tooltip 相同(右侧偏移 10px、距屏幕边缘 12px 内收)。
+      const cardRef = useRef(null)
+      const popRef = useRef(null)
+      const [popPos, setPopPos] = useState(null)
+      const popTriggers = useRef({ hover: false, focus: false })
+      const popTimer = useRef(null)
+      useEffect(() => () => { if (popTimer.current !== null) clearTimeout(popTimer.current) }, [])
+      useLayoutEffect(() => {
+        if (popPos === null) return
+        const node = popRef.current
+        if (node === null) return
+        node.style.left = popPos.x + 'px'
+        node.style.top = popPos.centerY + 'px'
+        const rect = node.getBoundingClientRect()
+        let dx = 0
+        if (rect.right > window.innerWidth - 12) dx = window.innerWidth - 12 - rect.right
+        if (rect.left + dx < 12) dx = 12 - rect.left
+        let dy = 0
+        if (rect.top + dy < 12) dy = 12 - rect.top
+        if (rect.bottom + dy > window.innerHeight - 12) dy = window.innerHeight - 12 - rect.bottom
+        node.style.left = popPos.x + dx + 'px'
+        node.style.top = popPos.centerY + dy + 'px'
+      }, [popPos])
+      const balanceOn = showBalance && balance != null && (balance.status === 'ok' || balance.status === 'error')
+      if (!wide || (!showToday && !balanceOn)) return null
+      const today = state.today
+      const total = state.total ?? today
+      // Token 量口径与账本日桶一致:输入 + 输出 + 缓存读 + 缓存写 + 推理。
+      const tokenSum = b => (Number(b?.input) || 0) + (Number(b?.output) || 0)
+        + (Number(b?.cacheRead) || 0) + (Number(b?.cacheWrite) || 0) + (Number(b?.reasoning) || 0)
+      const todayTokens = formatTokens(tokenSum(today))
+      const totalTokens = formatTokens(tokenSum(total))
+      const balanceOk = balanceOn && balance.status === 'ok'
+      const segments = balanceOk && showBalanceBar ? segmentsForOfficialBalance(state, config) : null
+      const balanceText = balanceOk
+        ? formatBalanceMoney(balance.totalBalance, config, balance.currency)
+        : t('queryFailed')
+      // 悬停弹层内容:「用量速览」九宫格 + 「账户余额」明细,替代原纯文本 tooltip。
+      const showPop = () => {
+        const node = cardRef.current
+        if (node === null) return
+        const rect = node.getBoundingClientRect()
+        setPopPos({ x: rect.right + 10, centerY: rect.top + rect.height / 2 })
+      }
+      const onCardEnter = () => {
+        popTriggers.current.hover = true
+        if (popTimer.current !== null) clearTimeout(popTimer.current)
+        popTimer.current = setTimeout(() => { popTimer.current = null; showPop() }, 300)
+      }
+      const onCardLeave = () => {
+        popTriggers.current.hover = false
+        if (popTimer.current !== null) { clearTimeout(popTimer.current); popTimer.current = null }
+        if (!popTriggers.current.focus) setPopPos(null)
+      }
+      const onCardFocus = () => { popTriggers.current.focus = true; showPop() }
+      const onCardBlur = () => { popTriggers.current.focus = false; if (!popTriggers.current.hover) setPopPos(null) }
+      const popCell = (label, value, cls) => el('div', { className: 'cm-tb-pop-cell' },
+        el('div', { className: 'cm-tb-pop-label' }, label),
+        el('div', { className: 'cm-tb-pop-val' + (cls || '') }, value))
+      const popNode = popPos === null ? null : el('div', { className: 'cm-tb-pop', ref: popRef, 'aria-hidden': 'true' },
+        el('div', { className: 'cm-tb-pop-title' }, t('usageOverviewTitle')),
+        el('div', { className: 'cm-tb-pop-grid' },
+          popCell(t('usageTodayCost'), formatMoneyUsd(displayCostOf(today, config), config), ' money'),
+          popCell(t('usageMonthCost'), formatMoneyUsd(displayCostOf(state.month, config), config), ' money'),
+          popCell(t('usageTotalCost'), formatMoneyUsd(displayCostOf(total, config), config), ' money'),
+          popCell(t('usageTodayTokens'), t('tokensUnit', { amount: todayTokens }), ''),
+          popCell(t('usageTotalTokens'), t('tokensUnit', { amount: totalTokens }), ''),
+          popCell(t('usageCalls'), String(today.calls ?? 0), ''),
+          popCell(t('usageInput'), formatTokens(today.input), ''),
+          popCell(t('usageOutput'), formatTokens(today.output), ''),
+          popCell(t('usageCacheHit'), formatTokens(today.cacheRead), ' ok')),
+        balanceOn ? el(Fragment, null,
+          el('div', { className: 'cm-tb-pop-divider' }),
+          el('div', { className: 'cm-tb-pop-section' }, t('usageBalanceTitle')),
+          balanceOk ? el(Fragment, null,
+            el('div', { className: 'cm-tb-pop-line' },
+              el('span', { className: 'cm-tb-pop-bal' }, balanceText),
+              segments ? el('span', { className: 'cm-tb-pop-dim' }, ' · ' + balanceBarTooltipLines(t, v => formatBalanceMoney(v, config, balance.currency), segments, balanceText, segments.cap).join(' · ')) : null),
+            el('div', { className: 'cm-tb-pop-line cm-tb-pop-dim' },
+              t('grantedToppedUp', {
+                granted: formatBalanceMoney(balance.grantedBalance, config, balance.currency),
+                toppedUp: formatBalanceMoney(balance.toppedUpBalance, config, balance.currency),
+              }) + ' · ' + t('updatedAt', { time: balance.fetchedAt > 0 ? new Date(balance.fetchedAt).toLocaleTimeString() : '—' })),
+            state.reconcile?.ok === false ? el('div', { className: 'cm-tb-pop-line cm-tb-pop-warn' }, '⚠ ' + state.reconcile.message) : null,
+          ) : el('div', { className: 'cm-tb-pop-line cm-tb-pop-err' }, t('balanceQueryFailed', { message: balance.message || t('unknownError') })),
+          el('div', { className: 'cm-tb-pop-line cm-tb-pop-hint' }, clickRefreshTipLines(t, refresh).join(' · ')),
+        ) : null)
+      return el(Fragment, null,
+        el('div', {
+          ref: cardRef,
+          className: 'cm-bbox cm-todaybal' + (balanceOn ? ' clickable' : '') + (refresh.busy ? ' busy' : ''),
+          ...(balanceOn ? clickableRefreshProps(refresh.busy, refresh.run) : {}),
+          onMouseEnter: onCardEnter,
+          onMouseLeave: onCardLeave,
+          onFocus: onCardFocus,
+          onBlur: onCardBlur,
+        },
+          // 两行四列共享网格(见 .cm-tb-grid):第一行 今日费用|余额,第二行 今日 Token|累计 Token,
+          // 标签列/金额列跨行共用列边界,余额与累计、今日费用与今日 Token 严格纵向对齐。
+          el('div', { className: 'cm-tb-grid' },
+            el('span', { className: 'cm-bbox-label' }, showToday ? t('today') : ''),
+            el('span', { className: 'cm-tb-amt cm-num' }, showToday ? formatMoneyUsd(displayCostOf(today, config), config) : ''),
+            el('span', { className: 'cm-bbox-label' }, balanceOn ? '💰 ' + t('balance') : ''),
+            el('span', { className: 'cm-tb-amt cm-num' + (balanceOk ? ' cm-tb-bal' : '') },
+              balanceOn ? balanceText : '', balanceOk ? rechargeLinkEl(t) : null),
+            el('span', { className: 'cm-bbox-label' }, showToday ? t('today') : ''),
+            el('span', { className: 'cm-tb-amt cm-num' }, showToday ? t('tokensUnit', { amount: todayTokens }) : ''),
+            el('span', { className: 'cm-bbox-label' }, '⭐ ' + t('periodAll')),
+            el('span', { className: 'cm-tb-amt cm-num' }, t('tokensUnit', { amount: totalTokens }))),
+          segments ? el(BalanceBar, { segments, direction: barDirectionOf(config, 'balance') }) : null,
+          peakNoticeEl(state, config, t)),
+        popNode)
+    }
+
     function SidebarFooter(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
       // 侧边栏页脚非会话作用域插槽:useProjection 在部分宿主/页面可能不可用或
@@ -2902,7 +3070,10 @@
       const showToday = config.sidebar !== false && config.hideTodayCost !== true
       if (!showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && gatewayNodes.length === 0) return null
       const nodes = []
-      if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: props.api }))
+      // 展开态:今日费用 + 官方余额 + 峰谷条合并为一张卡(含今日/累计 Token 量,见 TodayBalanceCard);
+      // 收起(rail)态空间有限,维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
+      if (wide) nodes.push(el(TodayBalanceCard, { state, wide, api: props.api, showBalance, showBalanceBar, showToday }))
+      else if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: props.api }))
       else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: props.api }))
       if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { state, wide, api: props.api }))
       else if (showCustomBalance) nodes.push(el(CustomBalanceRowContent, { state, wide, api: props.api }))
@@ -2925,7 +3096,8 @@
         if (goOk) nodes.push(el(GoQuotaBox, { state, wide }))
         if (budgetOn) nodes.push(el(BudgetBoxContent, { state, wide }))
       }
-      if (!budgetOn && showToday) nodes.push(el(BudgetBoxContent, { state, wide }))
+      // 展开态的今日费用行已并入顶部合并卡(其内部自带峰谷条);收起态保留钱包图标行。
+      if (!budgetOn && showToday && !wide) nodes.push(el(BudgetBoxContent, { state, wide }))
       // 收起(rail)态:无论预算/Go 额度开关状态,统一在图框下方追加竖向峰谷进度条(受 peakNotice 等门控,内部自行返回 null)。
       if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
       // 外壳的 footerActions 是横向 flex;这里用自建纵向堆叠保证余额在上、图框在下。
