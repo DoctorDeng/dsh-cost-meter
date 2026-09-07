@@ -488,6 +488,8 @@ window.__ModuleLoader__.load({
         customBalanceTitle: '自定义 Provider 余额',
         customBalanceMultiNote: '支持配置多个自定义提供商(最多 8 条),每条独立的请求与解析规则、独立开关与显示位置、独立刷新间隔;升级前的单条配置已自动迁移为第 1 条。',
         customBalanceAdd: '添加配置',
+        aliyunBalanceAdd: '添加千问 / 阿里云余额',
+        aliyunBalanceNote: '查询阿里云中国站资金账户可用金，按接口币种显示。使用 RAM AccessKey（需 bss:DescribeBillingAccount 权限），不是千问模型 API Key；共享同一组阿里云凭据。前两项必填，Security Token 仅 STS 临时凭据需要。密钥只存入凭据库。',
         customBalanceRemove: '删除',
         customBalanceEmpty: '尚未配置自定义 Provider 余额,点击「添加配置」新建。',
         customBalanceConfigNote: '配置自定义 Provider 的余额查询请求与解析规则。请求头支持 {{ENV_VAR}} 占位符,从 DSH 凭据库或环境变量解析;extract 规则支持点路径、数字常量与 add / subtract / divide 运算(NewApi 等 quota 端点用 divide 按 500000 换算美元)。',
@@ -942,6 +944,8 @@ window.__ModuleLoader__.load({
         customBalanceTitle: 'Custom provider balance',
         customBalanceMultiNote: 'Configure multiple custom providers (up to 8): each entry has its own request & extract rules, enable switch, display position and refresh interval; your previous single entry was migrated to #1 automatically.',
         customBalanceAdd: 'Add entry',
+        aliyunBalanceAdd: 'Add Qianwen / Alibaba Cloud balance',
+        aliyunBalanceNote: 'Queries available funds for an Alibaba Cloud China account in the returned currency. Uses shared RAM AccessKey credentials with bss:DescribeBillingAccount permission, not a Qianwen model API key. The first two fields are required; Security Token is only for temporary STS credentials. Secrets stay in the credential store.',
         customBalanceRemove: 'Remove',
         customBalanceEmpty: 'No custom provider balance configured yet — click "Add entry" to create one.',
         customBalanceConfigNote: 'Configure the balance query request and extract rules. Headers support {{ENV_VAR}} placeholders resolved from DSH credentials or environment variables; extract rules accept dot paths, numeric constants, and add / subtract / divide operations (use divide with 500000 for NewApi-style quota endpoints).',
@@ -1341,4 +1345,3 @@ window.__ModuleLoader__.load({
     }
 
     const PERIOD_KEYS = { day: 'periodDay', month: 'periodMonth', all: 'periodAll', custom: 'periodCustom' }
-

@@ -6362,6 +6362,33 @@ function m_costOf85(entry, tokens) {
   assert.deepEqual(successCalls.map(call => new URL(call.url).pathname), [GATEWAY_MANAGEMENT_PATHS.authFiles, GATEWAY_MANAGEMENT_PATHS.apiCall], 'only fixed management paths are used')
   assert.equal(successCalls.length, 2)
 
+  // CPA 是双跳路径:管理端 5xx 与管理端封装的上游 5xx 都可能是短暂波动。
+  // 两者各重试一次后应仍得到可用快照；认证等持久错误仍由下方用例确认不重试。
+  const transientCalls = []
+  let authAttempts = 0
+  let apiAttempts = 0
+  const transientFetch = async (url, init = {}) => {
+    const path = new URL(url).pathname
+    transientCalls.push(path)
+    if (path === GATEWAY_MANAGEMENT_PATHS.authFiles) {
+      authAttempts++
+      if (authAttempts === 1) return jsonResponse({ busy: true }, 503)
+      return jsonResponse({ auth_files: [{ auth_index: 'claude-auth-87', provider: 'anthropic', email: piiEmail }] })
+    }
+    if (path === GATEWAY_MANAGEMENT_PATHS.apiCall) {
+      apiAttempts++
+      if (apiAttempts === 1) return jsonResponse({ status_code: 503, body: '{}' })
+      return jsonResponse({ status_code: 200, body: JSON.stringify({ five_hour: { utilization: 38 } }) })
+    }
+    throw new Error(`unexpected transient gateway path: ${path}`)
+  }
+  const transientResult = await queryGatewayQuota(credentialContext, claudeSource, { fetchImpl: transientFetch })
+  assert.equal(transientResult.status, 'ok', 'temporary CPA failures retry to a valid quota snapshot')
+  assert.equal(transientResult.accounts[0].windows[0].percent, 38)
+  assert.equal(authAttempts, 2, 'management 503 is retried once')
+  assert.equal(apiAttempts, 2, 'enveloped upstream 503 is retried once')
+  assert.deepEqual(transientCalls, [GATEWAY_MANAGEMENT_PATHS.authFiles, GATEWAY_MANAGEMENT_PATHS.authFiles, GATEWAY_MANAGEMENT_PATHS.apiCall, GATEWAY_MANAGEMENT_PATHS.apiCall])
+
   const authFailureCalls = []
   const authFailureFetch = async (url, init = {}) => {
     authFailureCalls.push({ url, init })
@@ -6494,4 +6521,7 @@ function m_costOf85(entry, tokens) {
   console.log('[ok] 模块导入图无环 + 独立首导入(v1.7.8 Desktop TDZ 崩溃回归)通过')
 }
 
+await import('./aliyun-balance.mjs')
+await import('./gateway-retry.mjs')
+await import('./custom-balance-ui.mjs')
 console.log('[ok] 全部验证通过')

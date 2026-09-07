@@ -109,6 +109,7 @@
     }
     function parseConfig(v, path) {
     const parseCustomEntry = e => (e == null ? undefined : {
+      ...(e.adapter === 'aliyun' ? { adapter: 'aliyun' } : {}),
       enabled: e.enabled === true,
       label: typeof e.label === 'string' ? e.label : '',
       labelEn: typeof e.labelEn === 'string' ? e.labelEn : '',
@@ -1597,6 +1598,7 @@
     // 多配置形态(v1.7.0,issue #79):unit/label 优先读条目自身配置,旧单条
     // customBalance 作为回落(兼容旧快照/旧宿主)。
     function customBalanceUnitOf(config, custom, entryCfg) {
+      if ((entryCfg ?? config?.customBalance)?.adapter === 'aliyun' && ['CNY', 'USD', 'EUR'].includes(custom?.unit)) return custom.unit
       const unit = entryCfg?.unit ?? config?.customBalance?.unit
       if (unit === 'CNY' || unit === 'EUR' || unit === 'USD') return unit
       return custom?.unit === 'CNY' || custom?.unit === 'EUR' ? custom.unit : 'USD'
@@ -3103,4 +3105,3 @@
       // 外壳的 footerActions 是横向 flex;这里用自建纵向堆叠保证余额在上、图框在下。
       return el('div', { ref: rootRef, className: 'cm-footer-stack' + (wide ? '' : ' rail') }, ...nodes)
     }
-

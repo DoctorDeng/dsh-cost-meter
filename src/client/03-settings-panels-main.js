@@ -1104,7 +1104,7 @@
       const entries = draft?.customBalances ?? config.customBalances ?? []
       const setEntries = next => {
         if (draft === null) return
-        setDraft({ ...draft, customBalances: next })
+        setDraft({ ...draft, customBalances: next, ...(next.length === 0 ? { customBalance: { ...(config.customBalance ?? {}), enabled: false, request: { url: '', headers: {} } } } : {}) })
       }
       const setEntry = (index, patch) => {
         setEntries(entries.map((e, i) => i === index ? { ...e, ...patch } : e))
@@ -1112,16 +1112,17 @@
       const removeEntry = index => {
         setEntries(entries.filter((_, i) => i !== index))
       }
-      const addEntry = () => {
+      const addEntry = (adapter = 'custom') => {
         if (entries.length >= 8) return
         setEntries([...entries, {
+          ...(adapter === 'aliyun' ? { adapter } : {}),
           enabled: false,
-          label: '',
-          labelEn: '',
+          label: adapter === 'aliyun' ? '千问 / 阿里云' : '',
+          labelEn: adapter === 'aliyun' ? 'Qianwen / Alibaba Cloud' : '',
           display: 'both',
-          unit: 'USD',
+          unit: adapter === 'aliyun' ? 'CNY' : 'USD',
           refreshMinutes: 15,
-          request: { url: '', method: 'GET', headers: {} },
+          request: { url: adapter === 'aliyun' ? 'https://business.aliyuncs.com/' : '', method: adapter === 'aliyun' ? 'POST' : 'GET', headers: {} },
           extract: {},
           allowedHosts: [],
         }])
@@ -1129,16 +1130,18 @@
       return el('div', { className: 'cm-budget' },
         el('div', { className: 'cm-budget-head' },
           el('h3', { className: 'cm-h' }, t('customBalanceTitle')),
-          el('button', { className: 'cm-btn small', onClick: addEntry, disabled: entries.length >= 8 }, t('customBalanceAdd'))),
+          el('button', { className: 'cm-btn small', onClick: () => addEntry(), disabled: entries.length >= 8 }, t('customBalanceAdd')),
+          el('button', { className: 'cm-btn small', onClick: () => addEntry('aliyun'), disabled: entries.length >= 8 }, t('aliyunBalanceAdd'))),
         el('p', { className: 'cm-note' }, t('customBalanceMultiNote')),
         entries.length === 0
           ? el('p', { className: 'cm-hint' }, t('customBalanceEmpty'))
           : entries.map((entry, index) =>
-            el(CustomBalanceEntryPanel, { key: 'cbe-' + index, state, api, t, entry, index, canRemove: entries.length > 1, onPatch: patch => setEntry(index, patch), onRemove: () => removeEntry(index) })))
+            el(CustomBalanceEntryPanel, { key: 'cbe-' + index, state, api, t, entry, index, canRemove: true, onPatch: patch => setEntry(index, patch), onRemove: () => removeEntry(index) })))
     }
 
     function CustomBalanceEntryPanel(props) {
       const { state, api, t, entry, index, canRemove, onPatch, onRemove } = props
+      const aliyun = entry.adapter === 'aliyun'
       const [busy, setBusy] = useState(false)
       const [msg, setMsg] = useState(null)
       const [open, setOpen] = useState(false)
@@ -1165,6 +1168,7 @@
       const setRequest = (field, value) => onPatch({ request: { ...(entry.request ?? {}), [field]: value } })
       // 请求头里出现的全部 {{VAR}} 占位符名(去重保序):驱动凭据输入区。
       const placeholderVars = (() => {
+        if (aliyun) return ['ALIBABA_CLOUD_ACCESS_KEY_ID', 'ALIBABA_CLOUD_ACCESS_KEY_SECRET', 'ALIBABA_CLOUD_SECURITY_TOKEN']
         const seen = new Set()
         const out = []
         for (const value of Object.values(entry.request?.headers ?? {})) {
@@ -1233,10 +1237,10 @@
             })))
         : custom !== null && custom.status === 'error'
           ? el('div', { className: 'cm-bal-line err' }, custom.message || t('unknownError'))
-          : el('div', { className: 'cm-bal-line' }, t('balanceNotQueried'))
+          : el('div', { className: 'cm-bal-line' }, custom?.message || t('balanceNotQueried'))
       const configFields = open
         ? el(Fragment, null,
-          el('p', { className: 'cm-note' }, t('customBalanceConfigNote')),
+          el('p', { className: 'cm-note' }, t(aliyun ? 'aliyunBalanceNote' : 'customBalanceConfigNote')),
           el('div', { className: 'cm-grid' },
             el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceLabelZh')),
@@ -1252,7 +1256,7 @@
                 value: entry.labelEn ?? '',
                 onChange: event => setField('labelEn', event.target.value),
               })),
-            el('div', { className: 'cm-field' },
+            !aliyun && el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceUnitLabel')),
               el('select', {
                 className: 'cm-input',
@@ -1273,7 +1277,7 @@
             el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceRefreshInterval')),
               numInput({ value: entry.refreshMinutes ?? 15 }, v => setField('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v)))))),
-            el('div', { className: 'cm-field' },
+            !aliyun && el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceMethod')),
               el('select', {
                 className: 'cm-input',
@@ -1282,7 +1286,7 @@
               },
                 el('option', { value: 'GET' }, 'GET'),
                 el('option', { value: 'POST' }, 'POST'))),
-            el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
+            !aliyun && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
               el('label', null, t('customBalanceUrl')),
               el('input', {
                 className: 'cm-input',
@@ -1290,7 +1294,7 @@
                 placeholder: 'https://example.com/key/info',
                 onChange: event => setRequest('url', event.target.value),
               })),
-            el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
+            !aliyun && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
               el('label', null, t('customBalanceHeaders')),
               el('span', { className: 'cm-hint' }, t('customBalanceHeadersVarNote')),
               el('textarea', {
@@ -1307,7 +1311,7 @@
               el('label', null, t('customBalanceCredentialsTitle')),
               placeholderVars.length > 0
                 ? el(Fragment, null,
-                  el('span', { className: 'cm-hint' }, t('customBalanceCredentialsHint')),
+                  !aliyun && el('span', { className: 'cm-hint' }, t('customBalanceCredentialsHint')),
                   placeholderVars.map(varName => el(CredentialField, {
                     key: 'cb-var-' + varName,
                     target: 'customVar:' + varName,
@@ -1319,7 +1323,7 @@
                 : el('span', { className: 'cm-hint' }, t('customBalanceNoPlaceholders'))),
             // 凭据白名单(v1.7.6,issue #86):携带密钥(占位符或明文)的请求只放行列表内
             // 主机;逗号分隔文本 ↔ 字符串数组,同 headers 的草稿即时解析策略。
-            el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
+            !aliyun && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
               el('label', null, t('customBalanceAllowedHosts')),
               el('input', {
                 className: 'cm-input',
@@ -1328,7 +1332,7 @@
                 onChange: event => applyAllowedHostsText(event.target.value),
               }),
               el('span', { className: 'cm-hint' }, t('customBalanceAllowedHostsHint'))),
-            el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
+            !aliyun && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
               el('label', null, t('customBalanceExtract')),
               el('textarea', {
                 className: 'cm-input',
