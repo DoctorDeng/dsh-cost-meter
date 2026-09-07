@@ -2212,7 +2212,7 @@
         pct,
         label: barView.label,
         row: el('div', { className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level) },
-          el('span', { className: 'cm-bbox-label' }, label),
+          el('span', { className: 'cm-bbox-label', title: label }, label),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
           el('span', { className: 'cm-bbox-pct cm-num' }, barView.label === null ? '—' : barView.label + '%')),

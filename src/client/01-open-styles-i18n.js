@@ -334,7 +334,7 @@ window.__ModuleLoader__.load({
       '.cm-mm{padding:8px 10px;gap:4px}',
       '.cm-mm-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}',
       '.cm-mm-row{display:flex;align-items:center;gap:8px;padding:2px 0}',
-      '.cm-mm-row .cm-bbox-label{flex:none;width:22px;font-weight:400;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
+      '.cm-mm-row .cm-bbox-label{flex:none;width:auto;min-width:22px;max-width:115px;font-weight:400;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-mm-row .cm-bbox-bar{flex:1;min-width:0;height:6px}',
       '.cm-mm-row .cm-bbox-pct{flex:none;min-width:2.4em;text-align:right;font-variant-numeric:tabular-nums}',
       '.cm-mm-row.warn .cm-bbox-label,.cm-mm-row.warn .cm-bbox-pct{color:var(--dsw-alias-state-warn-primary)}',
