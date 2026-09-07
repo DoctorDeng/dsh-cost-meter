@@ -2946,7 +2946,7 @@
           balanceOk ? el(Fragment, null,
             el('div', { className: 'cm-tb-pop-line' },
               el('span', { className: 'cm-tb-pop-bal' }, balanceText),
-              segments ? el('span', { className: 'cm-tb-pop-dim' }, ' · ' + balanceBarTooltipLines(t, v => formatBalanceMoney(v, config, balance.currency), segments, balanceText, segments.cap).join(' · ')) : null),
+              segments ? el('span', { className: 'cm-tb-pop-dim' }, ' · ' + balanceBarTooltipLines(t, v => formatBalanceMoney(v, config, balance.currency), segments, balanceText, segments.cap)) : null),
             el('div', { className: 'cm-tb-pop-line cm-tb-pop-dim' },
               t('grantedToppedUp', {
                 granted: formatBalanceMoney(balance.grantedBalance, config, balance.currency),
