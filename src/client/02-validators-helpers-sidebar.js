@@ -135,6 +135,7 @@
         hideOfficialBalance: v.hideOfficialBalance === true,
         hideTodayCost: v.hideTodayCost === true,
         showTotalWithPlan: v.showTotalWithPlan === true,
+        sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
         // 官方价格币种(issue #47):读侧白名单缺失会导致下拉选择保存后读不回。
         pricingCurrency: v.pricingCurrency === 'CNY' ? 'CNY' : 'USD',
         currency: typeof v.currency === 'string' ? v.currency : 'CNY',
@@ -2380,6 +2381,7 @@
       if (name === 'fiveHour' || name === '5h') return '5h'
       if (name === 'weekly' || name === 'week' || name === '7d') return name === '7d' ? '7d' : t('goShortWeekly')
       if (name === 'monthly' || name === 'month') return t('goShortMonthly')
+      if (name === 'daily' || name === 'day') return t('goShortDaily')
       return String(name).replace(/_/g, ' ')
     }
 
@@ -2903,6 +2905,9 @@
       const budgetOn = (config.budget ?? {}).enabled === true
       const showToday = config.sidebar !== false && config.hideTodayCost !== true
       if (!showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && gatewayNodes.length === 0) return null
+      // 紧凑模式(侧边栏进度条样式):宽栏下各额度卡内部的时间段进度行排两列
+      // (CSS 于 .cm-footer-stack.compact 生效);卡片本身与收起(rail)态维持原样。
+      const compactWide = wide && config.sidebarStyle === 'compact'
       const nodes = []
       if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: props.api }))
       else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: props.api }))
@@ -2931,5 +2936,5 @@
       // 收起(rail)态:无论预算/Go 额度开关状态,统一在图框下方追加竖向峰谷进度条(受 peakNotice 等门控,内部自行返回 null)。
       if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
       // 外壳的 footerActions 是横向 flex;这里用自建纵向堆叠保证余额在上、图框在下。
-      return el('div', { ref: rootRef, className: 'cm-footer-stack' + (wide ? '' : ' rail') }, ...nodes)
+      return el('div', { ref: rootRef, className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') }, ...nodes)
     }

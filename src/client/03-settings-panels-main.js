@@ -2249,6 +2249,15 @@
               el('span', null, t('hideTodayCostLabel'))),
             el('div', { className: 'cm-grid-group' }, t('groupSidebar')),
             el('div', { className: 'cm-field' },
+              el('label', null, t('sidebarStyleLabel')),
+              el('select', {
+                className: 'cm-input',
+                value: draft?.sidebarStyle ?? 'standard',
+                onChange: event => setField('sidebarStyle', event.target.value),
+              },
+                el('option', { value: 'standard' }, t('sidebarStyleStandard')),
+                el('option', { value: 'compact' }, t('sidebarStyleCompact')))),
+            el('div', { className: 'cm-field' },
               el('label', null, t('balanceDisplayLabel')),
               el('select', {
                 className: 'cm-input',
