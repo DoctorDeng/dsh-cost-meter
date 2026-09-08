@@ -44,7 +44,7 @@ $cmUrl = node -e "process.stdout.write(require('node:url').pathToFileURL(process
 $cmPatch = Join-Path $cmRoot 'probe.patch.yml'
 @("- insert:", "    - id: cost-meter-compatibility-probe", "      name: '$cmUrl'") |
   Set-Content -LiteralPath $cmPatch -Encoding utf8
-node $cmCli web --no-open --host 127.0.0.1 --port 3991 --patch $cmPatch
+node $cmCli --profile web --patch $cmPatch --no-open --host 127.0.0.1 --port 3991
 ```
 
 看到 `[cm-compatibility-probe]` 中 `passed: true` 和 Web 启动成功后，用 Ctrl+C 停止；探针结果保存在 `$DSH_HOME/compatibility-probe.json`。通过终端给出的本机登录地址可检查 UI。随后执行：
