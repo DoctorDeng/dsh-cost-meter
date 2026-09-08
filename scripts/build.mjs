@@ -12,25 +12,12 @@
 // DSH STORE 自动审核对固定 Commit 内每个源码文件设 256 KiB(262,144 字节)单文件
 // 上限,片段与压缩产物双双受检,任一超限即失败(不得靠跳过未读源码通过审核)。
 
-import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { transform } from 'esbuild'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-
-let transform
-try {
-  const esbuild = await import('esbuild')
-  transform = esbuild.transform
-} catch {
-  const fallback = 'E:/vibeCoding/deepseek-harness/node_modules/.pnpm/node_modules/esbuild/lib/main.js'
-  if (existsSync(fallback)) {
-    const esbuild = await import(pathToFileURL(fallback).href)
-    transform = esbuild.transform
-  } else {
-    throw new Error('Cannot resolve esbuild')
-  }
-}
 
 const ORDERED_FRAGMENT = /^\d{2}-[a-z0-9-]*\.js$/
 const clientDir = resolve(projectRoot, 'src/client')

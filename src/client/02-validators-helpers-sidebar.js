@@ -2198,27 +2198,36 @@
       }
     }
 
-    function formatResetCountdown(resetsAt, isEn = false) {
-      if (!resetsAt || typeof resetsAt !== 'string') return ''
+    function formatResetCountdown(resetsAt, t, now = Date.now()) {
+      if (typeof resetsAt !== 'string' || !resetsAt) return ''
       const end = Date.parse(resetsAt)
-      if (!Number.isFinite(end) || end <= 0) return ''
-      const diff = end - Date.now()
-      if (diff <= 0) return isEn ? 'due to reset' : '即将重置'
-      const sec = Math.floor(diff / 1000)
-      const d = Math.floor(sec / 86400)
-      const h = Math.floor((sec % 86400) / 3600)
-      const m = Math.floor((sec % 3600) / 60)
-      if (d > 0) return isEn ? `${d}d ${h}h left` : `剩余 ${d}天${h}小时`
-      if (h > 0) return isEn ? `${h}h ${m}m left` : `剩余 ${h}小时${m}分`
-      return isEn ? `${Math.max(1, m)}m left` : `剩余 ${Math.max(1, m)}分钟`
+      if (!Number.isFinite(end)) return ''
+      const diff = end - now
+      if (diff <= 0) return t('resetReached')
+      const minutes = Math.ceil(diff / 60000)
+      const d = Math.floor(minutes / 1440)
+      const h = Math.floor((minutes % 1440) / 60)
+      const m = minutes % 60
+      if (d > 0) return t('resetDays', { d, h })
+      if (h > 0) return t('resetHours', { h, m })
+      return t('resetMinutes', { m })
     }
 
-    function miniMaxResetText(win, t) {
-      if (!win || typeof win.resetsAt !== 'string' || win.resetsAt.length === 0) return ''
-      const isEn = typeof t === 'function' && t('goResetAt', { time: '' }).startsWith('Resets')
-      const countdown = formatResetCountdown(win.resetsAt, isEn)
-      const base = t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() })
-      return countdown ? base + ' (' + countdown + ')' : base
+    function miniMaxResetText(win, t, now = Date.now()) {
+      const countdown = formatResetCountdown(win?.resetsAt, t, now)
+      if (!countdown) return ''
+      return t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() }) + ' (' + countdown + ')'
+    }
+
+    function quotaValueText(value, direction, t) {
+      return value === null ? '—' : t(direction === 'remaining' ? 'quotaRemaining' : 'quotaUsed', { pct: value })
+    }
+
+    // 悬停或键盘聚焦时重算倒计时,无需为每个窗口建立定时器或发起网络刷新。
+    function useQuotaHoverRefresh() {
+      const [, setNow] = useState(0)
+      const refresh = () => setNow(Date.now())
+      return { onMouseEnter: refresh, onFocus: refresh }
     }
 
     /**
@@ -2232,13 +2241,13 @@
       const barView = simpleBarByDirection(pct, direction)
       const translator = typeof t === 'function' ? t : makeT(resolveLocale())
       const reset = miniMaxResetText(win, translator)
-      const title = label + (pct !== null ? ' · ' + pct + '%' : '') + (reset ? ' · ' + reset : '')
+      const title = label + ' · ' + quotaValueText(barView.label, direction, translator) + (reset ? ' · ' + reset : '')
       return {
         level,
         pct,
         label: barView.label,
         row: el('div', { className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level), title },
-          el('span', { className: 'cm-bbox-label', title }, label),
+          el('span', { className: 'cm-bbox-label' }, label),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
           el('span', { className: 'cm-bbox-pct cm-num' }, barView.label === null ? '—' : barView.label + '%')),
@@ -2246,13 +2255,14 @@
     }
 
     function MiniMaxPlanCard(props) {
+      const hoverProps = useQuotaHoverRefresh()
       const { five, seven, fetchedAt, t, wide, refresh, direction = 'used' } = props
       const fiveView = miniMaxRow(t('codingPlanRemain5h'), five, direction, t)
       const sevenView = miniMaxRow(t('codingPlanRemain7d'), seven, direction, t)
       const level = fiveView.level === 'over' || sevenView.level === 'over' ? 'over'
         : fiveView.level === 'warn' || sevenView.level === 'warn' ? 'warn' : 'ok'
       const lineOf = (label, win, view) => {
-        const pct = view.pct === null ? '—' : view.pct + '%'
+        const pct = quotaValueText(view.label, direction, t)
         const reset = miniMaxResetText(win, t)
         return label + ' ' + pct + (reset ? ' · ' + reset : '')
       }
@@ -2268,11 +2278,11 @@
         fiveView.row,
         sevenView.row)
       const rail = el(Fragment, null,
-        el('div', { className: 'cm-bbox-rail cm-num' }, fiveView.pct === null ? '—' : fiveView.pct + '%'),
-        el('div', { className: 'cm-bbox-rail cm-num' }, sevenView.pct === null ? '—' : sevenView.pct + '%'))
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+        el('div', { className: 'cm-bbox-rail cm-num' }, fiveView.label === null ? '—' : fiveView.label + '%'),
+        el('div', { className: 'cm-bbox-rail cm-num' }, sevenView.label === null ? '—' : sevenView.label + '%'))
+      return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
-          className: 'cm-bbox cm-mm' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '')
+          ...hoverProps, className: 'cm-bbox cm-mm' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '')
             + (refresh ? ' clickable' + (refresh.busy ? ' busy' : '') : ''),
           ...(refresh ? clickableRefreshProps(refresh.busy, refresh.run) : {}),
         },
@@ -2372,6 +2382,7 @@
 
     /** Codex 周额度侧边栏卡片:复用 MiniMax 行渲染(已用口径,issue #57 统一后的方向)。 */
     function CodexPlanBox(props) {
+      const hoverProps = useQuotaHoverRefresh()
       const { state, wide } = props
       const t = makeT(resolveLocale(state.config?.locale))
       const snap = useCodexQuota()
@@ -2383,7 +2394,7 @@
       const view = miniMaxRow(t('goShortWeekly'), win, direction, t)
       const detail = [
         t('codexQuotaTitle'),
-        view.label === null ? '—' : view.label + '%',
+        quotaValueText(view.label, direction, t),
         miniMaxResetText(win, t),
         snap.fetchedAt > 0 ? t('goQuotaFetchedAt', { time: new Date(snap.fetchedAt).toLocaleTimeString() }) : null,
         ...clickRefreshTipLines(t, refresh),
@@ -2392,9 +2403,9 @@
         el('div', { className: 'cm-mm-title' }, t('codexQuotaTitle')),
         view.row)
       const rail = el('div', { className: 'cm-bbox-rail cm-num' }, view.label === null ? '—' : view.label + '%')
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+      return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
-          className: 'cm-bbox cm-mm clickable' + (view.level === 'ok' ? '' : ' ' + view.level)
+          ...hoverProps, className: 'cm-bbox cm-mm clickable' + (view.level === 'ok' ? '' : ' ' + view.level)
             + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
           ...clickableRefreshProps(refresh.busy, refresh.run),
         },
@@ -2411,6 +2422,7 @@
     }
 
     function CodingPlanBox(props) {
+      const hoverProps = useQuotaHoverRefresh()
       const { id, state, wide, api } = props
       const live = state.codingPlans?.[id]
       const t = makeT(resolveLocale(state.config?.locale))
@@ -2432,20 +2444,20 @@
         }
         const level = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
         const barView = simpleBarByDirection(pct, planDirection)
-        const reset = typeof win?.resetsAt === 'string' && win.resetsAt.length > 0 ? ' · ' + miniMaxResetText(win, t) : ''
-        const rowTitle = codingPlanWindowLabel(name, t) + (pct !== null ? ' · ' + pct + '%' : '') + reset
+        const reset = miniMaxResetText(win, t)
+        const rowTitle = codingPlanWindowLabel(name, t) + ' · ' + quotaValueText(barView.label, planDirection, t) + (reset ? ' · ' + reset : '')
         return el('div', { key: name, className: 'cm-mm-row wide' + (level === 'ok' ? '' : ' ' + level), title: rowTitle },
-          el('span', { className: 'cm-bbox-label', title: rowTitle }, codingPlanWindowLabel(name, t)),
+          el('span', { className: 'cm-bbox-label' }, codingPlanWindowLabel(name, t)),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
           el('span', { className: 'cm-bbox-pct cm-num' }, barView.label === null ? '—' : barView.label + '%'))
       })
       const detailParts = entries.map(([name, win]) => {
         const pct = pctOf(win)
-        const reset = typeof win?.resetsAt === 'string' && win.resetsAt.length > 0
-          ? ' · ' + t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() }) : ''
-        const value = pct === null ? (typeof win?.text === 'string' ? win.text : '—') : pct + '%'
-        return codingPlanWindowLabel(name, t) + ' ' + value + reset
+        const reset = miniMaxResetText(win, t)
+        const value = pct === null ? (typeof win?.text === 'string' ? win.text : '—')
+          : quotaValueText(simpleBarByDirection(pct, planDirection).label, planDirection, t)
+        return codingPlanWindowLabel(name, t) + ' ' + value + (reset ? ' · ' + reset : '')
       })
       if (live.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }))
       detailParts.push(...clickRefreshTipLines(t, refresh))
@@ -2453,10 +2465,10 @@
       const pcts = entries.map(([, win]) => pctOf(win)).filter(p => p !== null)
       const level = pcts.some(p => p >= 100) ? 'over' : pcts.some(p => p >= 80) ? 'warn' : 'ok'
       const railText = pcts.length > 0
-        ? pcts.slice(0, 2).map(p => p + '%').join(' ')
+        ? pcts.slice(0, 2).map(p => simpleBarByDirection(p, planDirection).label + '%').join(' ')
         : (typeof entries[0][1]?.text === 'string' ? entries[0][1].text : '—')
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+      return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
+        el('div', { ...hoverProps, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
           wide === false
             ? el('div', { className: 'cm-bbox-rail cm-num' }, railText)
             : el(Fragment, null,
@@ -2472,6 +2484,7 @@
     // 卡(已用口径,≥80 warn / ≥100 over);多账号时行标签加 Provider 前缀,行数上限 4
     // 防撑爆;仅有 credits 无窗口的账号(如 WorkBuddy)退化为文本行。
     function GatewayQuotaBox(props) {
+      const hoverProps = useQuotaHoverRefresh()
       const { source, snapshot, state, wide, api } = props
       const t = makeT(resolveLocale(state.config?.locale))
       const refresh = useClickRefresh(api ? () => api.refreshGatewayQuota(source.id) : null)
@@ -2483,8 +2496,8 @@
         if (rows.length >= 4) break
         for (const win of account.windows) {
           if (rows.length >= 4) break
-          const name = win.label || win.id || t('gatewaySourceUnknown')
-          rows.push({ win, name: prefix(account) + name, view: miniMaxRow(name, win, direction) })
+          const name = prefix(account) + (win.label || win.id || t('gatewaySourceUnknown'))
+          rows.push({ win, name, view: miniMaxRow(name, win, direction, t) })
         }
         if (account.windows.length === 0 && account.credits != null) {
           rows.push({ win: null, name: prefix(account) + (account.credits.unit || 'credits'), text: (account.credits.used ?? '—') + ' / ' + (account.credits.limit ?? '—') })
@@ -2495,7 +2508,7 @@
       const detailParts = rows.map(r => {
         if (r.text != null) return r.name + ' ' + r.text
         const reset = miniMaxResetText(r.win, t)
-        return r.name + ' ' + (r.view.pct === null ? '—' : r.view.pct + '%') + (reset ? ' · ' + reset : '')
+        return r.name + ' ' + quotaValueText(r.view.label, direction, t) + (reset ? ' · ' + reset : '')
       })
       if (snapshot.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(snapshot.fetchedAt).toLocaleTimeString() }))
       detailParts.push(...clickRefreshTipLines(t, refresh))
@@ -2504,12 +2517,12 @@
         ? el('div', { key: i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, r.name), el('span', { className: 'cm-mm-text cm-num' }, r.text))
         : el(Fragment, { key: i }, r.view.row))
       const body = el(Fragment, null, el('div', { className: 'cm-mm-title' }, source.label || source.id), ...bodyRows)
-      const pcts = rows.filter(r => r.view).map(r => r.view.pct).filter(p => p !== null)
+      const pcts = rows.filter(r => r.view).map(r => r.view.label).filter(p => p !== null)
       const railText = pcts.length > 0 ? pcts.slice(0, 2).map(p => p + '%').join(' ') : (rows[0].text ?? '—')
       const rail = el('div', { className: 'cm-bbox-rail cm-num' }, railText)
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+      return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
-          className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
+          ...hoverProps, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
           ...clickableRefreshProps(refresh.busy, refresh.run),
         }, wide === false ? rail : body))
     }
