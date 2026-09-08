@@ -2227,7 +2227,8 @@
       const pct = planWindowUsedPct(win)
       const level = pct === null ? 'ok' : pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
       const barView = simpleBarByDirection(pct, direction)
-      const reset = typeof t === 'function' ? miniMaxResetText(win, t) : ''
+      const translator = typeof t === 'function' ? t : makeT(resolveLocale())
+      const reset = miniMaxResetText(win, translator)
       const title = label + (pct !== null ? ' · ' + pct + '%' : '') + (reset ? ' · ' + reset : '')
       return {
         level,
@@ -2480,7 +2481,7 @@
         for (const win of account.windows) {
           if (rows.length >= 4) break
           const name = win.label || win.id || t('gatewaySourceUnknown')
-          rows.push({ win, name: prefix(account) + name, view: miniMaxRow(name, win, direction, t) })
+          rows.push({ win, name: prefix(account) + name, view: miniMaxRow(name, win, direction) })
         }
         if (account.windows.length === 0 && account.credits != null) {
           rows.push({ win: null, name: prefix(account) + (account.credits.unit || 'credits'), text: (account.credits.used ?? '—') + ' / ' + (account.credits.limit ?? '—') })
