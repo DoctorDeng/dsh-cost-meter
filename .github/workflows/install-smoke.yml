@@ -20,7 +20,7 @@ jobs:
             # pnpm auto-provisioning (pnpm is deliberately not preinstalled).
             verify-cmd: pwsh -NoProfile -Command "dsh --profile web --dump-config | Select-String dsh-cost-meter"
           - os: ubuntu-latest
-            # Linux leg exercises the exact README one-liner (pnpm + git).
+            # Linux leg exercises the README installer with the tested commit.
             verify-cmd: dsh --profile web --dump-config | grep dsh-cost-meter
     runs-on: ${{ matrix.os }}
     steps:
@@ -35,25 +35,22 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: npm install -g pnpm
-      - name: One-click install (Linux leg, README one-liner)
+      - name: One-click install (Linux leg, tested commit)
         if: runner.os == 'Linux'
         shell: bash
-        run: dsh plugin --profile web add github:Han-1413141/dsh-cost-meter
-      # Windows leg exercises install.ps1 end-to-end. install.ps1 pins a release
-      # tag, but the tag only exists once the release is published — a release
-      # chain that merges before tagging makes the pinned tag unresolvable and
-      # reds this leg on a window that is not the script's fault (v1.7.10 hit
-      # exactly this: tag followed the merge by 18 minutes). Prefer the pinned
-      # tag when it exists; otherwise smoke-test the pushed commit itself.
+        env:
+          TEST_REV: ${{ github.sha }}
+        run: dsh plugin --profile web add "github:Han-1413141/dsh-cost-meter#$TEST_REV"
+      # Both legs install the checked-out commit, including the PR merge commit.
+      # A previously published tag must not hide an installation regression.
       - name: One-click install (Windows leg, install.ps1)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          TEST_REV: ${{ github.sha }}
         run: |
-          $pinned = if ((Get-Content install.ps1 -Raw) -match '\$PinnedRev\s*=\s*''(v[\d.]+)''') { $Matches[1] } else { $null }
-          if (-not $pinned) { Write-Error 'install.ps1 未找到 $PinnedRev 固定 tag'; exit 1 }
-          $rev = if (git ls-remote --tags origin "refs/tags/$pinned") { $pinned } else { '${{ github.sha }}' }
-          Write-Host "[install-smoke] install.ps1 rev: $rev$(if ($rev -ne $pinned) { " (pinned tag $pinned not pushed yet, falling back to this commit)" })"
-          pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Rev $rev
+          Write-Host "[install-smoke] install.ps1 rev: $env:TEST_REV"
+          pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Rev $env:TEST_REV
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify plugin joined the bundle graph
         shell: bash
