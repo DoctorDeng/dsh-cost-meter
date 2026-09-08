@@ -6079,6 +6079,17 @@ function m_costOf85(entry, tokens) {
   assert.ok(ag.warnings.some(w => w.includes('非法')), '大于 1 的普通 fraction 必须告警')
   assert.throws(() => parseAntigravityQuota({ groups: [{ buckets: [{ remainingFraction: 2 }] }] }), e => e.code === 'PROVIDER_PARSE_ERROR')
 
+  const agNamed = parseAntigravityQuota({ groups: [
+    { displayName: 'Gemini Models', buckets: [{ window: '5h', remainingFraction: 0.88 }] },
+    { displayName: 'Claude and GPT models', buckets: [{ window: 'weekly', remainingFraction: 0.99 }] },
+  ] })
+  assert.equal(agNamed.windows[0].id, 'gemini:five-hour')
+  assert.equal(agNamed.windows[0].label, 'Gemini · 5h')
+  assert.equal(agNamed.windows[0].percent, 12)
+  assert.equal(agNamed.windows[1].id, 'claude-gpt:weekly')
+  assert.equal(agNamed.windows[1].label, 'Claude / GPT · Weekly')
+  assert.equal(agNamed.windows[1].percent, 1)
+
   const claude = parseClaudeUsage({
     five_hour: { utilization: 12 }, seven_day: { utilization: 24 },
     seven_day_oauth_apps: { utilization: 30 }, seven_day_opus: { utilization: 40 },
