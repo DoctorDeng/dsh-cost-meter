@@ -997,10 +997,13 @@
     }
     // ── Plan/API 双轨分类(issue #64):与 lib/plan-billing.js 同逻辑的镜像实现
     //    (bundle 无法导入 Node 模块,修改时两处同步)。──
-    const PLAN_PROVIDER_ALIASES_LOCAL = { go: ['go', 'zen', 'opencode', 'opencode-go'] }
+    const PLAN_PROVIDER_ALIASES_LOCAL = {
+      go: ['go', 'zen', 'opencode', 'opencode-go'],
+      qwen: ['qwen', 'qwen-tokenplan', 'qianwen-tokenplan', 'qwen-token-plan', 'qianwen-token-plan'],
+    }
     const PLAN_PROVIDER_IDS_LOCAL = ['anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'go']
     function planProviderIdOfLocal(provider) {
-      const name = String(provider ?? '').trim().toLowerCase()
+      const name = String(provider ?? '').trim().toLowerCase().replace(/^llm-/, '')
       if (name.length === 0) return null
       for (const [id, aliases] of Object.entries(PLAN_PROVIDER_ALIASES_LOCAL)) {
         if (aliases.includes(name)) return id
