@@ -136,6 +136,7 @@
         hideTodayCost: v.hideTodayCost === true,
         showTotalWithPlan: v.showTotalWithPlan === true,
         sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
+        priceMatchDismissed: Array.isArray(v.priceMatchDismissed) ? v.priceMatchDismissed.filter(key => typeof key === 'string') : [],
         // 官方价格币种(issue #47):读侧白名单缺失会导致下拉选择保存后读不回。
         pricingCurrency: v.pricingCurrency === 'CNY' ? 'CNY' : 'USD',
         currency: typeof v.currency === 'string' ? v.currency : 'CNY',

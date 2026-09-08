@@ -4400,12 +4400,13 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     .filter(([, spec]) => !/^[0-9A-Za-z]/.test(String(spec)) || /^[\^~><=]/.test(String(spec)))
   assert.deepEqual(offenders, [], `生产依赖必须精确锁版(不得使用 ^~/区间),违规:${offenders.map(([n, s]) => `${n}@${s}`).join(', ')}`)
   assert.ok(/^4\.\d+\.\d+$/.test(pkg.dependencies.zod ?? ''), 'zod 锁定 4.x 精确版本')
-  assert.ok(/^0\.1\.0-rc\.\d+$/.test(pkg.dependencies['@deepseek-ai/dsh-credentials'] ?? ''), 'dsh-credentials 锁定 0.1.0-rc.x 精确版本')
-  assert.ok(/^0\.1\.0-rc\.\d+$/.test(pkg.dependencies['@deepseek-ai/dsh-home-paths'] ?? ''), 'dsh-home-paths 锁定 0.1.0-rc.x 精确版本')
   // workspace 排除表与 package.json 锁版一致(升级漏改排除表会让 CI 本仓安装踩年龄策略)。
   const wsYaml = readFileSync(join(import.meta.dirname, '..', 'pnpm-workspace.yaml'), 'utf8')
   for (const name of ['@deepseek-ai/dsh-credentials', '@deepseek-ai/dsh-home-paths']) {
-    const pinned = pkg.dependencies[name]
+    assert.equal(pkg.dependencies[name], undefined, `${name} 由宿主提供，不打包独立生产副本(#106)`)
+    assert.equal(typeof pkg.peerDependencies[name], 'string', `${name} 声明宿主 peer 契约`)
+    const pinned = pkg.devDependencies[name]
+    assert.match(pinned, /^\d+\.\d+\.\d+-rc\.\d+$/, `${name} 开发回归仍精确锁版`)
     assert.ok(wsYaml.includes(`'${name}@${pinned}'`), `workspace 排除表与锁版一致(${name}@${pinned})`)
   }
   assert.ok(wsYaml.includes(`esbuild@${String(pkg.devDependencies.esbuild ?? '').replace(/^\^/, '')}`), 'workspace 排除表包含 esbuild 当前开发版')
@@ -6531,4 +6532,6 @@ function m_costOf85(entry, tokens) {
 await import('./aliyun-balance.mjs')
 await import('./gateway-retry.mjs')
 await import('./custom-balance-ui.mjs')
+await import('./settings-regressions.mjs')
+await import('./scoped-billing.mjs')
 console.log('[ok] 全部验证通过')
