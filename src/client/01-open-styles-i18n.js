@@ -353,9 +353,9 @@ window.__ModuleLoader__.load({
       '.cm-footer-stack.compact .cm-bbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:12px;row-gap:2px;align-items:center}',
       '.cm-footer-stack.compact .cm-bbox>*{grid-column:1/-1}',
       '.cm-footer-stack.compact .cm-bbox>.cm-mm-row{grid-column:auto}',
-      '.cm-footer-stack.compact .cm-mm-row{min-width:0;gap:4px;flex-wrap:wrap}',
-      '.cm-footer-stack.compact .cm-mm-row .cm-bbox-label{flex:1 1 100%;min-width:0;max-width:100%;width:auto}',
-      '.cm-footer-stack.compact .cm-mm-row .cm-bbox-bar{min-width:0}',
+      '.cm-footer-stack.compact .cm-mm-row{min-width:0;gap:4px;flex-wrap:nowrap}',
+      '.cm-footer-stack.compact .cm-mm-row .cm-bbox-label{flex:0 1 auto;min-width:0;max-width:45%;width:auto}',
+      '.cm-footer-stack.compact .cm-mm-row .cm-bbox-bar{min-width:0;flex:1 1 0}',
       '@media (max-width:640px){.cm-cards{grid-template-columns:1fr}.cm-grid{grid-template-columns:1fr}.cm-budget-controls{grid-template-columns:1fr}}',
     ].join('\n')
     const cssTagId = 'dsh-cost-meter/client.css'
