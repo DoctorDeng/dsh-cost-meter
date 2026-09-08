@@ -4,6 +4,14 @@
 > [Commits](https://github.com/Han-1413141/dsh-cost-meter/commits/master)。
 
 
+## v1.7.14(2026-09-08)—— 设置保存、子代理计费与宿主适配
+
+- 修复千问费率新增行消失、未填齐被自动保存清除及带分隔符模型名覆盖无效；三项填齐后自动保存。
+- 修复未知模型移除后重现，支持恢复已移除行，保留用量记录。
+- 隔离 LLM 服务的子代理和后台 usage 纳入统计；父子会话独立记账，未向宿主上报 usage 的外部请求仍无法统计。
+- 整合 PR #102 / #105 的 Antigravity 友好分组名、长标签、紧凑两列布局和 daily 双语标签。
+- 宿主模块改为 peer dependencies；验证 DSH 0.1.2-rc.1 / 0.1.3-alpha.2 的安装、运行、模块复用和卸载。[兼容记录](host-compatibility-v1.7.14.md)
+
 ## v1.7.13(2026-09-06)—— 千问 / 阿里云余额与网关重试
 
 - 新增千问 / 阿里云余额入口，使用 RAM AccessKey 查询账户可用金，按响应币种显示；凭据只写入 DSH 凭据库，支持可选 STS 临时 token。[使用说明](qianwen-balance.md)

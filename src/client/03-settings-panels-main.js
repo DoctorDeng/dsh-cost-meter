@@ -1523,34 +1523,34 @@
         const base = draft.codingPlans ?? config.codingPlans ?? {}
         setDraft({ ...draft, codingPlans: { ...base, [id]: { ...(base[id] ?? {}), [field]: value } } })
       }
-      // 千问抵扣率编辑(issue #78):文本输入暂存(空串 = 清除该费率,整模型三费率
-      // 全空时移除该键回落内置表);保存时由服务端 sanitize 收敛非法值。
+      // 千问抵扣率编辑(#103)：三项未填齐时保留本地草稿，完整后才自动保存。
       const [qwenNewRateModel, setQwenNewRateModel] = useState('')
+      // 空行属于编辑状态，不能放进自动保存的 rates：服务端会清除空费率。
+      // 保留到显式移除或离开面板，轮询与保存回读不会让输入框消失。
+      const [qwenRateDrafts, setQwenRateDrafts] = useState({})
       const ratesDraftOf = entry => (entry?.rates !== null && typeof entry?.rates === 'object' && !Array.isArray(entry.rates) ? entry.rates : {})
+      const rateFields = ['input', 'cachedInput', 'output']
+      const qwenRateEntry = model => qwenRateDrafts[model] ?? ratesDraftOf(draftEntry('qwen'))[model] ?? {}
+      const rateReady = entry => rateFields.every(field => Number.isFinite(Number(entry[field])) && Number(entry[field]) > 0)
       const setPlanRates = (model, field, raw) => {
         if (draft === null) return
+        const entry = { ...qwenRateEntry(model), [field]: String(raw) }
+        setQwenRateDrafts(rows => ({ ...rows, [model]: entry }))
+        const empty = rateFields.every(key => String(entry[key] ?? '').trim() === '')
+        if (!empty && !rateReady(entry)) return
         const base = draft.codingPlans ?? config.codingPlans ?? {}
         const current = { ...((base.qwen ?? {}).rates ?? {}) }
-        const entry = { ...(current[model] ?? {}) }
-        const trimmed = String(raw).trim()
-        if (trimmed === '') delete entry[field]
-        else {
-          const n = Number(trimmed)
-          if (Number.isFinite(n) && n > 0) entry[field] = n
-        }
-        if (entry.input === undefined && entry.cachedInput === undefined && entry.output === undefined) delete current[model]
-        else current[model] = entry
+        if (empty) delete current[model]
+        else current[model] = Object.fromEntries(rateFields.map(key => [key, Number(entry[key])]))
         setDraft({ ...draft, codingPlans: { ...base, qwen: { ...(base.qwen ?? {}), rates: current } } })
       }
       const setPlanRatesAdd = model => {
         if (draft === null) return
-        const base = draft.codingPlans ?? config.codingPlans ?? {}
-        const current = { ...((base.qwen ?? {}).rates ?? {}) }
-        current[model] = { ...(current[model] ?? {}) }
-        setDraft({ ...draft, codingPlans: { ...base, qwen: { ...(base.qwen ?? {}), rates: current } } })
+        setQwenRateDrafts(rows => ({ ...rows, [model]: rows[model] ?? ratesDraftOf(draftEntry('qwen'))[model] ?? {} }))
       }
       const setPlanRatesRemove = model => {
         if (draft === null) return
+        setQwenRateDrafts(rows => { const next = { ...rows }; delete next[model]; return next })
         const base = draft.codingPlans ?? config.codingPlans ?? {}
         const current = { ...((base.qwen ?? {}).rates ?? {}) }
         delete current[model]
@@ -1672,18 +1672,19 @@
               id === 'qwen' ? el(Fragment, null,
                 el('div', { className: 'cm-field' },
                   el('label', null, t('qwenRatesLabel'))),
-                Object.keys(ratesDraftOf(cfgEntry)).sort().map(model => el('div', { key: model, className: 'cm-match-row' },
+                [...new Set([...Object.keys(ratesDraftOf(cfgEntry)), ...Object.keys(qwenRateDrafts)])].sort().map(model => el('div', { key: model, className: 'cm-match-row' },
                   el('span', { style: { minWidth: '120px' } }, model),
-                  ['input', 'cachedInput', 'output'].map(field => el('input', {
+                  rateFields.map(field => el('input', {
                     key: field, className: 'cm-input narrow', type: 'number', min: '0', step: '0.1',
-                    value: ratesDraftOf(cfgEntry)[model]?.[field] ?? '',
-                    placeholder: t('qwenRatePlaceholder'),
+                    value: qwenRateEntry(model)[field] ?? '',
+                    placeholder: t('qwenRate_' + field), 'aria-label': model + ' · ' + t('qwenRate_' + field),
                     onChange: event => {
                       const raw = event.target.value
                       setPlanRates(model, field, raw)
                     },
                   })),
-                  el('button', { className: 'cm-btn small', onClick: () => setPlanRatesRemove(model) }, t('overrideRemove')))),
+                  el('button', { className: 'cm-btn small', onClick: () => setPlanRatesRemove(model) }, t('overrideRemove')),
+                  model in qwenRateDrafts && !rateReady(qwenRateEntry(model)) ? el('span', { className: 'cm-note' }, t('qwenRateDraftNote')) : null)),
                 el('div', { className: 'cm-buttons' },
                   el('input', {
                     className: 'cm-input narrow', type: 'text', placeholder: t('qwenRatesModelPlaceholder'),
@@ -2249,6 +2250,15 @@
               el('span', null, t('hideTodayCostLabel'))),
             el('div', { className: 'cm-grid-group' }, t('groupSidebar')),
             el('div', { className: 'cm-field' },
+              el('label', null, t('sidebarStyleLabel')),
+              el('select', {
+                className: 'cm-input',
+                value: draft?.sidebarStyle ?? 'standard',
+                onChange: event => setField('sidebarStyle', event.target.value),
+              },
+                el('option', { value: 'standard' }, t('sidebarStyleStandard')),
+                el('option', { value: 'compact' }, t('sidebarStyleCompact')))),
+            el('div', { className: 'cm-field' },
               el('label', null, t('balanceDisplayLabel')),
               el('select', {
                 className: 'cm-input',
@@ -2487,6 +2497,7 @@
         // 模型名匹配(自动匹配开关 + 未命中模型的手动指定)
         (() => {
           const overrides = draft?.priceOverrides ?? config.priceOverrides ?? {}
+          const dismissed = draft?.priceMatchDismissed ?? config.priceMatchDismissed ?? []
           const pricesNow = draft?.prices ?? config.prices
           const byProvider = state.today.byProviderModel ?? {}
           // 今日出现但未命中价格条目的 provider:model 键:判定走 resolveClientPrice 完整
@@ -2495,18 +2506,20 @@
           // 仅 DeepSeek 默认价兜底与完全未命中者需要人工指定。
           const matchPrices = { prices: pricesNow, priceMatch: draft?.priceMatch ?? config.priceMatch }
           const unmatchedKeys = Object.keys(byProvider).filter(key => {
+            if (dismissed.includes(key)) return false
             if (overrides[key] !== undefined) return false // 已手动指定的键由下方 rows 展示
             const sep = key.indexOf(':')
             const provider = (sep > 0 ? key.slice(0, sep) : 'deepseek').toLowerCase()
             const modelId = sep > 0 ? key.slice(sep + 1) : key
             return resolveClientPrice(provider, modelId, matchPrices).matched !== true
           })
-          const rows = [...new Set([...unmatchedKeys, ...Object.keys(overrides)])]
+          const rows = [...new Set([...unmatchedKeys, ...Object.keys(overrides)])].filter(key => !dismissed.includes(key))
           // 本月已命中价格且未手动指定的 provider:model 键(v1.6.11):同样允许
           // 改挂其它条目或标记为本地模型(零消耗)。数据取 state.month.byProviderModel
           // (比今日覆盖面广);override 写入后该键转入上方 rows(手动指定区)展示。
           const monthByProvider = state.month?.byProviderModel ?? {}
           const matchedKeys = Object.keys(monthByProvider).filter(key => {
+            if (dismissed.includes(key)) return false
             if (overrides[key] !== undefined) return false
             const sep = key.indexOf(':')
             const provider = (sep > 0 ? key.slice(0, sep) : 'deepseek').toLowerCase()
@@ -2530,6 +2543,12 @@
             if (value === '') delete next[key]
             else next[key] = value
             setDraft({ ...draft, priceOverrides: next })
+          }
+          const dismissMatch = key => {
+            if (draft === null) return
+            const next = { ...(draft.priceOverrides ?? {}) }
+            delete next[key]
+            setDraft({ ...draft, priceOverrides: next, priceMatchDismissed: [...new Set([...dismissed, key])] })
           }
           return el('div', null,
             el('h3', { className: 'cm-h' }, t('priceMatchLabel')),
@@ -2556,10 +2575,9 @@
                     },
                       el('option', { value: '' }, '—'),
                       targetOptions.map(o => el('option', { key: o.value, value: o.value }, o.label))),
-                    overrides[key] !== undefined
-                      ? el('button', { className: 'cm-btn small', onClick: () => setOverride(key, '') }, t('overrideRemove'))
-                      : null)))
+                    el('button', { className: 'cm-btn small', title: t('removePriceMatchHint'), onClick: () => dismissMatch(key) }, t('overrideRemove')))))
               : el('p', { className: 'cm-hint' }, t('overrideNone')),
+            dismissed.length > 0 ? el('button', { className: 'cm-btn small', onClick: () => setField('priceMatchDismissed', []) }, t('restorePriceMatches', { count: dismissed.length })) : null,
             // 已命中模型改映射(v1.6.11):默认「保持自动命中」,选择目标即写入手动覆盖。
             matchedKeys.length > 0
               ? el(Fragment, null,
