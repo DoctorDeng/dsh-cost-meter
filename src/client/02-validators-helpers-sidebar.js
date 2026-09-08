@@ -2198,9 +2198,27 @@
       }
     }
 
+    function formatResetCountdown(resetsAt, isEn = false) {
+      if (!resetsAt || typeof resetsAt !== 'string') return ''
+      const end = Date.parse(resetsAt)
+      if (!Number.isFinite(end) || end <= 0) return ''
+      const diff = end - Date.now()
+      if (diff <= 0) return isEn ? 'due to reset' : '即将重置'
+      const sec = Math.floor(diff / 1000)
+      const d = Math.floor(sec / 86400)
+      const h = Math.floor((sec % 86400) / 3600)
+      const m = Math.floor((sec % 3600) / 60)
+      if (d > 0) return isEn ? `${d}d ${h}h left` : `剩余 ${d}天${h}小时`
+      if (h > 0) return isEn ? `${h}h ${m}m left` : `剩余 ${h}小时${m}分`
+      return isEn ? `${Math.max(1, m)}m left` : `剩余 ${Math.max(1, m)}分钟`
+    }
+
     function miniMaxResetText(win, t) {
       if (!win || typeof win.resetsAt !== 'string' || win.resetsAt.length === 0) return ''
-      return t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() })
+      const isEn = typeof t === 'function' && t('goResetAt', { time: '' }).startsWith('Resets')
+      const countdown = formatResetCountdown(win.resetsAt, isEn)
+      const base = t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() })
+      return countdown ? base + ' (' + countdown + ')' : base
     }
 
     /**
@@ -2208,16 +2226,19 @@
      * 「余量」填充,与通用卡片/额度横条的「已用」方向相反,同屏并列时引起误读
      * (issue #57);现统一为已用口径,告警阈值也与 CodingPlanBox 一致(≥80 warn / ≥100 over)。
      */
-    function miniMaxRow(label, win, direction) {
+    function miniMaxRow(label, win, direction, t) {
       const pct = planWindowUsedPct(win)
       const level = pct === null ? 'ok' : pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
       const barView = simpleBarByDirection(pct, direction)
+      const translator = typeof t === 'function' ? t : makeT(resolveLocale())
+      const reset = miniMaxResetText(win, translator)
+      const title = label + (pct !== null ? ' · ' + pct + '%' : '') + (reset ? ' · ' + reset : '')
       return {
         level,
         pct,
         label: barView.label,
-        row: el('div', { className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level) },
-          el('span', { className: 'cm-bbox-label', title: label }, label),
+        row: el('div', { className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level), title },
+          el('span', { className: 'cm-bbox-label', title }, label),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
           el('span', { className: 'cm-bbox-pct cm-num' }, barView.label === null ? '—' : barView.label + '%')),
@@ -2226,8 +2247,8 @@
 
     function MiniMaxPlanCard(props) {
       const { five, seven, fetchedAt, t, wide, refresh, direction = 'used' } = props
-      const fiveView = miniMaxRow(t('codingPlanRemain5h'), five, direction)
-      const sevenView = miniMaxRow(t('codingPlanRemain7d'), seven, direction)
+      const fiveView = miniMaxRow(t('codingPlanRemain5h'), five, direction, t)
+      const sevenView = miniMaxRow(t('codingPlanRemain7d'), seven, direction, t)
       const level = fiveView.level === 'over' || sevenView.level === 'over' ? 'over'
         : fiveView.level === 'warn' || sevenView.level === 'warn' ? 'warn' : 'ok'
       const lineOf = (label, win, view) => {
@@ -2241,7 +2262,7 @@
         lineOf(t('codingPlanRemain7d'), seven, sevenView),
         fetchedAt > 0 ? t('goQuotaFetchedAt', { time: new Date(fetchedAt).toLocaleTimeString() }) : null,
         ...(refresh ? clickRefreshTipLines(t, refresh) : []),
-      ].filter(Boolean).join('; ')
+      ].filter(Boolean).join('\n')
       const body = el(Fragment, null,
         el('div', { className: 'cm-mm-title' }, t('codingPlanMinimaxTitle')),
         fiveView.row,
@@ -2359,14 +2380,14 @@
       const win = snap.windows.weekly ?? null
       if (win === null) return null
       const direction = barDirectionOf(state.config, 'plan')
-      const view = miniMaxRow(t('goShortWeekly'), win, direction)
+      const view = miniMaxRow(t('goShortWeekly'), win, direction, t)
       const detail = [
         t('codexQuotaTitle'),
         view.label === null ? '—' : view.label + '%',
         miniMaxResetText(win, t),
         snap.fetchedAt > 0 ? t('goQuotaFetchedAt', { time: new Date(snap.fetchedAt).toLocaleTimeString() }) : null,
         ...clickRefreshTipLines(t, refresh),
-      ].filter(Boolean).join('; ')
+      ].filter(Boolean).join('\n')
       const body = el(Fragment, null,
         el('div', { className: 'cm-mm-title' }, t('codexQuotaTitle')),
         view.row)
@@ -2411,8 +2432,10 @@
         }
         const level = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
         const barView = simpleBarByDirection(pct, planDirection)
-        return el('div', { key: name, className: 'cm-mm-row wide' + (level === 'ok' ? '' : ' ' + level) },
-          el('span', { className: 'cm-bbox-label' }, codingPlanWindowLabel(name, t)),
+        const reset = typeof win?.resetsAt === 'string' && win.resetsAt.length > 0 ? ' · ' + miniMaxResetText(win, t) : ''
+        const rowTitle = codingPlanWindowLabel(name, t) + (pct !== null ? ' · ' + pct + '%' : '') + reset
+        return el('div', { key: name, className: 'cm-mm-row wide' + (level === 'ok' ? '' : ' ' + level), title: rowTitle },
+          el('span', { className: 'cm-bbox-label', title: rowTitle }, codingPlanWindowLabel(name, t)),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
           el('span', { className: 'cm-bbox-pct cm-num' }, barView.label === null ? '—' : barView.label + '%'))
@@ -2426,7 +2449,7 @@
       })
       if (live.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }))
       detailParts.push(...clickRefreshTipLines(t, refresh))
-      const detail = [t(rowDef.labelKey), ...detailParts].join('; ')
+      const detail = [t(rowDef.labelKey), ...detailParts].join('\n')
       const pcts = entries.map(([, win]) => pctOf(win)).filter(p => p !== null)
       const level = pcts.some(p => p >= 100) ? 'over' : pcts.some(p => p >= 80) ? 'warn' : 'ok'
       const railText = pcts.length > 0
@@ -2476,7 +2499,7 @@
       })
       if (snapshot.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(snapshot.fetchedAt).toLocaleTimeString() }))
       detailParts.push(...clickRefreshTipLines(t, refresh))
-      const detail = [source.label || source.id, ...detailParts].join('; ')
+      const detail = [source.label || source.id, ...detailParts].join('\n')
       const bodyRows = rows.map((r, i) => r.text != null
         ? el('div', { key: i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, r.name), el('span', { className: 'cm-mm-text cm-num' }, r.text))
         : el(Fragment, { key: i }, r.view.row))
