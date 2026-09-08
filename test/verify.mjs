@@ -267,7 +267,7 @@ try {
   assert.deepEqual([zhFlash.cacheHit, zhFlash.cacheMiss, zhFlash.output], [0.02, 1, 2], 'flash 空闲档 = 人民币官方价')
   assert.deepEqual([zhFlash.peak.cacheHit, zhFlash.peak.cacheMiss, zhFlash.peak.output], [0.04, 2, 4], 'flash 高峰档 = 空闲档两倍')
   assert.deepEqual(zhFlash.legacyBase, LEGACY_BASE_PRICES_CNY['deepseek-v4-flash'], '人民币页附带人民币 legacyBase')
-  assert.deepEqual(parsed.default, { cacheHit: 0.02, cacheMiss: 1, output: 2 }, 'default = 首个模型空闲档(随价表币种)')
+  assert.deepEqual(parsed.default, parsed.models[Object.keys(parsed.models)[0]], 'default 保留首个模型的完整峰谷档位(随价表币种)')
   assert.deepEqual(parsed.peakWindows, [{ start: 1, end: 4 }, { start: 5, end: 10 }], '北京时间窗口 -8h 折算为 UTC')
   assert.equal(parsed.effectiveAt, null, '两档方案即时生效:无生效时间')
   console.log('[ok] 中文官方页解析(币种检测/两档/北京时间-8h/人民币 legacyBase/default)通过')
@@ -1736,7 +1736,7 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
   // 旧 v3 checkpoint(ver 不匹配)隔离——宿主 ver 检查拒绝旧行并全量 refold,
   // 不会对旧结构 state 调用 parse。
   const projRow = { ver: def.stateVersion, seq: events.length, val: structuredClone(projState) }
-  assert.equal(projRow.ver, 8, 'stateVersion 为 8(旧 v7 checkpoint 触发重放自愈而非 parse;v8 起折叠计入 compaction/summary)')
+  assert.equal(projRow.ver, 9, 'stateVersion 为 9(旧 checkpoint 重放，包含摘要计量和默认峰谷价修复)')
   usageProjectionStateSchema.parse(projRow.val)
   // ⑤ issue #43 崩溃点复现对照:缺 stateSchema 的定义(fork 0.2.0 场景)在
   // restore 路径抛出与 issue 报错完全一致的 TypeError。
@@ -2225,7 +2225,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(scheduled >= 1, '清洗后调度落盘')
   // 投影与启动接线:源码结构断言(投影无独立运行时入口,行为经宿主重放自愈)。
   const indexSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-  assert.ok(indexSource.includes('stateVersion: 8'), '投影 stateVersion 7→8:触发宿主重放,受污染投影自愈(issue #63 修复 + #77 折叠计入 compaction/summary)')
+  assert.ok(indexSource.includes('stateVersion: 9'), '投影 stateVersion 9:触发宿主重放，包含 #63/#77 及默认峰谷价修复')
   assert.ok(indexSource.includes("if (event.type === 'session')") && indexSource.includes('createdAt') && indexSource.includes('seedLength'), '投影记录会话创建时刻与 seedLength(旧宿主兼容+多 end-seed 延迟扣除)')
   assert.ok(indexSource.includes("if (event.type === 'session/end-seed')"), '投影识别 session/end-seed fork 种子边界(issue #55)')
   assert.ok(indexSource.includes('isSeedBySeq') && indexSource.includes('isSeedByLength') && indexSource.includes('seedEndSeq'), '投影按 seq/length/time 三重过滤种子段(issue #55/#61)')
@@ -6538,4 +6538,5 @@ await import('./gateway-retry.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./settings-regressions.mjs')
 await import('./scoped-billing.mjs')
+await import('./billing-channel-peak.mjs')
 console.log('[ok] 全部验证通过')
