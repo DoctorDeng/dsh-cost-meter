@@ -4404,12 +4404,13 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     .filter(([, spec]) => !/^[0-9A-Za-z]/.test(String(spec)) || /^[\^~><=]/.test(String(spec)))
   assert.deepEqual(offenders, [], `生产依赖必须精确锁版(不得使用 ^~/区间),违规:${offenders.map(([n, s]) => `${n}@${s}`).join(', ')}`)
   assert.ok(/^4\.\d+\.\d+$/.test(pkg.dependencies.zod ?? ''), 'zod 锁定 4.x 精确版本')
-  assert.ok(/^0\.1\.0-rc\.\d+$/.test(pkg.dependencies['@deepseek-ai/dsh-credentials'] ?? ''), 'dsh-credentials 锁定 0.1.0-rc.x 精确版本')
-  assert.ok(/^0\.1\.0-rc\.\d+$/.test(pkg.dependencies['@deepseek-ai/dsh-home-paths'] ?? ''), 'dsh-home-paths 锁定 0.1.0-rc.x 精确版本')
   // workspace 排除表与 package.json 锁版一致(升级漏改排除表会让 CI 本仓安装踩年龄策略)。
   const wsYaml = readFileSync(join(import.meta.dirname, '..', 'pnpm-workspace.yaml'), 'utf8')
   for (const name of ['@deepseek-ai/dsh-credentials', '@deepseek-ai/dsh-home-paths']) {
-    const pinned = pkg.dependencies[name]
+    assert.equal(pkg.dependencies[name], undefined, `${name} 由宿主提供，不打包独立生产副本(#106)`)
+    assert.equal(typeof pkg.peerDependencies[name], 'string', `${name} 声明宿主 peer 契约`)
+    const pinned = pkg.devDependencies[name]
+    assert.match(pinned, /^\d+\.\d+\.\d+-rc\.\d+$/, `${name} 开发回归仍精确锁版`)
     assert.ok(wsYaml.includes(`'${name}@${pinned}'`), `workspace 排除表与锁版一致(${name}@${pinned})`)
   }
   assert.ok(wsYaml.includes(`esbuild@${String(pkg.devDependencies.esbuild ?? '').replace(/^\^/, '')}`), 'workspace 排除表包含 esbuild 当前开发版')
@@ -6083,6 +6084,17 @@ function m_costOf85(entry, tokens) {
   assert.ok(ag.warnings.some(w => w.includes('非法')), '大于 1 的普通 fraction 必须告警')
   assert.throws(() => parseAntigravityQuota({ groups: [{ buckets: [{ remainingFraction: 2 }] }] }), e => e.code === 'PROVIDER_PARSE_ERROR')
 
+  const agNamed = parseAntigravityQuota({ groups: [
+    { displayName: 'Gemini Models', buckets: [{ window: '5h', remainingFraction: 0.88 }] },
+    { displayName: 'Claude and GPT models', buckets: [{ window: 'weekly', remainingFraction: 0.99 }] },
+  ] })
+  assert.equal(agNamed.windows[0].id, 'gemini:five-hour')
+  assert.equal(agNamed.windows[0].label, 'Gemini · 5h')
+  assert.equal(agNamed.windows[0].percent, 12)
+  assert.equal(agNamed.windows[1].id, 'claude-gpt:weekly')
+  assert.equal(agNamed.windows[1].label, 'Claude / GPT · Weekly')
+  assert.equal(agNamed.windows[1].percent, 1)
+
   const claude = parseClaudeUsage({
     five_hour: { utilization: 12 }, seven_day: { utilization: 24 },
     seven_day_oauth_apps: { utilization: 30 }, seven_day_opus: { utilization: 40 },
@@ -6524,4 +6536,6 @@ function m_costOf85(entry, tokens) {
 await import('./aliyun-balance.mjs')
 await import('./gateway-retry.mjs')
 await import('./custom-balance-ui.mjs')
+await import('./settings-regressions.mjs')
+await import('./scoped-billing.mjs')
 console.log('[ok] 全部验证通过')
