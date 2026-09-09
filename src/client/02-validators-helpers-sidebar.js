@@ -1000,6 +1000,7 @@
     const PLAN_PROVIDER_ALIASES_LOCAL = {
       go: ['go', 'zen', 'opencode', 'opencode-go'],
       qwen: ['qwen', 'qwen-tokenplan', 'qianwen-tokenplan', 'qwen-token-plan', 'qianwen-token-plan'],
+      scnet: ['scnet', 'scnet-tokenplan', 'scnet-token-plan'],
     }
     const PLAN_PROVIDER_IDS_LOCAL = ['anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'go']
     function planProviderIdOfLocal(provider) {
