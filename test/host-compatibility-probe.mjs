@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { realpathSync, writeFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { realpathSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 
 export const name = 'cost-meter-compatibility-probe'
 export const inject = ['costMeter']
@@ -14,12 +14,13 @@ export async function apply(ctx) {
   const profileRequire = createRequire(join(home, 'profiles', 'web', 'package.json'))
   const pluginRequire = createRequire(profileRequire.resolve('dsh-cost-meter'))
   const hostRequire = createRequire(resolve(process.env.CM_HOST_PACKAGE))
+  const installMode = process.env.CM_COMPAT_INSTALL_MODE === 'linked' ? 'linked' : 'packed'
   const peers = {}
   for (const pkg of ['@deepseek-ai/dsh-credentials', '@deepseek-ai/dsh-home-paths']) {
     const viaPlugin = realpathSync(pluginRequire.resolve(pkg))
     const viaHost = realpathSync(hostRequire.resolve(pkg))
-    assert.equal(viaPlugin, viaHost, `${pkg} 必须复用宿主的同一个模块文件`)
-    peers[pkg] = true
+    if (installMode === 'packed') assert.equal(viaPlugin, viaHost, `${pkg} 必须复用宿主的同一个模块文件`)
+    peers[pkg] = viaPlugin === viaHost
   }
   const { Service } = await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/cordis')).href)
   const scoped = ctx.isolate('llm')
@@ -38,10 +39,28 @@ export async function apply(ctx) {
   const after = await ctx.costMeter.getState()
   assert.equal(after.today.calls - before.today.calls, 3, '隔离服务三次合成用量均入账')
   assert.equal(after.today.input - before.today.input, 300)
+  const snapshotPath = join(home, 'storages', 'cost-meter', 'scnet_official.json')
+  mkdirSync(dirname(snapshotPath), { recursive: true })
+  const captured = Date.now() - 1000
+  try {
+    await ctx.costMeter.updateConfig({ codingPlans: { scnet: { enabled: true, planCredits: 60000 } } })
+    writeFileSync(snapshotPath, JSON.stringify({ used: 24338.72, total: 60000, fetchedAt: captured,
+      resetsAt: new Date(Date.now() + 86400000).toISOString() }))
+    const snapshot = await ctx.costMeter.getState()
+    assert.equal(snapshot.codingPlans.scnet.windows.monthly.percent, 40.6)
+    assert.equal(snapshot.codingPlans.scnet.fetchedAt, captured)
+    assert.deepEqual(snapshot.today, after.today, '外部快照不改变本地用量')
+    writeFileSync(snapshotPath, '{invalid')
+    const fallback = await ctx.costMeter.getState()
+    assert.match(fallback.codingPlans.scnet.windows.credits.text, /^0 \/ 60,000 Credits/)
+    assert.deepEqual(fallback.today, after.today, '损坏快照也不改变本地用量')
+  } finally { rmSync(snapshotPath, { force: true }) }
   const result = {
     hostVersion: hostRequire('./package.json').version,
     pluginVersion: pluginRequire('../package.json').version,
     sharedHostModules: peers,
+    installMode,
+    scnetSnapshotAndFallback: true,
     syntheticCalls: after.today.calls - before.today.calls,
     syntheticInputTokens: after.today.input - before.today.input,
     passed: true,

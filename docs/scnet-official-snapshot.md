@@ -32,7 +32,7 @@
 - 如果提供 `resetsAt`，时间必须晚于采集时间和当前时间，到期立即回退。
 - 如果没有 `resetsAt`，插件按配置的订阅起始日（留空为自然月）检查采集时刻与当前时刻是否在同一周期；跨周期回退，界面仍不推算或展示官方重置时间。
 - 每次状态组装和点击 SCNet 刷新时重新读取文件。点击刷新只重读已有文件，不会触发外部采集器或延长采集时间。
-- 缺失、不可读、损坏、过期或跨周期时使用原本的 `Credits (est.)` 本地估算。估算仅覆盖本地账本可见且抵扣表收录的模型调用，不能覆盖其他工具的用量。
+- 缺失、不可读、损坏、过期或跨周期时使用 `Credits (est.)` 本地估算。估算仅覆盖本地账本中的 SCNet 订阅渠道及抵扣表收录模型，不能覆盖其他工具的用量。支持的提供商 ID 为 `scnet`、`scnet-tokenplan`、`scnet-token-plan` 及对应 `llm-` 前缀，忽略大小写；明确分类为 API 的调用不计入，其他渠道的同名模型不计入。自定义渠道名不会仅凭模型名被自动识别成 SCNet。
 - 快照文件应属于当前使用的 SCNet 账号和套餐。切换账号、套餐或订阅周期时同时替换或移除旧快照，插件不从文件内容鉴别账号归属。
 
 建议采集器先将完整 JSON 写入同目录临时文件，再通过原子重命名替换 `scnet_official.json`，避免读到写入一半的内容。无效文件不会破坏账本，也不会使整个费用面板读取失败。
@@ -44,3 +44,5 @@ Version 1.7.17 supports an external SCNet console snapshot at `$DSH_HOME/storage
 The example above is illustrative. Replace it with actual values: `used` and `total` must be finite JSON numbers (`used >= 0`, `total > 0`); `fetchedAt` is the capture time, as timezone-qualified ISO text or Unix milliseconds. Legacy `at` is accepted when `fetchedAt` is absent. Optional `resetsAt` is the actual reset time, never the capture time. Preserve the capture timestamp on repeated reads. Missing reset times remain undisplayed.
 
 Files must be regular files of at most 16 KiB. Future timestamps and captures older than 24 hours are rejected. Explicit reset times must be in the future; otherwise the capture must belong to the current configured subscription period. Missing, unreadable, malformed, expired or out-of-period snapshots fall back to the existing local `Credits (est.)` estimate. The configured credit limit continues to control that fallback. A manual refresh rereads the file without running the external collector. Use a temporary file and an atomic rename when updating. Replace/remove the snapshot when switching accounts or plans; the plugin cannot verify account ownership from this file. No credentials are required in the snapshot.
+
+Local estimates include supported models only on SCNet subscription providers: `scnet`, `scnet-tokenplan`, `scnet-token-plan`, and their `llm-` prefixed forms (case insensitive). Explicit API classifications and matching model names used through other providers are excluded. Custom provider names are not inferred from model names alone. External snapshot amounts remain independent of this local filter.
