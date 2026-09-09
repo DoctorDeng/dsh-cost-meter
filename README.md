@@ -299,7 +299,7 @@ minimumReleaseAgeExclude:
   - '<报错中的包名>@<版本>'
 ```
 
-宿主适配验证覆盖 DSH `0.1.2-rc.1`、`0.1.3-alpha.2` 的安装、启动、模块复用和卸载；`0.1.3-alpha.1` 无可获取的官方 npm 版本，暂标记为未知。验证环境及边界见[兼容记录](docs/host-compatibility.md)。
+宿主适配验证覆盖 DSH `0.1.2-rc.1`、`0.1.3-alpha.2`、`0.1.5-alpha.1` 的安装、启动、模块复用和卸载；`0.1.3-alpha.1` 在此前核查中无可获取的官方 npm 版本，暂标记为未知。验证环境及边界见[兼容记录](docs/host-compatibility.md)。
 
 ### 更新 / 卸载
 

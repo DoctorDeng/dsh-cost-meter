@@ -297,7 +297,7 @@ minimumReleaseAgeExclude:
   - '<name@version from the error>'
 ```
 
-Host checks cover installation, startup, shared modules and removal on DSH `0.1.2-rc.1` and `0.1.3-alpha.2`. `0.1.3-alpha.1` remains unknown because its official npm version is unavailable. See the [compatibility record](docs/host-compatibility.md) for the environment and limits.
+Host checks cover installation, startup, shared modules and removal on DSH `0.1.2-rc.1`, `0.1.3-alpha.2` and `0.1.5-alpha.1`. `0.1.3-alpha.1` remains unknown because its official npm version was unavailable during the earlier check. See the [compatibility record](docs/host-compatibility.md) for the environment and limits.
 
 ### Update / Uninstall
 

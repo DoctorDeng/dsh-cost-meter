@@ -20,7 +20,7 @@
 ### 验证
 
 - Asia/Shanghai 与 UTC 全量回归通过；覆盖快照、渠道分类、异常余额、流式读取、取消请求、凭据脱敏及迁移。
-- DSH `0.1.2-rc.1`、`0.1.3-alpha.2` 的安装包与当前 alpha.2 的本地链接加载验证通过。费用设置页、合成用量及 SCNet 回退检查见[兼容记录](docs/host-compatibility.md)；[审查记录](docs/project-audit-v1.7.17.md)说明证据与边界。
+- DSH `0.1.2-rc.1`、`0.1.3-alpha.2`、`0.1.5-alpha.1` 的安装包与当前 alpha.2 的本地链接加载验证通过；补入 `0.1.5-alpha.1` 精确兼容声明及相应宿主 peer 范围。费用设置页、合成用量及 SCNet 回退检查见[兼容记录](docs/host-compatibility.md)；[审查记录](docs/project-audit-v1.7.17.md)说明证据与边界。
 
 
 ## [1.7.16] - 2026-09-08
