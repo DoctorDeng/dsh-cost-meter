@@ -13,10 +13,15 @@
 // 上限,片段与压缩产物双双受检,任一超限即失败(不得靠跳过未读源码通过审核)。
 
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { transform } from 'esbuild'
 
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
 const ORDERED_FRAGMENT = /^\d{2}-[a-z0-9-]*\.js$/
-const fragments = readdirSync('src/client').filter(name => name.endsWith('.js')).sort()
+const clientDir = resolve(projectRoot, 'src/client')
+const fragments = readdirSync(clientDir).filter(name => name.endsWith('.js')).sort()
 if (fragments.length === 0) {
   console.error('✗ src/client/ contains no .js source fragments')
   process.exit(1)
@@ -28,14 +33,14 @@ if (unexpected.length > 0) {
 }
 for (const name of fragments) {
   // 与 DSH STORE 审核同口径:UTF-8 字节,中文文案算多字节。
-  const bytes = Buffer.byteLength(readFileSync(`src/client/${name}`, 'utf8'), 'utf8')
+  const bytes = Buffer.byteLength(readFileSync(resolve(clientDir, name), 'utf8'), 'utf8')
   if (bytes > 262144) {
     console.error(`✗ src/client/${name} exceeds 262144 bytes (${bytes}) — split the fragment`)
     process.exit(1)
   }
 }
 
-const src = fragments.map(name => readFileSync(`src/client/${name}`, 'utf8')).join('')
+const src = fragments.map(name => readFileSync(resolve(clientDir, name), 'utf8')).join('')
 const result = await transform(src, {
   minify: true,
   keepNames: false,
@@ -47,7 +52,8 @@ const result = await transform(src, {
   charset: 'utf8',
 })
 const header = '// This file is generated from the src/client/*.js fragments via `node scripts/build.mjs` (esbuild). Do not edit directly.\n'
-writeFileSync('lib/client.js', header + result.code)
+const outPath = resolve(projectRoot, 'lib/client.js')
+writeFileSync(outPath, header + result.code)
 // 字节口径与 test/verify.mjs 的门禁一致(UTF-8 字节而非 UTF-16 字符数,中文文案算多字节)。
 const bytes = Buffer.byteLength(header + result.code, 'utf8')
 console.log(`src/client/*.js (${fragments.length} fragments) -> lib/client.js ${bytes} bytes`)
