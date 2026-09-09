@@ -26,9 +26,9 @@ assert.equal(ui.formatResetCountdown(end, zh, now + 90 * 60000), '已到重置�
 for (const resetsAt of ['', 'invalid', null, 42, undefined]) assert.equal(ui.miniMaxResetText({ resetsAt }, zh, now), '')
 const win = { percent: 25, resetsAt: end }
 const view = ui.miniMaxRow('完整的长窗口名称', win, 'remaining', zh)
-assert.match(view.row.props.title, /完整的长窗口名称 · 剩余 75%.*剩余 1小时30分/)
+assert.equal(view.row.props.title, undefined, '行元素不设原生 title，避免与外层卡片 Tooltip 重叠冲突')
 assert.equal(view.row.children[2].children[0], '75%')
-assert.equal(view.row.children[0].props.title, undefined, '标签继承行标题，避免旧标题遮住更新内容')
+assert.equal(view.row.children[0].props.title, undefined, '子标签不设原生 title')
 const state = { config: { locale: 'zh', barDirections: { plan: 'remaining' } }, codingPlans: { kimi: { status: 'ok', windows: { daily: win }, fetchedAt: now } } }
 const snapshot = { accounts: [{ provider: 'codex', windows: [{ ...win, label: 'Weekly long account window' }] }, { provider: 'antigravity', windows: [{ ...win, label: 'Daily' }] }], fetchedAt: now }
 ui.codexQuotaCache.status = 'ok'; ui.codexQuotaCache.windows = { weekly: win }
