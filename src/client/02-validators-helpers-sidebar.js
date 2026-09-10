@@ -1562,7 +1562,8 @@
         'aria-label': t('balanceRechargeLink'),
         onClick: event => event.stopPropagation(),
         onKeyDown: event => event.stopPropagation(),
-      }, '↗')
+      }, el('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        el('path', { d: 'M8 4H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4M11 3h6v6M9 11l8-8' })))
     }
 
     function BalanceRowContent(props) {
@@ -1589,7 +1590,7 @@
       ].join('; ')
       return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
         el('div', { className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
-          wide ? el(Fragment, null, t('balance'), ' ', el('span', { className: 'cm-num' }, formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), ' ', rechargeLinkEl(t), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
+          wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, t('balance'), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
     }
 
     function BalanceBox(props) {
@@ -1615,9 +1616,8 @@
       ].join('; ')
       const body = el(Fragment, null,
         el('div', { className: 'cm-bbox-head' },
-          el('span', { className: 'cm-bbox-label' }, t('balance')),
-          el('span', { className: 'cm-bbox-pct cm-num cm-bal-amt' }, remaining),
-          rechargeLinkEl(t)),
+          el('span', { className: 'cm-balance-name' }, el('span', { className: 'cm-bbox-label' }, t('balance')), rechargeLinkEl(t)),
+          el('span', { className: 'cm-bbox-pct cm-num cm-bal-amt' }, remaining)),
         el(BalanceBar, { segments, direction: barDirectionOf(config, 'balance') }))
       return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
         el('div', { className: 'cm-bbox clickable' + (wide ? '' : ' rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
@@ -2748,25 +2748,38 @@
 
     // 首次更新后的功能引导:非模态小卡片,让用户自主决定是否开启额度横条;
     // 选择「开启/暂不」后写回 promptSeen=true 永久消失(挂在常驻 sidebar.footer.action)。
+    const SIMPLE_GUIDE_KEY = 'dsh-cost-meter:simple-guide-dismissed'
+    function simpleGuideSeen(config) {
+      if (config?.sidebarSimplePromptSeen === true) return true
+      try { return window.localStorage.getItem(SIMPLE_GUIDE_KEY) === '1' } catch (_) { return false }
+    }
     function SidebarSimpleGuide(props) {
       const store = props.useCost ? props.useCost(s => s) : undefined
       const busyRef = useRef(false)
       const [pending, setPending] = useState(false)
       const [failed, setFailed] = useState(false)
+      const [dismissed, setDismissed] = useState(false)
       const config = store?.state?.config
-      if (!config || config.sidebarSimplePromptSeen === true) return null
+      if (!config || dismissed || simpleGuideSeen(config)) return null
       const t = makeT(resolveLocale(config.locale))
+      const dismiss = () => {
+        setDismissed(true)
+        try { window.localStorage.setItem(SIMPLE_GUIDE_KEY, '1') } catch (_) { /* 本次页面仍可关闭 */ }
+      }
       const choose = async enabled => {
         if (busyRef.current) return
         busyRef.current = true
         setPending(true); setFailed(false)
         try {
-          await props.api.updateConfig({ sidebarSimple: enabled, sidebarSimplePromptSeen: true })
+          const saved = await props.api.updateConfig({ sidebarSimple: enabled, sidebarSimplePromptSeen: true })
+          if (saved?.config?.sidebarSimple !== enabled) throw new Error()
+          dismiss()
         } catch (_) { setFailed(true) }
         finally { busyRef.current = false; setPending(false) }
       }
-      return el('div', { className: 'cm-qguide', role: 'dialog', 'aria-label': t('sidebarSimpleTitle'), 'aria-busy': pending },
-        el('h4', null, t('sidebarSimpleTitle')),
+      return el('div', { className: 'cm-qguide', role: 'dialog', 'aria-label': t('sidebarSimpleTitle'), 'aria-busy': pending, onKeyDown: event => { if (event.key === 'Escape') { event.stopPropagation(); dismiss() } } },
+        el('div', { className: 'cm-bbox-head' }, el('h4', null, t('sidebarSimpleTitle')),
+          el('button', { type: 'button', className: 'cm-btn small', 'aria-label': t('closeGuide'), onClick: dismiss }, '×')),
         el('p', null, t('sidebarSimpleBody')),
         failed ? el('p', { role: 'alert' }, t('sidebarSimpleError')) : null,
         el('div', { className: 'cm-buttons' },
@@ -2783,7 +2796,7 @@
       const state = costStore?.state
       if (!state) return null
       const config = state.config
-      if (config.sidebarSimplePromptSeen !== true) return null
+      if (!simpleGuideSeen(config)) return null
       if (config.quotaStrip?.promptSeen === true) return null
       const t = makeT(resolveLocale(config?.locale))
       const choose = enabled => {
@@ -2833,7 +2846,7 @@
       if (dismissed || lsSeen || config.balance?.clickHintSeen === true || (!sidebarBalanceOn && !sidebarCustomOn && !sidebarPlansOn)) return null
       // 串行展示:横条引导(QuotaStripGuide)与本卡同为 fixed 顶部卡片,同屏会完全重叠,
       // 点掉一张露出另一张,视觉上像「点了没反应」。等横条引导处理完(promptSeen)再出现。
-      if (config.sidebarSimplePromptSeen !== true) return null
+      if (!simpleGuideSeen(config)) return null
       if (config.quotaStrip?.promptSeen !== true) return null
       const t = makeT(resolveLocale(config?.locale))
       const dismiss = () => {
@@ -2887,6 +2900,10 @@
             total: formatMoneyUsd(displayCostOf(state.total, config), config),
           }),
         ].join('; ')
+        if (props.summary === true) return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+          el('div', { className: 'cm-simple-summary' + (level === 'ok' ? '' : ' ' + level), tabIndex: 0 },
+            el('span', null, t('todayBudget', { period: t(PERIOD_KEYS[budget.period] ?? 'periodMonth') })),
+            el('span', { className: 'cm-num' }, formatMoneyUsd(todayApi, config) + ' / ' + formatMoneyValue(amount, config))))
         const view = budgetBoxBody(state, config, t)
         return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
           el('div', { className: 'cm-bbox' + (level === 'ok' ? '' : ' ' + level) + (wide ? '' : ' rail') },
@@ -3003,8 +3020,10 @@
       // (CSS 于 .cm-footer-stack.compact 生效);卡片本身与收起(rail)态维持原样。
       const simple = config.sidebarSimple === true
       const compactWide = !simple && wide && config.sidebarStyle === 'compact'
+      const mergedBudget = simple && wide && showToday && budgetOn
       const nodes = []
-      if (simple && wide && showToday) nodes.push(el('div', { className: 'cm-simple-summary' },
+      if (mergedBudget) nodes.push(el(BudgetBoxContent, { state, wide, summary: true }))
+      else if (simple && wide && showToday) nodes.push(el('div', { className: 'cm-simple-summary' },
         el('span', null, t('today')), el('span', { className: 'cm-num' }, formatMoneyUsd(displayCostOf(state.today, config), config))))
       if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: props.api }))
       else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: props.api }))
@@ -3027,9 +3046,11 @@
           el('div', { className: 'cm-bbox-section' + (budgetView.level === 'ok' ? '' : ' ' + budgetView.level) }, budgetView.body)))
       } else {
         if (goOk) nodes.push(el(GoQuotaBox, { state, wide }))
-        if (budgetOn) nodes.push(el(BudgetBoxContent, { state, wide }))
+        if (budgetOn && !mergedBudget) nodes.push(el(BudgetBoxContent, { state, wide }))
       }
       if (!budgetOn && showToday && !(simple && wide)) nodes.push(el(BudgetBoxContent, { state, wide }))
+      // 简化摘要不再承载峰谷条；单独渲染宽栏条，避免漏掉无预算配置或合并后重复。
+      if (simple && wide && showToday) nodes.push(peakNoticeEl(state, config, t))
       // 收起(rail)态:无论预算/Go 额度开关状态,统一在图框下方追加竖向峰谷进度条(受 peakNotice 等门控,内部自行返回 null)。
       if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
       // 外壳的 footerActions 是横向 flex;这里用自建纵向堆叠保证余额在上、图框在下。
