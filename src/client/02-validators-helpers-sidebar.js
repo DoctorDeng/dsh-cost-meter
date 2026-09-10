@@ -2502,6 +2502,22 @@
               ...rows)))
     }
 
+    function readGatewayAccountLS(sourceId, accounts) {
+      if (!Array.isArray(accounts) || accounts.length <= 1) return 0
+      try {
+        const s = window.localStorage?.getItem?.('cm.gw.' + sourceId)
+        if (!s) return 0
+        const idx = accounts.findIndex(a => a.id === s || a.label === s)
+        return idx >= 0 ? idx : Math.max(0, Math.min(accounts.length - 1, Number(s) || 0))
+      } catch (_) { return 0 }
+    }
+
+    function writeGatewayAccountLS(sourceId, account, index) {
+      try {
+        window.localStorage?.setItem?.('cm.gw.' + sourceId, account?.label || account?.id || String(index))
+      } catch (_) {}
+    }
+
     // ── 网关(CLIProxyAPI)额度侧边栏卡片(issue #96)─────────────────────────
     // 此前 display=sidebar/both 是未接线开关:宿主每刷新周期正常下发 state.gatewayQuotas,
     // 但侧边栏渲染路径没有任何 gateway 分支,配置侧边栏显示后什么也看不到。
@@ -2513,7 +2529,7 @@
       const hoverProps = useQuotaHoverRefresh()
       const { source, snapshot, state, wide, api } = props
       const t = makeT(resolveLocale(state.config?.locale))
-      const [accountIdx, setAccountIdx] = useState(0)
+      const [accountIdx, setAccountIdx] = useState(() => readGatewayAccountLS(source.id, snapshot.accounts))
       const refresh = useClickRefresh(api ? () => api.refreshGatewayQuota(source.id) : null)
       const direction = barDirectionOf(state.config, 'plan')
       const multi = snapshot.accounts.length > 1
@@ -2551,12 +2567,20 @@
         ? el('div', { key: i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, r.name), el('span', { className: 'cm-mm-text cm-num' }, r.text))
         : el(Fragment, { key: i }, r.view.row))
 
+      const switchAccount = () => {
+        setAccountIdx(i => {
+          const next = (i + 1) % snapshot.accounts.length
+          writeGatewayAccountLS(source.id, snapshot.accounts[next], next)
+          return next
+        })
+      }
+
       const switchBtn = multi ? el('span', {
         className: 'cm-gw-switcher',
         'aria-label': (currentAccountName ? currentAccountName + ' · ' : '') + t('gatewaySwitchAccount', { account: currentAccountName || (activeIdx + 1) }),
         onClick: e => {
           e.stopPropagation()
-          setAccountIdx(i => i + 1)
+          switchAccount()
         },
         role: 'button',
         tabIndex: 0,
@@ -2564,7 +2588,7 @@
           if (e.key === 'Enter' || e.key === ' ') {
             e.stopPropagation()
             e.preventDefault()
-            setAccountIdx(i => i + 1)
+            switchAccount()
           }
         },
       }, `${activeIdx + 1}/${snapshot.accounts.length} ⇄`) : null
