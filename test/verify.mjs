@@ -22,6 +22,7 @@ import {
   buildPriceCatalog,
   normalizePrice,
   DEFAULT_PRICE_TABLE,
+  AUGUST_PRICE_TABLE,
   DEFAULT_PROVIDER_PRICE_TABLE,
   PROVIDER_MODEL_FAMILIES,
   DEFAULT_PEAK_EFFECTIVE_AT,
@@ -348,6 +349,7 @@ console.log('[ok] usdFromCost(CNY 折算/USD 原值/非法兜底/往返抵消)�
 // 2) 计费数学(内置价格表,离线可跑)。
 const flash = DEFAULT_PRICE_TABLE.models['deepseek-v4-flash']
 const pro = DEFAULT_PRICE_TABLE.models['deepseek-v4-pro']
+const augustPro = AUGUST_PRICE_TABLE.models['deepseek-v4-pro']
 const legacyChat = DEFAULT_PRICE_TABLE.models['deepseek-v4-flash']
 const tokens = { input: 10000, output: 5000, cacheRead: 90000, cacheWrite: 10000 }
 
@@ -361,13 +363,13 @@ assert.deepEqual(tierFor(pro, preMs, { enabled: false }), pro.legacyBase, '分�
 // 恰好分界时刻:不再按 legacy(16:00 UTC 不在峰窗内 → 谷时价)。
 assert.notDeepEqual(tierFor(pro, BOUNDARY_MS, peakCfg), pro.legacyBase, '分界时刻起不再用 legacyBase')
 // 分界后:峰时段 → peak,谷时段 → offPeak。
-assert.deepEqual(tierFor(pro, peakMs, peakCfg), pro.peak, '分界后峰时段 → peak')
-assert.deepEqual(tierFor(pro, offMs, peakCfg), pro.offPeak, '分界后谷时段 → offPeak')
+assert.deepEqual(tierFor(pro, peakMs, peakCfg), augustPro.peak, '八月峰时段仍用八月 peak')
+assert.deepEqual(tierFor(pro, offMs, peakCfg), augustPro.offPeak, '八月谷时段仍用八月 offPeak')
 // 分界后未启用峰谷:按基础档(内置表基础档 = 谷时档)。
-assert.deepEqual(tierFor(pro, offMs, { enabled: false }), { cacheHit: pro.cacheHit, cacheMiss: pro.cacheMiss, output: pro.output }, '未启用峰谷 → 基础档')
+assert.deepEqual(tierFor(pro, offMs, { enabled: false }), { cacheHit: augustPro.cacheHit, cacheMiss: augustPro.cacheMiss, output: augustPro.output }, '未启用峰谷 → 当时基础档')
 // 无 legacyBase/峰谷档的 flat 模型:任何时候按自身基础价。
 assert.deepEqual(tierFor(legacyChat, preMs, peakCfg), legacyChat.legacyBase, '无峰谷模型分界前 → legacyBase')
-assert.deepEqual(tierFor(legacyChat, peakMs, peakCfg), legacyChat.peak, '无峰谷模型分界后 → 峰时价')
+assert.deepEqual(tierFor(legacyChat, peakMs, peakCfg), AUGUST_PRICE_TABLE.models['deepseek-v4-flash'].peak, '历史模型分界后 → 当时峰时价')
 console.log('[ok] tierFor 历史分界/峰谷/旧模型断言通过')
 
 // 2.1b) DeepSeek-V4-Flash-Vision-Exp:与 flash 同价,峰谷两档同价;峰谷时代后发布无 legacyBase。
@@ -378,7 +380,7 @@ console.log('[ok] tierFor 历史分界/峰谷/旧模型断言通过')
   assert.deepEqual(vision.offPeak, flash.offPeak, 'Vision-Exp 谷时档与 flash 同价')
   assert.deepEqual(vision.peak, flash.peak, 'Vision-Exp 峰时档与 flash 同价')
   assert.equal(vision.legacyBase, undefined, 'Vision-Exp 峰谷时代后发布,无 legacyBase')
-  assert.deepEqual(tierFor(vision, preMs, peakCfg), { cacheHit: vision.cacheHit, cacheMiss: vision.cacheMiss, output: vision.output }, '无 legacyBase 时分界前回退基础档')
+  assert.deepEqual(tierFor(vision, preMs, peakCfg), AUGUST_PRICE_TABLE.models['deepseek-v4-flash-vision-exp'].offPeak, '无 legacyBase 时分界前回退历史基础档')
   // 模型名自动匹配:精确 / 归一化等价 / 去日期后缀均命中自身而非退化到 flash。
   const visionCandidates = Object.keys(DEFAULT_PRICE_TABLE.models)
   assert.equal(matchModelId('deepseek-v4-flash-vision-exp', visionCandidates), 'deepseek-v4-flash-vision-exp', '精确命中 Vision-Exp')
@@ -390,7 +392,7 @@ console.log('[ok] tierFor 历史分界/峰谷/旧模型断言通过')
   // 设置页目录:归入 DeepSeek v4 家族分组。
   assert.equal(PROVIDER_MODEL_FAMILIES.deepseek['deepseek-v4-flash-vision-exp'], 'DeepSeek v4', 'Vision-Exp 归入 DeepSeek v4 家族')
   // 存量配置合并:sanitizeConfig(旧配置无该条目)后新模型条目自动补齐(升级用户立即可用)。
-  assert.ok(sanitizeConfig({ prices: { models: { 'deepseek-v4-pro': DEFAULT_PRICE_TABLE.models['deepseek-v4-pro'] } } }).prices.models['deepseek-v4-flash-vision-exp'] !== undefined, '旧配置经 sanitize 后自动补齐 Vision-Exp 条目')
+  assert.equal(sanitizeConfig({ prices: { models: { 'deepseek-v4-pro': DEFAULT_PRICE_TABLE.models['deepseek-v4-pro'] } } }).prices.models['deepseek-v4-flash-vision-exp'], undefined, '已存模型列表不在加载时复活已取消挂载条目，新增由迁移负责')
   console.log('[ok] DeepSeek-V4-Flash-Vision-Exp 同价适配(价格表/峰谷/匹配/家族归组/存量补齐)通过')
 }
 
@@ -2824,8 +2826,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 历史分界后恢复 peak 档。
   const peakAt167 = Date.parse('2026-08-17T02:00:00Z') // 工作日峰窗内
   const polluted167 = { enabled: true, effectiveAtMs: Date.parse('2026-08-27T12:06:04.107Z'), windows: DEFAULT_PEAK_WINDOWS }
-  assert.deepEqual(tierFor(pro, peakAt167, polluted167), { cacheHit: pro.cacheHit, cacheMiss: pro.cacheMiss, output: pro.output }, '污染形态复现:生效时刻晚于事件 → 峰时事件回落 base 档(半价)')
-  assert.deepEqual(tierFor(pro, peakAt167, { enabled: true, effectiveAtMs: BOUNDARY_MS, windows: DEFAULT_PEAK_WINDOWS }), pro.peak, '钳到历史分界后峰时事件按 peak 档计费')
+  assert.deepEqual(tierFor(pro, peakAt167, polluted167), { cacheHit: augustPro.cacheHit, cacheMiss: augustPro.cacheMiss, output: augustPro.output }, '污染形态复现:生效时刻晚于事件 → 峰时事件回落当时 base 档(半价)')
+  assert.deepEqual(tierFor(pro, peakAt167, { enabled: true, effectiveAtMs: BOUNDARY_MS, windows: DEFAULT_PEAK_WINDOWS }), augustPro.peak, '钳到历史分界后峰时事件按当时 peak 档计费')
 
   // A-3) clamp 迁移行为级:污染配置启动时钳到历史分界,二次启动幂等。
   const prevHome167 = process.env.DSH_HOME
@@ -6550,4 +6552,6 @@ await import('./billing-channel-peak.mjs')
 await import('./sidebar-quota-hover.mjs')
 await import('./scnet-snapshot.mjs')
 await import('./project-audit.mjs')
+await import('./deepseek-pricing-september.mjs')
+await import('./sidebar-simple.mjs')
 console.log('[ok] 全部验证通过')

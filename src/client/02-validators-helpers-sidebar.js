@@ -105,6 +105,14 @@
         }
       }
       if (v.legacy !== undefined) out.legacy = needBool(v.legacy, path + '.legacy')
+      if (v.rateHistory !== undefined) {
+        if (!Array.isArray(v.rateHistory) || v.rateHistory.length > 16) fail(path + '.rateHistory', 'price history')
+        out.rateHistory = v.rateHistory.map((period, i) => {
+          if (!period || typeof period.before !== 'string' || !Number.isFinite(Date.parse(period.before))) fail(path + '.rateHistory', 'dated price')
+          return { ...parsePrice({ ...period, rateHistory: undefined }, path + '.rateHistory.' + i), before: period.before }
+        })
+      }
+      for (const key of ['billingMode', 'sourceUrl', 'checkedAt', 'notes']) if (typeof v[key] === 'string') out[key] = v[key]
       return out
     }
     function parseConfig(v, path) {
@@ -135,6 +143,8 @@
         hideOfficialBalance: v.hideOfficialBalance === true,
         hideTodayCost: v.hideTodayCost === true,
         showTotalWithPlan: v.showTotalWithPlan === true,
+        sidebarSimple: v.sidebarSimple === true,
+        sidebarSimplePromptSeen: v.sidebarSimplePromptSeen === true,
         sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
         priceMatchDismissed: Array.isArray(v.priceMatchDismissed) ? v.priceMatchDismissed.filter(key => typeof key === 'string') : [],
         // 官方价格币种(issue #47):读侧白名单缺失会导致下拉选择保存后读不回。
@@ -646,7 +656,27 @@
         const tier = normalizeClientTier(raw[key])
         if (tier !== undefined) base[key] = tier
       }
+      if (Array.isArray(raw.rateHistory)) base.rateHistory = raw.rateHistory.slice(0, 16).map(period => {
+        const out = { ...normalizeClientTier(period), before: period.before }
+        for (const key of ['offPeak', 'peak']) {
+          const tier = normalizeClientTier(period[key])
+          if (tier !== undefined) out[key] = tier
+        }
+        return out
+      })
       return base
+    }
+
+    function priceAt(entry, atMs = Date.now()) {
+      if (!entry || !Number.isFinite(atMs) || !Array.isArray(entry.rateHistory)) return entry
+      let chosen = null, boundary = Infinity
+      for (const period of entry.rateHistory) {
+        const until = Date.parse(period.before)
+        if (atMs < until && until < boundary) { chosen = period; boundary = until }
+      }
+      if (!chosen) return entry
+      const { before, ...rates } = chosen
+      return { ...entry, ...rates }
     }
     /** 周末全谷价生效时刻(UTC):2026-08-23(周日)00:00 北京时间(与 lib/pricing.js 同步)。 */
     const WEEKEND_OFFPEAK_EFFECTIVE_MS = Date.parse('2026-08-22T16:00:00Z')
@@ -675,7 +705,7 @@
     /** 峰谷时代分界(与 lib/pricing.js LEGACY_BASE_BOUNDARY 同步):此前按当时基础价计费。 */
     const LEGACY_BASE_BOUNDARY_MS = Date.parse('2026-08-16T16:00:00Z')
     function tierFor(entry, atMs, peak) {
-      const base = entry ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
+      const base = priceAt(entry, atMs) ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
       const asTier = price => ({ cacheHit: price.cacheHit, cacheMiss: price.cacheMiss, output: price.output, reasoning: price.reasoning ?? 0 })
       // 峰谷时代之前按当时的基础价计费(历史正确;与 lib/pricing.js tierFor 同分支,
       // v1.6.9 审计修复:客户端镜像此前缺该分支,分界前回放桶会按当前价重算)。
@@ -2759,6 +2789,32 @@
 
     // 首次更新后的功能引导:非模态小卡片,让用户自主决定是否开启额度横条;
     // 选择「开启/暂不」后写回 promptSeen=true 永久消失(挂在常驻 sidebar.footer.action)。
+    function SidebarSimpleGuide(props) {
+      const store = props.useCost ? props.useCost(s => s) : undefined
+      const busyRef = useRef(false)
+      const [pending, setPending] = useState(false)
+      const [failed, setFailed] = useState(false)
+      const config = store?.state?.config
+      if (!config || config.sidebarSimplePromptSeen === true) return null
+      const t = makeT(resolveLocale(config.locale))
+      const choose = async enabled => {
+        if (busyRef.current) return
+        busyRef.current = true
+        setPending(true); setFailed(false)
+        try {
+          await props.api.updateConfig({ sidebarSimple: enabled, sidebarSimplePromptSeen: true })
+        } catch (_) { setFailed(true) }
+        finally { busyRef.current = false; setPending(false) }
+      }
+      return el('div', { className: 'cm-qguide', role: 'dialog', 'aria-label': t('sidebarSimpleTitle'), 'aria-busy': pending },
+        el('h4', null, t('sidebarSimpleTitle')),
+        el('p', null, t('sidebarSimpleBody')),
+        failed ? el('p', { role: 'alert' }, t('sidebarSimpleError')) : null,
+        el('div', { className: 'cm-buttons' },
+          el('button', { type: 'button', className: 'cm-btn small', disabled: pending, onClick: () => choose(false) }, t('sidebarSimpleOff')),
+          el('button', { type: 'button', className: 'cm-btn small primary', disabled: pending, onClick: () => choose(true) }, t('sidebarSimpleOn'))))
+    }
+
     function QuotaStripGuide(props) {
       // 所有 Hook 必须在任何条件返回之前调用:promptSeen 从 false 翻为 true 时本组件
       // 会从「渲染引导卡」变为提前 return null,若 useRef 在条件返回之后,两次渲染
@@ -2768,6 +2824,7 @@
       const state = costStore?.state
       if (!state) return null
       const config = state.config
+      if (config.sidebarSimplePromptSeen !== true) return null
       if (config.quotaStrip?.promptSeen === true) return null
       const t = makeT(resolveLocale(config?.locale))
       const choose = enabled => {
@@ -2817,6 +2874,7 @@
       if (dismissed || lsSeen || config.balance?.clickHintSeen === true || (!sidebarBalanceOn && !sidebarCustomOn && !sidebarPlansOn)) return null
       // 串行展示:横条引导(QuotaStripGuide)与本卡同为 fixed 顶部卡片,同屏会完全重叠,
       // 点掉一张露出另一张,视觉上像「点了没反应」。等横条引导处理完(promptSeen)再出现。
+      if (config.sidebarSimplePromptSeen !== true) return null
       if (config.quotaStrip?.promptSeen !== true) return null
       const t = makeT(resolveLocale(config?.locale))
       const dismiss = () => {
@@ -3111,11 +3169,15 @@
       if (!showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && gatewayNodes.length === 0) return null
       // 紧凑模式(侧边栏进度条样式):宽栏下各额度卡内部的时间段进度行排两列
       // (CSS 于 .cm-footer-stack.compact 生效);卡片本身与收起(rail)态维持原样。
-      const compactWide = wide && config.sidebarStyle === 'compact'
+      const simple = config.sidebarSimple === true
+      const compactWide = !simple && wide && config.sidebarStyle === 'compact'
       const nodes = []
+      // simple 模式(上游 v1.7.18 极简侧栏):宽栏只追加一行今日费用摘要,余额仍走原图框/行。
+      if (simple && wide && showToday) nodes.push(el('div', { className: 'cm-simple-summary' },
+        el('span', null, t('today')), el('span', { className: 'cm-num' }, formatMoneyUsd(displayCostOf(state.today, config), config))))
       // 展开态:今日费用 + 官方余额 + 峰谷条合并为一张卡(含今日/累计 Token 量,见 TodayBalanceCard);
-      // 收起(rail)态空间有限,维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
-      if (wide) nodes.push(el(TodayBalanceCard, { state, wide, api: props.api, showBalance, showBalanceBar, showToday }))
+      // 收起(rail)态与 simple 模式维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
+      if (wide && !simple) nodes.push(el(TodayBalanceCard, { state, wide, api: props.api, showBalance, showBalanceBar, showToday }))
       else if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: props.api }))
       else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: props.api }))
       if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { state, wide, api: props.api }))
@@ -3125,7 +3187,7 @@
         : el(CodingPlanBox, { id, state, wide, api: props.api })))
       nodes.push(...gatewayNodes)
       if (codexOn) nodes.push(el(CodexPlanBox, { state, wide, api: props.api }))
-      if (goOk && budgetOn && wide) {
+      if (goOk && budgetOn && wide && !simple) {
         // 同时出现:合并为一张卡片(Go 在上、预算在下,细分隔线),各自保留预警色与自己的详细信息开关。
         const goView = goBoxBody(state, config, t)
         const budgetView = budgetBoxBody(state, config, t)
@@ -3139,10 +3201,11 @@
         if (goOk) nodes.push(el(GoQuotaBox, { state, wide }))
         if (budgetOn) nodes.push(el(BudgetBoxContent, { state, wide }))
       }
-      // 展开态的今日费用行已并入顶部合并卡(其内部自带峰谷条);收起态保留钱包图标行。
+      // 展开态的今日费用行已并入顶部合并卡(其内部自带峰谷条);simple 宽栏由摘要行表达;
+      // 收起态保留钱包图标行。
       if (!budgetOn && showToday && !wide) nodes.push(el(BudgetBoxContent, { state, wide }))
       // 收起(rail)态:无论预算/Go 额度开关状态,统一在图框下方追加竖向峰谷进度条(受 peakNotice 等门控,内部自行返回 null)。
       if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
       // 外壳的 footerActions 是横向 flex;这里用自建纵向堆叠保证余额在上、图框在下。
-      return el('div', { ref: rootRef, className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') }, ...nodes)
+      return el('div', { ref: rootRef, ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : '') }, ...nodes)
     }
