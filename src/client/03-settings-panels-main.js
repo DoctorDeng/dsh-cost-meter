@@ -2262,11 +2262,17 @@
               }),
               el('span', null, t('hideTodayCostLabel'))),
             el('div', { className: 'cm-grid-group' }, t('groupSidebar')),
+            el('label', { className: 'cm-check' },
+              el('input', { type: 'checkbox', checked: draft?.sidebarSimple === true,
+                onChange: event => { if (draft) setDraft({ ...draft, sidebarSimple: event.target.checked, sidebarSimplePromptSeen: true }) } }),
+              el('span', null, t('sidebarSimple'))),
+            el('div', { className: 'cm-field' }, el('span', { className: 'cm-hint' }, t('sidebarSimpleNote'))),
             el('div', { className: 'cm-field' },
               el('label', null, t('sidebarStyleLabel')),
               el('select', {
                 className: 'cm-input',
                 value: draft?.sidebarStyle ?? 'standard',
+                disabled: draft?.sidebarSimple === true,
                 onChange: event => setField('sidebarStyle', event.target.value),
               },
                 el('option', { value: 'standard' }, t('sidebarStyleStandard')),
@@ -2832,6 +2838,8 @@
         )
         return dispose
       })
+      slots.inject('sidebar.footer.action', () => slots.register(
+        { name: 'sidebar.footer.action', id: 'cost-meter-simple-guide', order: 1, inject: injected }, SidebarSimpleGuide))
       // 首次更新引导:常驻 sidebar.footer.action 挂载,组件内部按 promptSeen 门控。
       slots.inject('sidebar.footer.action', () => {
         const dispose = slots.register(
