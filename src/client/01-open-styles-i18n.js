@@ -306,9 +306,11 @@ window.__ModuleLoader__.load({
       '.cm-dir-label{flex:1 1 40%;font-size:12px;color:var(--dsw-alias-label-secondary)}',
       '.cm-dir-row .cm-input{flex:1 1 60%;width:auto}',
       '.cm-bbox-fill{height:100%;border-radius:999px;background:var(--dsw-alias-state-business-primary)}',
+      '.cm-balance-name{display:inline-flex;align-items:center;gap:4px;min-width:0}',
+      '.cm-bal-amt{margin-left:auto;text-align:right}',
       '.cm-bbox-pct.cm-bal-amt{color:var(--dsw-alias-state-business-primary)}',
       // 官方余额旁的充值直达链接(issue #59):低调小图标,悬停点亮;stopPropagation 防触发点击刷新。
-      '.cm-bal-link{flex:none;display:inline-flex;align-items:center;padding:1px 5px;border-radius:4px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);text-decoration:none;outline:none}',
+      '.cm-bal-link{flex:none;display:inline-flex;align-items:center;justify-content:center;padding:2px;border-radius:4px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);text-decoration:none;outline:none}',
       '.cm-bal-link:hover{color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-interactive-bg-hover)}',
       '.cm-bal-link:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.cm-bbox.warn .cm-bbox-fill{background:var(--dsw-alias-state-warn-primary)}',
@@ -359,10 +361,14 @@ window.__ModuleLoader__.load({
       '.cm-footer-stack.simple{gap:0;max-height:38vh;max-height:min(38dvh,320px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}',
       '.cm-footer-stack.simple>*{flex-shrink:0}',
       '.cm-footer-stack.simple:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}',
-      '.cm-footer-stack.simple .cm-bbox{border:0;border-radius:0;padding:5px 8px;gap:3px;background:transparent}',
-      '.cm-footer-stack.simple .cm-bbox+.cm-bbox{border-top:1px solid var(--dsw-alias-border-l1)}',
+      '.cm-footer-stack.simple .cm-bbox{border:0;border-radius:0;padding:4px 8px;gap:2px;background:transparent;box-shadow:inset 0 -1px var(--dsw-alias-border-l1)}',
       '.cm-footer-stack.simple .cm-mm-title{font-size:11px;line-height:16px;margin:0}',
-      '.cm-footer-stack.simple .cm-mm-row{gap:6px;min-height:16px;line-height:16px;margin:0}',
+      '.cm-footer-stack.simple .cm-mm-row{gap:6px;min-height:16px;line-height:16px;margin:0;padding:0}',
+      '.cm-footer-stack.simple .cm-mm-text{font-size:11px}',
+      '.cm-footer-stack.simple>.cm-peak-strip,.cm-footer-stack.simple>.cm-peak-classic{margin:0;padding:4px 8px}',
+      '.cm-simple-summary.warn{color:var(--dsw-alias-state-warn-primary)}',
+      '.cm-simple-summary.over{color:var(--dsw-alias-state-error-primary)}',
+      '.cm-simple-summary>span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-footer-stack.simple .cm-bbox-pct{font-size:12px;line-height:18px}',
       '.cm-footer-stack.simple .cm-bbox-bar{height:4px}',
       '.cm-footer-stack.simple .cm-bbox-line{display:none}',
@@ -624,7 +630,9 @@ window.__ModuleLoader__.load({
         sidebarSimpleBody: '简化显示可以为会话列表留出更多空间。要现在开启吗？之后可在「设置 → 费用 → 显示」中切换。',
         sidebarSimpleOn: '开启简化显示',
         sidebarSimpleOff: '保留当前显示',
-        sidebarSimpleError: '保存失败，请重试。',
+        sidebarSimpleError: '设置未能保存。可重试，或关闭提示后在设置中调整。',
+        closeGuide: '关闭提示',
+        todayBudget: '今日 / {period}预算',
         sidebarStyleLabel: '侧边栏进度条样式',
         sidebarStyleStandard: '标准',
         sidebarStyleCompact: '紧凑(两列)',
@@ -1090,7 +1098,9 @@ window.__ModuleLoader__.load({
         sidebarSimpleBody: 'Simple display leaves more room for conversations. Enable it now? You can change it in Settings → Cost → Display anytime.',
         sidebarSimpleOn: 'Enable simple display',
         sidebarSimpleOff: 'Keep current display',
-        sidebarSimpleError: 'Could not save. Please retry.',
+        sidebarSimpleError: 'Settings could not be saved. Retry or dismiss this guide and change them later in Settings.',
+        closeGuide: 'Dismiss guide',
+        todayBudget: 'Today / {period} budget',
         sidebarStyleLabel: 'Sidebar progress style',
         sidebarStyleStandard: 'Standard',
         sidebarStyleCompact: 'Compact (2 columns)',
@@ -1351,4 +1361,4 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const PERIOD_KEYS = { day: 'periodDay', month: 'periodMonth', all: 'periodAll', custom: 'periodCustom' }
+    const PERIOD_KEYS = { day: 'periodDay', month: 'periodMonth', all: 'periodAll', custom: 'periodCustomRange' }
