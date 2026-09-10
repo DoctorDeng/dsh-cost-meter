@@ -459,7 +459,17 @@
     }
 
     function PriceCard(props) {
-      const { modelId, entry, isDefault, draft, setDraft, t } = props
+      const { modelId, entry: rawEntry, isDefault, draft, setDraft, t } = props
+      const entry = priceAt(rawEntry)
+      const editablePrice = raw => {
+        const next = { ...priceAt(raw) }
+        if (Array.isArray(raw.rateHistory)) {
+          const past = raw.rateHistory.filter(period => Date.parse(period.before) <= Date.now())
+          if (past.length > 0) next.rateHistory = past
+          else delete next.rateHistory
+        }
+        return next
+      }
       const setTier = (tierKey, field, value) => {
         // 清空输入(emptyMode:'clear' 回传 null):
         //  - offPeak/peak 档位字段 → 从档位对象中删除;档位删空则整键移除,
@@ -468,7 +478,7 @@
         //  - 基础价三桶为必填结构 → 忽略清空(numInput 'ignore' 不回调)。
         if (value === null) {
           if (isDefault) {
-            const def = draft.prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
+            const def = editablePrice(draft.prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
             const tier = { ...(def[tierKey] ?? {}) }
             delete tier[field]
             const next = { ...def }
@@ -478,7 +488,7 @@
             return
           }
           const models = { ...draft.prices.models }
-          const current = models[modelId] ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
+          const current = editablePrice(models[modelId] ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
           const tier = { ...(current[tierKey] ?? {}) }
           delete tier[field]
           const next = { ...current }
@@ -490,7 +500,7 @@
         }
         const nextField = Math.max(0, value)
         if (isDefault) {
-          const def = draft.prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
+          const def = editablePrice(draft.prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
           let next = { ...def }
           if (tierKey === 'base') next[field] = nextField
           else {
@@ -501,7 +511,7 @@
           return
         }
         const models = { ...draft.prices.models }
-        const current = models[modelId] ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
+        const current = editablePrice(models[modelId] ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
         let next = { ...current }
         if (tierKey === 'base') next[field] = nextField
         else {
@@ -538,7 +548,9 @@
           el('span', null, t('flatCached')), el('span', null, t('flatInput')), el('span', null, t('flatOutput'))),
         tierRow(t('tierBase'), 'base'),
         tierRow(t('tierOffPeak'), 'offPeak'),
-        tierRow(t('tierPeak'), 'peak'))
+        tierRow(t('tierPeak'), 'peak'),
+        Array.isArray(rawEntry?.rateHistory) && rawEntry.rateHistory.length > 0
+          ? el('p', { className: 'cm-note' }, t('datedPriceNote')) : null)
     }
 
     // ── 拓展价格表面板(厂商/家族分类目录 + 挂载/取消挂载) ─────────────
@@ -551,10 +563,11 @@
     }
 
     /** 目录条目价格摘要(美元;峰谷两档写 谷/峰)。 */
-    function catalogPriceText(entry, t) {
+    function catalogPriceText(entry, t, currency = 'USD') {
+      entry = priceAt(entry)
       if (entry === null || typeof entry !== 'object') return ''
       if (entry.unpriced === true) return t('catalogUnpriced')
-      const usd = n => '$' + String(n)
+      const usd = n => (currency === 'CNY' ? '¥' : '$') + String(n)
       const pk = entry.peak !== null && typeof entry.peak === 'object' ? entry.peak : null
       if (pk !== null) return usd(entry.cacheMiss) + '/' + usd(pk.cacheMiss) + ' in · ' + usd(entry.output) + '/' + usd(pk.output) + ' out'
       return usd(entry.cacheMiss ?? entry.input ?? 0) + ' in · ' + usd(entry.output ?? 0) + ' out'
@@ -641,7 +654,7 @@
         }
         return el('div', { key: modelId, className: 'cm-catalog-row' },
           el('span', { className: 'cm-catalog-id' }, modelId),
-          el('span', { className: 'cm-catalog-price' }, catalogPriceText(entry, t)),
+          el('span', { className: 'cm-catalog-price' }, catalogPriceText(entry, t, provider === 'deepseek' ? prices.currency : 'USD')),
           mounted ? el('span', { className: 'cm-catalog-tag' }, t('mountedTag')) : null,
           directToggle,
           el('button', { className: 'cm-btn small', disabled: !mounted && entry?.unpriced === true, onClick: () => (mounted ? unmount(provider, modelId) : mount(provider, modelId, entry)) },

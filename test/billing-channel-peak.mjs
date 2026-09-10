@@ -7,7 +7,8 @@ import { apply, runStartupImports, __testProjection } from '../lib/index.js'
 import { Ledger, sanitizeConfig, applyConfigPatch, localDayKey } from '../lib/store.js'
 import { qwenTokenPlanWindows, QWEN_TOKEN_PLAN_PROVIDER_IDS } from '../lib/coding-plans.js'
 import { billingClassOf, planProviderIdOf, enabledPlanSetOf } from '../lib/plan-billing.js'
-import { DEFAULT_PRICE_TABLE, DEFAULT_PRICE_TABLE_CNY, costOf, providerPriceEntryFor, repairDefaultPeakPrice } from '../lib/pricing.js'
+// #108/#109 的历史回归固定使用 2026-08 原始价表；九月改价另有边界/升级测试。
+import { AUGUST_PRICE_TABLE as DEFAULT_PRICE_TABLE, AUGUST_PRICE_TABLE_CNY as DEFAULT_PRICE_TABLE_CNY, DEFAULT_PRICE_TABLE as CURRENT_PRICE_TABLE, costOf, providerPriceEntryFor, repairDefaultPeakPrice } from '../lib/pricing.js'
 import { recomputeLedgerPricingBasis } from '../lib/backfill.js'
 
 const now = Date.parse('2026-09-08T07:30:00Z') // 北京时间周二 15:30，峰窗内。
@@ -26,7 +27,7 @@ vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { bil
 })
 const ui = factory(name => name === 'react' ? {} : {}).test
 const config = sanitizeConfig({ codingPlans: { qwen: { enabled: true, rates: { 'qwen3.8-flash': { input: 1, cachedInput: 1, output: 1 } } } } })
-assert.deepEqual(sanitizeConfig({ prices: { default: { output: 7 } } }).prices.default, { ...baseOf(DEFAULT_PRICE_TABLE.default), output: 7 }, '存量局部自定义默认价补齐基础字段，不额外继承新版峰谷档位')
+assert.deepEqual(sanitizeConfig({ prices: { default: { output: 7 } } }).prices.default, { ...baseOf(CURRENT_PRICE_TABLE.default), output: 7 }, '存量局部自定义默认价补齐基础字段，不额外继承新版峰谷档位')
 for (const provider of [...QWEN_TOKEN_PLAN_PROVIDER_IDS, ' LLM-QIANWEN-TOKENPLAN ']) {
   assert.equal(planProviderIdOf(provider), 'qwen')
   assert.equal(ui.planProviderIdOfLocal(provider), 'qwen')
