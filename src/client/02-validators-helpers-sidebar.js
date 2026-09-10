@@ -2513,12 +2513,17 @@
       const hoverProps = useQuotaHoverRefresh()
       const { source, snapshot, state, wide, api } = props
       const t = makeT(resolveLocale(state.config?.locale))
+      const [accountIdx, setAccountIdx] = useState(0)
       const refresh = useClickRefresh(api ? () => api.refreshGatewayQuota(source.id) : null)
       const direction = barDirectionOf(state.config, 'plan')
       const multi = snapshot.accounts.length > 1
+      const activeIdx = multi ? ((accountIdx % snapshot.accounts.length) + snapshot.accounts.length) % snapshot.accounts.length : 0
+      const currentAccount = snapshot.accounts[activeIdx] ?? snapshot.accounts[0]
+      const currentAccountName = currentAccount?.label || (currentAccount?.id ? String(currentAccount.id) : '')
       const prefix = account => multi ? (GATEWAY_PROVIDER_LABELS[account.provider] ?? account.provider) + ' · ' : ''
+      const accountsToRender = multi ? (currentAccount ? [currentAccount] : []) : snapshot.accounts
       const rows = []
-      for (const account of snapshot.accounts) {
+      for (const account of accountsToRender) {
         if (rows.length >= 4) break
         for (const win of account.windows) {
           if (rows.length >= 4) break
@@ -2538,11 +2543,40 @@
       })
       if (snapshot.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(snapshot.fetchedAt).toLocaleTimeString() }))
       detailParts.push(...clickRefreshTipLines(t, refresh))
-      const detail = [source.label || source.id, ...detailParts].join('\n')
+      const accHeader = multi && currentAccountName
+        ? `${source.label || source.id} (${activeIdx + 1}/${snapshot.accounts.length} · ${currentAccountName})`
+        : (source.label || source.id)
+      const detail = [accHeader, ...detailParts].join('\n')
       const bodyRows = rows.map((r, i) => r.text != null
         ? el('div', { key: i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, r.name), el('span', { className: 'cm-mm-text cm-num' }, r.text))
         : el(Fragment, { key: i }, r.view.row))
-      const body = el(Fragment, null, el('div', { className: 'cm-mm-title' }, source.label || source.id), ...bodyRows)
+
+      const switchBtn = multi ? el('span', {
+        className: 'cm-gw-switcher',
+        'aria-label': (currentAccountName ? currentAccountName + ' · ' : '') + t('gatewaySwitchAccount', { account: currentAccountName || (activeIdx + 1) }),
+        onClick: e => {
+          e.stopPropagation()
+          setAccountIdx(i => i + 1)
+        },
+        role: 'button',
+        tabIndex: 0,
+        onKeyDown: e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation()
+            e.preventDefault()
+            setAccountIdx(i => i + 1)
+          }
+        },
+      }, `${activeIdx + 1}/${snapshot.accounts.length} ⇄`) : null
+
+      const titleRow = el('div', { className: 'cm-mm-head' },
+        el('div', { className: 'cm-mm-title' }, source.label || source.id),
+        switchBtn)
+      const accSub = multi && currentAccountName
+        ? el('div', { className: 'cm-gw-sub' }, currentAccountName)
+        : null
+
+      const body = el(Fragment, null, titleRow, accSub, ...bodyRows)
       const pcts = rows.filter(r => r.view).map(r => r.view.label).filter(p => p !== null)
       const railText = pcts.length > 0 ? pcts.slice(0, 2).map(p => p + '%').join(' ') : (rows[0].text ?? '—')
       const rail = el('div', { className: 'cm-bbox-rail cm-num' }, railText)
