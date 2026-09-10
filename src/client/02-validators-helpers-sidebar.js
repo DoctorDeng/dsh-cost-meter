@@ -143,6 +143,8 @@
         hideOfficialBalance: v.hideOfficialBalance === true,
         hideTodayCost: v.hideTodayCost === true,
         showTotalWithPlan: v.showTotalWithPlan === true,
+        sidebarSimple: v.sidebarSimple === true,
+        sidebarSimplePromptSeen: v.sidebarSimplePromptSeen === true,
         sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
         priceMatchDismissed: Array.isArray(v.priceMatchDismissed) ? v.priceMatchDismissed.filter(key => typeof key === 'string') : [],
         // 官方价格币种(issue #47):读侧白名单缺失会导致下拉选择保存后读不回。
@@ -2746,6 +2748,32 @@
 
     // 首次更新后的功能引导:非模态小卡片,让用户自主决定是否开启额度横条;
     // 选择「开启/暂不」后写回 promptSeen=true 永久消失(挂在常驻 sidebar.footer.action)。
+    function SidebarSimpleGuide(props) {
+      const store = props.useCost ? props.useCost(s => s) : undefined
+      const busyRef = useRef(false)
+      const [pending, setPending] = useState(false)
+      const [failed, setFailed] = useState(false)
+      const config = store?.state?.config
+      if (!config || config.sidebarSimplePromptSeen === true) return null
+      const t = makeT(resolveLocale(config.locale))
+      const choose = async enabled => {
+        if (busyRef.current) return
+        busyRef.current = true
+        setPending(true); setFailed(false)
+        try {
+          await props.api.updateConfig({ sidebarSimple: enabled, sidebarSimplePromptSeen: true })
+        } catch (_) { setFailed(true) }
+        finally { busyRef.current = false; setPending(false) }
+      }
+      return el('div', { className: 'cm-qguide', role: 'dialog', 'aria-label': t('sidebarSimpleTitle'), 'aria-busy': pending },
+        el('h4', null, t('sidebarSimpleTitle')),
+        el('p', null, t('sidebarSimpleBody')),
+        failed ? el('p', { role: 'alert' }, t('sidebarSimpleError')) : null,
+        el('div', { className: 'cm-buttons' },
+          el('button', { type: 'button', className: 'cm-btn small', disabled: pending, onClick: () => choose(false) }, t('sidebarSimpleOff')),
+          el('button', { type: 'button', className: 'cm-btn small primary', disabled: pending, onClick: () => choose(true) }, t('sidebarSimpleOn'))))
+    }
+
     function QuotaStripGuide(props) {
       // 所有 Hook 必须在任何条件返回之前调用:promptSeen 从 false 翻为 true 时本组件
       // 会从「渲染引导卡」变为提前 return null,若 useRef 在条件返回之后,两次渲染
@@ -2755,6 +2783,7 @@
       const state = costStore?.state
       if (!state) return null
       const config = state.config
+      if (config.sidebarSimplePromptSeen !== true) return null
       if (config.quotaStrip?.promptSeen === true) return null
       const t = makeT(resolveLocale(config?.locale))
       const choose = enabled => {
@@ -2804,6 +2833,7 @@
       if (dismissed || lsSeen || config.balance?.clickHintSeen === true || (!sidebarBalanceOn && !sidebarCustomOn && !sidebarPlansOn)) return null
       // 串行展示:横条引导(QuotaStripGuide)与本卡同为 fixed 顶部卡片,同屏会完全重叠,
       // 点掉一张露出另一张,视觉上像「点了没反应」。等横条引导处理完(promptSeen)再出现。
+      if (config.sidebarSimplePromptSeen !== true) return null
       if (config.quotaStrip?.promptSeen !== true) return null
       const t = makeT(resolveLocale(config?.locale))
       const dismiss = () => {
@@ -2971,8 +3001,11 @@
       if (!showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && gatewayNodes.length === 0) return null
       // 紧凑模式(侧边栏进度条样式):宽栏下各额度卡内部的时间段进度行排两列
       // (CSS 于 .cm-footer-stack.compact 生效);卡片本身与收起(rail)态维持原样。
-      const compactWide = wide && config.sidebarStyle === 'compact'
+      const simple = config.sidebarSimple === true
+      const compactWide = !simple && wide && config.sidebarStyle === 'compact'
       const nodes = []
+      if (simple && wide && showToday) nodes.push(el('div', { className: 'cm-simple-summary' },
+        el('span', null, t('today')), el('span', { className: 'cm-num' }, formatMoneyUsd(displayCostOf(state.today, config), config))))
       if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: props.api }))
       else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: props.api }))
       if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { state, wide, api: props.api }))
@@ -2982,7 +3015,7 @@
         : el(CodingPlanBox, { id, state, wide, api: props.api })))
       nodes.push(...gatewayNodes)
       if (codexOn) nodes.push(el(CodexPlanBox, { state, wide, api: props.api }))
-      if (goOk && budgetOn && wide) {
+      if (goOk && budgetOn && wide && !simple) {
         // 同时出现:合并为一张卡片(Go 在上、预算在下,细分隔线),各自保留预警色与自己的详细信息开关。
         const goView = goBoxBody(state, config, t)
         const budgetView = budgetBoxBody(state, config, t)
@@ -2996,9 +3029,9 @@
         if (goOk) nodes.push(el(GoQuotaBox, { state, wide }))
         if (budgetOn) nodes.push(el(BudgetBoxContent, { state, wide }))
       }
-      if (!budgetOn && showToday) nodes.push(el(BudgetBoxContent, { state, wide }))
+      if (!budgetOn && showToday && !(simple && wide)) nodes.push(el(BudgetBoxContent, { state, wide }))
       // 收起(rail)态:无论预算/Go 额度开关状态,统一在图框下方追加竖向峰谷进度条(受 peakNotice 等门控,内部自行返回 null)。
       if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
       // 外壳的 footerActions 是横向 flex;这里用自建纵向堆叠保证余额在上、图框在下。
-      return el('div', { ref: rootRef, className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') }, ...nodes)
+      return el('div', { ref: rootRef, ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : '') }, ...nodes)
     }
