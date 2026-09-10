@@ -105,6 +105,14 @@
         }
       }
       if (v.legacy !== undefined) out.legacy = needBool(v.legacy, path + '.legacy')
+      if (v.rateHistory !== undefined) {
+        if (!Array.isArray(v.rateHistory) || v.rateHistory.length > 16) fail(path + '.rateHistory', 'price history')
+        out.rateHistory = v.rateHistory.map((period, i) => {
+          if (!period || typeof period.before !== 'string' || !Number.isFinite(Date.parse(period.before))) fail(path + '.rateHistory', 'dated price')
+          return { ...parsePrice({ ...period, rateHistory: undefined }, path + '.rateHistory.' + i), before: period.before }
+        })
+      }
+      for (const key of ['billingMode', 'sourceUrl', 'checkedAt', 'notes']) if (typeof v[key] === 'string') out[key] = v[key]
       return out
     }
     function parseConfig(v, path) {
@@ -646,7 +654,27 @@
         const tier = normalizeClientTier(raw[key])
         if (tier !== undefined) base[key] = tier
       }
+      if (Array.isArray(raw.rateHistory)) base.rateHistory = raw.rateHistory.slice(0, 16).map(period => {
+        const out = { ...normalizeClientTier(period), before: period.before }
+        for (const key of ['offPeak', 'peak']) {
+          const tier = normalizeClientTier(period[key])
+          if (tier !== undefined) out[key] = tier
+        }
+        return out
+      })
       return base
+    }
+
+    function priceAt(entry, atMs = Date.now()) {
+      if (!entry || !Number.isFinite(atMs) || !Array.isArray(entry.rateHistory)) return entry
+      let chosen = null, boundary = Infinity
+      for (const period of entry.rateHistory) {
+        const until = Date.parse(period.before)
+        if (atMs < until && until < boundary) { chosen = period; boundary = until }
+      }
+      if (!chosen) return entry
+      const { before, ...rates } = chosen
+      return { ...entry, ...rates }
     }
     /** 周末全谷价生效时刻(UTC):2026-08-23(周日)00:00 北京时间(与 lib/pricing.js 同步)。 */
     const WEEKEND_OFFPEAK_EFFECTIVE_MS = Date.parse('2026-08-22T16:00:00Z')
@@ -675,7 +703,7 @@
     /** 峰谷时代分界(与 lib/pricing.js LEGACY_BASE_BOUNDARY 同步):此前按当时基础价计费。 */
     const LEGACY_BASE_BOUNDARY_MS = Date.parse('2026-08-16T16:00:00Z')
     function tierFor(entry, atMs, peak) {
-      const base = entry ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
+      const base = priceAt(entry, atMs) ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
       const asTier = price => ({ cacheHit: price.cacheHit, cacheMiss: price.cacheMiss, output: price.output, reasoning: price.reasoning ?? 0 })
       // 峰谷时代之前按当时的基础价计费(历史正确;与 lib/pricing.js tierFor 同分支,
       // v1.6.9 审计修复:客户端镜像此前缺该分支,分界前回放桶会按当前价重算)。
