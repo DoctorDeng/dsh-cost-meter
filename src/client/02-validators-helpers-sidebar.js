@@ -1000,6 +1000,7 @@
     const PLAN_PROVIDER_ALIASES_LOCAL = {
       go: ['go', 'zen', 'opencode', 'opencode-go'],
       qwen: ['qwen', 'qwen-tokenplan', 'qianwen-tokenplan', 'qwen-token-plan', 'qianwen-token-plan'],
+      scnet: ['scnet', 'scnet-tokenplan', 'scnet-token-plan'],
     }
     const PLAN_PROVIDER_IDS_LOCAL = ['anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'go']
     function planProviderIdOfLocal(provider) {
@@ -2280,14 +2281,11 @@
       const pct = planWindowUsedPct(win)
       const level = pct === null ? 'ok' : pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
       const barView = simpleBarByDirection(pct, direction)
-      const translator = typeof t === 'function' ? t : makeT(resolveLocale())
-      const reset = miniMaxResetText(win, translator)
-      const title = label + ' · ' + quotaValueText(barView.label, direction, translator) + (reset ? ' · ' + reset : '')
       return {
         level,
         pct,
         label: barView.label,
-        row: el('div', { className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level), title },
+        row: el('div', { className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level) },
           el('span', { className: 'cm-bbox-label' }, label),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
@@ -2485,9 +2483,7 @@
         }
         const level = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
         const barView = simpleBarByDirection(pct, planDirection)
-        const reset = miniMaxResetText(win, t)
-        const rowTitle = codingPlanWindowLabel(name, t) + ' · ' + quotaValueText(barView.label, planDirection, t) + (reset ? ' · ' + reset : '')
-        return el('div', { key: name, className: 'cm-mm-row wide' + (level === 'ok' ? '' : ' ' + level), title: rowTitle },
+        return el('div', { key: name, className: 'cm-mm-row wide' + (level === 'ok' ? '' : ' ' + level) },
           el('span', { className: 'cm-bbox-label' }, codingPlanWindowLabel(name, t)),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),

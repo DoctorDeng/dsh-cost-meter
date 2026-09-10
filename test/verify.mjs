@@ -3,10 +3,10 @@
  * 计费数学部分基于内置价格表,离线可跑;官方页面解析失败时仅告警不中断。
  */
 import assert from 'node:assert/strict'
-import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs'
+import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { join, dirname, resolve } from 'node:path'
+import { tmpdir as osTmpdir } from 'node:os'
 import * as zlib from 'node:zlib'
 import {
   parsePricingHtml,
@@ -85,6 +85,14 @@ import {
   qwenTokenPlanWindows,
 } from '../lib/coding-plans.js'
 import { extractByRule } from '../lib/custom-balance.js'
+
+// 每个验证进程使用独立临时目录，双时区同时执行时不互相删除账本。
+const suiteRoot = mkdtempSync(join(osTmpdir(), 'cm-verify-'))
+const tmpdir = () => suiteRoot
+process.on('exit', () => {
+  assert.equal(dirname(resolve(suiteRoot)), resolve(osTmpdir()))
+  rmSync(suiteRoot, { recursive: true, force: true })
+})
 
 // ── 客户端源码拼接视图(v1.7.12 起)────────────────────────────────────────
 // src/client.js 超过 DSH STORE 自动审核 256 KiB 单文件上限后,源码拆为 src/client/
@@ -1057,7 +1065,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   const p4 = scnetPlanPeriod(Date.parse('2027-01-15T00:00:00+08:00'), '2026-08-05')
   assert.equal(p4.fromKey, '2027-01-05', '跨年多周期推进')
 }
-// 用量汇总:只计当前周期内、抵扣表覆盖的模型;provider:model 键跨 provider 归并。
+// 用量汇总:只计当前周期内 SCNet 订阅渠道、抵扣表覆盖的模型。
 {
   const nowMs = Date.parse('2026-08-19T10:00:00+08:00')
   const mkDay = (date, pm) => ({ date, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, calls: 0, cost: 0, byProviderModel: pm, sessions: [] })
@@ -1080,10 +1088,10 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   }
   const result = scnetTokenPlanWindows(days, { planCredits: 240000, planStart: '2026-08-05' }, nowMs)
   const flash = SCNET_CREDIT_RATES['DeepSeek-V4-Flash']
-  const expectedUsed = (1_000_000 * glm.input + 1_000_000 * glm.output + 1_000_000 * glm.input) / 1_000_000
+  const expectedUsed = (1_000_000 * glm.input + 1_000_000 * glm.output) / 1_000_000
     + (2_000_000 * flash.input + 1_000_000 * flash.output) / 1_000_000
-  assert.ok(Math.abs(result.used - expectedUsed) < 1e-9, '周期内覆盖模型跨 provider 归并折算')
-  assert.ok(Math.abs(result.byModel.glm52 - (2_000_000 * glm.input + 1_000_000 * glm.output) / 1_000_000) < 1e-9, '按归一化模型名分桶(大小写/provider 变体归并)')
+  assert.ok(Math.abs(result.used - expectedUsed) < 1e-9, '仅折算周期内 SCNet 渠道的覆盖模型')
+  assert.ok(Math.abs(result.byModel.glm52 - (1_000_000 * glm.input + 1_000_000 * glm.output) / 1_000_000) < 1e-9, '按归一化模型名分桶，排除其他渠道')
   assert.equal(result.byModel['Not-In-Table'], undefined, '未覆盖模型不计入')
   assert.equal(result.total, 240000, '总额度透传')
   assert.equal(result.percent, Math.min(100, Math.round((expectedUsed / 240000) * 1000) / 10), '已用百分比')
@@ -1705,7 +1713,7 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
 {
   const { __testProjection } = await import('../lib/index.js')
   const { usageProjectionStateSchema, makeCostUsageProjection } = __testProjection
-  const projRoot = join(process.cwd(), '.tmp-proj-schema')
+  const projRoot = join(tmpdir(), '.tmp-proj-schema')
   mkdirSync(projRoot, { recursive: true })
   const projLedger = new Ledger(sanitizeConfig({}), {}, join(projRoot, 'ledger.json'))
   const def = makeCostUsageProjection(projLedger)
@@ -4885,7 +4893,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 {
   const { __testProjection } = await import('../lib/index.js')
   const { makeCostUsageProjection, usageProjectionStateSchema } = __testProjection
-  const projRoot11 = join(process.cwd(), '.tmp-proj-dedup')
+  const projRoot11 = join(tmpdir(), '.tmp-proj-dedup')
   mkdirSync(projRoot11, { recursive: true })
   const projLedger11 = new Ledger(sanitizeConfig({}), {}, join(projRoot11, 'ledger.json'))
   const def11 = makeCostUsageProjection(projLedger11)
@@ -5153,7 +5161,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 {
   const { __testProjection } = await import('../lib/index.js')
   const { makeCostUsageProjection, usageProjectionStateSchema } = __testProjection
-  const projRoot12 = join(process.cwd(), '.tmp-proj-compaction')
+  const projRoot12 = join(tmpdir(), '.tmp-proj-compaction')
   mkdirSync(projRoot12, { recursive: true })
   const projLedger12 = new Ledger(sanitizeConfig({}), {}, join(projRoot12, 'ledger.json'))
   const def12 = makeCostUsageProjection(projLedger12)
@@ -5227,7 +5235,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 与实时折叠同输入同结果(净聚合漂移守卫):fold 的 byProviderModel 与回放逐位一致。
   const { __testProjection } = await import('../lib/index.js')
   const { makeCostUsageProjection } = __testProjection
-  const projRoot12b = join(process.cwd(), '.tmp-proj-compaction-eq')
+  const projRoot12b = join(tmpdir(), '.tmp-proj-compaction-eq')
   mkdirSync(projRoot12b, { recursive: true })
   const projLedger12b = new Ledger(sanitizeConfig({}), {}, join(projRoot12b, 'ledger.json'))
   const def12b = makeCostUsageProjection(projLedger12b)
@@ -6541,4 +6549,5 @@ await import('./scoped-billing.mjs')
 await import('./billing-channel-peak.mjs')
 await import('./sidebar-quota-hover.mjs')
 await import('./scnet-snapshot.mjs')
+await import('./project-audit.mjs')
 console.log('[ok] 全部验证通过')

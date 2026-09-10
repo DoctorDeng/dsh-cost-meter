@@ -16,6 +16,12 @@ vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { css
 const el = (type, props, ...children) => ({ type, props: props ?? {}, children })
 const React = { createElement: el, Fragment: 'fragment', useState: init => [typeof init === 'function' ? init() : init, () => { updates++ }], useEffect() {}, useRef: value => ({ current: value }) }
 const ui = factory(name => name === 'react' ? React : { Tooltip: 'tooltip' }).test
+const assertNoNativeTitle = node => {
+  if (Array.isArray(node)) { node.forEach(assertNoNativeTitle); return }
+  if (node === null || typeof node !== 'object') return
+  assert.equal(node.props?.title, undefined, '卡片及其子节点不触发第二层原生提示')
+  for (const child of node.children ?? []) assertNoNativeTitle(child)
+}
 const zh = ui.makeT('zh'), en = ui.makeT('en')
 const end = new Date(now + 90 * 60000).toISOString()
 assert.equal(ui.formatResetCountdown(end, zh, now), '剩余 1小时30分')
@@ -26,9 +32,9 @@ assert.equal(ui.formatResetCountdown(end, zh, now + 90 * 60000), '已到重置�
 for (const resetsAt of ['', 'invalid', null, 42, undefined]) assert.equal(ui.miniMaxResetText({ resetsAt }, zh, now), '')
 const win = { percent: 25, resetsAt: end }
 const view = ui.miniMaxRow('完整的长窗口名称', win, 'remaining', zh)
-assert.match(view.row.props.title, /完整的长窗口名称 · 剩余 75%.*剩余 1小时30分/)
+assert.equal(view.row.props.title, undefined, '行元素不设原生 title，避免与外层卡片 Tooltip 重叠冲突')
 assert.equal(view.row.children[2].children[0], '75%')
-assert.equal(view.row.children[0].props.title, undefined, '标签继承行标题，避免旧标题遮住更新内容')
+assert.equal(view.row.children[0].props.title, undefined, '子标签不设原生 title')
 const state = { config: { locale: 'zh', barDirections: { plan: 'remaining' } }, codingPlans: { kimi: { status: 'ok', windows: { daily: win }, fetchedAt: now } } }
 const snapshot = { accounts: [{ provider: 'codex', windows: [{ ...win, label: 'Weekly long account window' }] }, { provider: 'antigravity', windows: [{ ...win, label: 'Daily' }] }], fetchedAt: now }
 ui.codexQuotaCache.status = 'ok'; ui.codexQuotaCache.windows = { weekly: win }
@@ -41,6 +47,7 @@ const cards = [
 for (const card of cards) {
   now = Date.parse('2026-09-08T08:00:00Z')
   const before = card()
+  assertNoNativeTitle(before)
   assert.equal(before.props.label.props.style.whiteSpace, 'pre-line')
   assert.match(before.props.label.children[0], /剩余 75%/)
   assert.match(before.props.label.children[0], /剩余 1小时30分/)
@@ -59,13 +66,14 @@ for (const rail of [
   ui.GatewayQuotaBox({ source: { id: 'test' }, snapshot, state, wide: false }),
   ui.CodexPlanBox({ state, wide: false }),
 ]) {
+  assertNoNativeTitle(rail)
   assert.match(textOf(rail.children[0]), /75%/, '收窄侧栏与提示均显示剩余百分比')
   assert.doesNotMatch(textOf(rail.children[0]), /25%/)
 }
 const gateway = ui.GatewayQuotaBox({ source: { id: 'test' }, snapshot, state })
 assert.match(gateway.props.label.children[0], /Codex · Weekly long account window/)
 assert.doesNotMatch(gateway.props.label.children[0], /left|Resets:/, '浏览器为英文时仍遵守中文配置')
-console.log('[ok] 侧栏倒计时：中英文、无效/到期边界、方向、四类卡片悬停/聚焦与网关账号标签')
+console.log('[ok] 侧栏提示：四类卡片无重复原生提示，保留中英文、方向、重置倒计时、悬停/聚焦与账号标签')
 
 if (process.argv.includes('--fixture')) {
   const esc = s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
