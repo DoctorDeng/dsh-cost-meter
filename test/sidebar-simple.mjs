@@ -9,8 +9,9 @@ import { stateSchema } from '../lib/typert.host.js'
 const dir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(dir).filter(n => n.endsWith('.js')).sort().map(n => readFileSync(new URL(n, dir), 'utf8')).join('')
 let factory, hookIndex = 0, hooks = []
+const storage = new Map()
 vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { SidebarSimpleGuide, QuotaStripGuide, BalanceClickGuide, SidebarFooter, parseConfig, codexQuotaCache }; exports.apply = apply'), {
-  navigator: { language: 'en' }, window: { __ModuleLoader__: { load: v => { factory = v.factory } }, localStorage: { getItem: () => null } },
+  navigator: { language: 'en' }, window: { __ModuleLoader__: { load: v => { factory = v.factory } }, localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } },
 })
 const el = (type, props, ...children) => ({ type, props: props ?? {}, children })
 const React = { createElement: el, Fragment: 'fragment', useEffect() {},
@@ -27,9 +28,9 @@ for (const field of ['sidebarSimple', 'sidebarSimplePromptSeen']) {
 }
 let config = base, calls = 0, rejectSave, finishSave, patch
 const useCost = pick => pick({ state: { config } })
-const api = { updateConfig: value => { calls++; patch = value; return new Promise((resolve, reject) => { rejectSave = reject; finishSave = () => { const result = applyConfigPatch(config, value); assert.deepEqual(result.errors, []); config = result.config; resolve() } }) } }
+const api = { updateConfig: value => { calls++; patch = value; return new Promise((resolve, reject) => { rejectSave = reject; finishSave = () => { const result = applyConfigPatch(config, value); assert.deepEqual(result.errors, []); config = result.config; resolve({ config }) } }) } }
 const renderGuide = () => { hookIndex = 0; return ui.SidebarSimpleGuide({ useCost, api }) }
-const button = (tree, i) => nodes(tree).filter(n => n.type === 'button')[i]
+const button = (tree, i) => nodes(tree).filter(n => n.type === 'button' && !n.props['aria-label'])[i]
 const initial = renderGuide()
 assert.equal(initial.props.role, 'dialog')
 const enabling = button(initial, 1).props.onClick()
@@ -66,13 +67,13 @@ try {
   rmSync(root, { recursive: true, force: true })
 }
 
-hooks = []; config = base
+hooks = []; storage.clear(); config = base
 const keeping = button(renderGuide(), 0).props.onClick()
 finishSave(); await keeping
 assert.equal(config.sidebarSimple, false)
 assert.equal(config.sidebarSimplePromptSeen, true, '保留当前显示也记住选择')
 assert.equal(renderGuide(), null)
-hooks = []; config = { ...base, sidebarSimplePromptSeen: false, quotaStrip: { ...base.quotaStrip, promptSeen: false }, balance: { ...base.balance, display: 'both', clickHintSeen: false } }
+hooks = []; storage.clear(); config = { ...base, sidebarSimplePromptSeen: false, quotaStrip: { ...base.quotaStrip, promptSeen: false }, balance: { ...base.balance, display: 'both', clickHintSeen: false } }
 hookIndex = 0
 assert.equal(ui.QuotaStripGuide({ useCost, api }), null, '优先显示新的简化引导')
 hooks = []; hookIndex = 0
@@ -88,16 +89,43 @@ const simple = footer(true)
 assert.match(simple.props.className, /simple/)
 assert.doesNotMatch(simple.props.className, /compact/)
 assert.equal(simple.props.tabIndex, 0, '可用键盘进入并滚动')
-const cardTypes = tree => nodes(tree).filter(n => typeof n.type === 'function')
-  .map(n => n.type.name).filter(name => name !== 'TodayBalanceCard').sort()
-assert.equal(nodes(simple).filter(n => n.props.className === 'cm-simple-summary').length, 1)
+// fork 定制:宽栏标准态用合并信息卡 TodayBalanceCard(今日费用/余额/峰谷)替代上游的
+// 余额图框 + 今日费用行,故不能沿用上游「简化态卡片数 = 标准态 + 1」的计数口径;
+// 改为比较 footer 直属子节点实际承载的组件。
+const childCards = tree => tree.children.filter(n => n && typeof n.type === 'function').map(n => n.type.name)
+const quotaCards = names => names.filter(n => n !== 'TodayBalanceCard' && !n.startsWith('PeakStrip')).sort()
+assert.equal(nodes(simple).filter(n => n.props.summary === true).length, 1, '预算与今日合并为一个摘要')
 assert.match(footer(false).props.className, /rail.*simple/)
 state.config = { ...config, sidebarSimple: false }
 const standard = footer(true)
 assert.match(standard.props.className, /compact/)
 assert.doesNotMatch(standard.props.className, /simple/)
-// fork 定制:宽栏标准态额外渲染合并信息卡 TodayBalanceCard(今日费用/余额/峰谷),
-// 简化态则由上游 cm-simple-summary 摘要行承担今日费用 —— 剔除该合并卡后,
-// 两种模式承载的额度卡(Coding Plan/预算等)必须一致。
-assert.deepEqual(cardTypes(standard), cardTypes(simple), '简化模式保留已启用卡片')
+assert.ok(childCards(standard).includes('TodayBalanceCard'), '标准宽栏使用 fork 合并信息卡')
+assert.deepEqual(quotaCards(childCards(standard)), quotaCards(childCards(simple)), '简化模式保留预算与额度卡')
+assert.equal(childCards(simple).filter(n => n.startsWith('PeakStrip')).length, 1, '简化宽栏独立挂载峰谷条(#122)')
 console.log('[ok] #118 简化显示：选择/拒绝、保存失败重试、防重入、RPC 与重启持久化、引导串行、布局恢复及键盘滚动')
+
+// 保存被拒绝或长期等待时，关闭提示不伪装成已保存设置。
+for (const failure of ['rejected', 'pending']) {
+  hooks = []; storage.clear(); config = base;
+  const task = button(renderGuide(), 1).props.onClick();
+  if (failure === 'rejected') { rejectSave(new Error('offline')); await task }
+  const close = nodes(renderGuide()).find(n => n.type === 'button' && n.props['aria-label']);
+  assert.equal(close.props.disabled, undefined);close.props.onClick();
+  assert.equal(renderGuide(), null);
+  hooks = []; assert.equal(renderGuide(), null, '刷新后仍保留同源提示关闭标记');
+  assert.equal(config.sidebarSimple, false);assert.equal(config.sidebarSimplePromptSeen, false, '不伪造服务端保存成功');
+  if (failure === 'pending') { rejectSave(new Error('offline')); await task }
+}
+console.log('[ok] #121 引导在保存失败/等待时可独立关闭，刷新保留关闭标记且不更改实际配置')
+
+hooks = []; storage.clear(); config = base;
+let escaped = false;renderGuide().props.onKeyDown({ key: 'Escape', stopPropagation: () => { escaped = true } });
+assert.equal(escaped, true);assert.equal(renderGuide(), null);
+
+// 旧 RPC 返回成功但没有回传新设置时，不能假装已经开启。
+hooks = []; storage.clear(); config = base; hookIndex = 0;
+const staleGuide = ui.SidebarSimpleGuide({ useCost, api: { updateConfig: async () => ({ config: base }) } });
+await button(staleGuide, 1).props.onClick();
+assert.ok(nodes(renderGuide()).some(n => n.props.role === 'alert'));
+assert.equal(storage.size, 0);
