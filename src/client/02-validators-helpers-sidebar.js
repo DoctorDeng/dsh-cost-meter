@@ -2502,6 +2502,18 @@
               ...rows)))
     }
 
+    const readGatewayAccountLS = (id, list) => {
+      try {
+        const s = window.localStorage?.getItem?.('cm.gw.' + id)
+        const i = (list ?? []).findIndex(a => a.id === s || a.label === s)
+        return i >= 0 ? i : Math.max(0, Math.min((list?.length ?? 1) - 1, Number(s) || 0))
+      } catch { return 0 }
+    }
+
+    const writeGatewayAccountLS = (id, a, i) => {
+      try { window.localStorage?.setItem?.('cm.gw.' + id, a?.label || a?.id || String(i)) } catch {}
+    }
+
     // ── 网关(CLIProxyAPI)额度侧边栏卡片(issue #96)─────────────────────────
     // 此前 display=sidebar/both 是未接线开关:宿主每刷新周期正常下发 state.gatewayQuotas,
     // 但侧边栏渲染路径没有任何 gateway 分支,配置侧边栏显示后什么也看不到。
@@ -2513,12 +2525,17 @@
       const hoverProps = useQuotaHoverRefresh()
       const { source, snapshot, state, wide, api } = props
       const t = makeT(resolveLocale(state.config?.locale))
+      const [accountIdx, setAccountIdx] = useState(() => readGatewayAccountLS(source.id, snapshot.accounts))
       const refresh = useClickRefresh(api ? () => api.refreshGatewayQuota(source.id) : null)
       const direction = barDirectionOf(state.config, 'plan')
       const multi = snapshot.accounts.length > 1
+      const activeIdx = multi ? accountIdx % snapshot.accounts.length : 0
+      const currentAccount = snapshot.accounts[activeIdx] ?? snapshot.accounts[0]
+      const currentAccountName = currentAccount?.label || currentAccount?.id || ''
       const prefix = account => multi ? (GATEWAY_PROVIDER_LABELS[account.provider] ?? account.provider) + ' · ' : ''
+      const accountsToRender = multi && currentAccount ? [currentAccount] : snapshot.accounts
       const rows = []
-      for (const account of snapshot.accounts) {
+      for (const account of accountsToRender) {
         if (rows.length >= 4) break
         for (const win of account.windows) {
           if (rows.length >= 4) break
@@ -2538,11 +2555,43 @@
       })
       if (snapshot.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(snapshot.fetchedAt).toLocaleTimeString() }))
       detailParts.push(...clickRefreshTipLines(t, refresh))
-      const detail = [source.label || source.id, ...detailParts].join('\n')
+      const accHeader = multi && currentAccountName
+        ? `${source.label || source.id} (${activeIdx + 1}/${snapshot.accounts.length} · ${currentAccountName})`
+        : (source.label || source.id)
+      const detail = [accHeader, ...detailParts].join('\n')
       const bodyRows = rows.map((r, i) => r.text != null
         ? el('div', { key: i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, r.name), el('span', { className: 'cm-mm-text cm-num' }, r.text))
         : el(Fragment, { key: i }, r.view.row))
-      const body = el(Fragment, null, el('div', { className: 'cm-mm-title' }, source.label || source.id), ...bodyRows)
+
+            const onSwitch = e => {
+        if (!e.key || e.key === 'Enter' || e.key === ' ') {
+          e.stopPropagation()
+          e.preventDefault?.()
+          setAccountIdx(i => {
+            const next = (i + 1) % snapshot.accounts.length
+            writeGatewayAccountLS(source.id, snapshot.accounts[next], next)
+            return next
+          })
+        }
+      }
+
+      const switchBtn = multi ? el('span', {
+        className: 'cm-gw-switcher',
+        'aria-label': t('gatewaySwitchAccount', { account: currentAccountName || (activeIdx + 1) }),
+        onClick: onSwitch,
+        onKeyDown: onSwitch,
+        role: 'button',
+        tabIndex: 0,
+      }, `${activeIdx + 1}/${snapshot.accounts.length} ⇄`) : null
+
+      const titleRow = multi
+        ? el('div', { className: 'cm-bbox-head' }, el('div', { className: 'cm-mm-title' }, source.label || source.id), switchBtn)
+        : el('div', { className: 'cm-mm-title' }, source.label || source.id)
+      const accSub = multi && currentAccountName
+        ? el('div', { className: 'cm-gw-sub' }, currentAccountName)
+        : null
+
+      const body = el(Fragment, null, titleRow, accSub, ...bodyRows)
       const pcts = rows.filter(r => r.view).map(r => r.view.label).filter(p => p !== null)
       const railText = pcts.length > 0 ? pcts.slice(0, 2).map(p => p + '%').join(' ') : (rows[0].text ?? '—')
       const rail = el('div', { className: 'cm-bbox-rail cm-num' }, railText)
