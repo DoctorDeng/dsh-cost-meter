@@ -27,17 +27,27 @@ const state = { today: totals(1 / 7.2), month: totals(8 / 7.2), total: totals(9 
 let combinations = 0
 for (const sidebarSimple of [false, true]) for (const wide of [false, true]) for (const budget of [false, true])
 for (const hideTodayCost of [false, true]) for (const peakEnabled of [false, true]) for (const peakNotice of [false, true])
-for (const peakStyle of ['compact', 'classic']) for (const go of [false, true]) {
+for (const peakStyle of ['compact', 'classic', 'dot']) for (const go of [false, true]) {
   state.config = sanitizeConfig({ sidebarSimple, hideTodayCost, peakEnabled, peakNotice, peakStyle,
     balance: { display: 'sidebar', showProgressBar: true }, budget: { enabled: budget, amount: 10 }, goQuota: { enabled: go, display: 'sidebar' } })
   const tree = render(ui.SidebarFooter({ wide, useCost: pick => pick({ state }) }))
-  const peakClasses = ['cm-peak-strip', 'cm-peak-classic', 'cm-peak-rail', 'cm-peak-rail-classic']
+  const peakClasses = ['cm-peak-strip', 'cm-peak-classic', 'cm-peak-dot', 'cm-peak-rail', 'cm-peak-rail-classic', 'cm-peak-rail-dot']
   const strips = nodes(tree).filter(n => peakClasses.some(cls => hasClass(n, cls)))
   // fork 定制:宽栏峰谷条由合并信息卡 TodayBalanceCard(标准)或独立条(简化)承载,收起态走竖向条,
   // 不再依赖上游「预算卡 / 今日费用卡」是否渲染;本矩阵官方余额恒为已查询,故启用即恰好一条。
   const expected = peakEnabled && peakNotice ? 1 : 0
   assert.equal(strips.length, expected, JSON.stringify({ sidebarSimple, wide, budget, hideTodayCost, peakEnabled, peakNotice, peakStyle, go }))
-  if (expected) assert.ok(hasClass(strips[0], wide ? peakStyle === 'classic' ? 'cm-peak-classic' : 'cm-peak-strip' : peakStyle === 'classic' ? 'cm-peak-rail-classic' : 'cm-peak-rail'))
+  const PEAK_CLASS = { compact: ['cm-peak-strip', 'cm-peak-rail'], classic: ['cm-peak-classic', 'cm-peak-rail-classic'], dot: ['cm-peak-dot', 'cm-peak-rail-dot'] }
+  if (expected) assert.ok(hasClass(strips[0], PEAK_CLASS[peakStyle][wide ? 0 : 1]))
+  // dot 样式的配色挂在圆点元素自身(.cm-peak-dot-circle.<阶段>):展开态容器是 cm-peak-dot、
+  // 收起态是 cm-peak-rail-dot,若状态类只挂容器,收起态圆点会回落成平价蓝(峰时丢橙色)。
+  if (expected && peakStyle === 'dot') {
+    const circle = nodes(tree).find(n => hasClass(n, 'cm-peak-dot-circle'))
+    assert.ok(circle !== undefined, 'dot 样式渲染圆点元素')
+    const phase = ['peak', 'weekend', 'off'].find(cls => hasClass(circle, cls))
+    assert.ok(phase !== undefined, '圆点元素自身携带时段状态类(峰/平价/周末)')
+    assert.ok(hasClass(strips[0], phase), '圆点的时段状态与容器一致')
+  }
   const summaries = nodes(tree).filter(n => hasClass(n, 'cm-simple-summary'))
   assert.equal(summaries.length, sidebarSimple && wide && !hideTodayCost ? 1 : 0)
   if (sidebarSimple && wide && budget && !hideTodayCost) {

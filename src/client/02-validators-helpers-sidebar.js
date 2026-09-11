@@ -2078,9 +2078,12 @@
         ? t('nextPeakIn', { time: countdownText(view, now, t) })
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       const detail = [t(keys.notice), chipText]
+      // 时段状态:容器与圆点共用。圆点自身必须带状态类,颜色由 .cm-peak-dot-circle.<阶段> 命中
+      // (展开/收起两种容器的类名不同,把选色挂在容器上会让收起态丢失峰时/周末配色)。
+      const phase = view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'
       return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-peak-dot ' + (view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
-          el('span', { className: 'cm-peak-dot-circle' }),
+        el('div', { className: 'cm-peak-dot ' + phase, 'aria-label': detail.join('; ') },
+          el('span', { className: 'cm-peak-dot-circle ' + phase }),
           el('span', { className: 'cm-peak-dot-text' }, t(keys.chip) + ' · ' + chipText)))
     }
     function peakNoticeEl(state, config, t) {
@@ -2150,9 +2153,10 @@
         ? t('nextPeakIn', { time: countdownText(view, now, t) })
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       const detail = [t(keys.notice), chipText]
+      const phase = view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'
       return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-peak-rail-dot ' + (view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
-          el('span', { className: 'cm-peak-dot-circle' }),
+        el('div', { className: 'cm-peak-rail-dot ' + phase, 'aria-label': detail.join('; ') },
+          el('span', { className: 'cm-peak-dot-circle ' + phase }),
           el('span', { className: 'cm-peak-rail-label' }, t(keys.short))))
     }
     function peakNoticeRailEl(state, config, t) {

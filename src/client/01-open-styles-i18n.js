@@ -245,11 +245,12 @@ window.__ModuleLoader__.load({
       '.cm-peak-rail-classic.weekend .cm-peak-rail-classic-marker{border-color:#34a853}',
       '.cm-peak-rail-classic.weekend .cm-peak-rail-classic-label{color:#34a853}',
       // 圆点样式:单状态圆点随时段变色(峰时橙/平价蓝/周末绿)+时段文字;柔光圈提升深浅主题下的可见性。
+      // 状态类挂在圆点元素自身而非容器——展开态容器是 .cm-peak-dot、收起态是 .cm-peak-rail-dot,
+      // 若按容器选色,收起态会全部回落成平价蓝(峰时/周末丢色)。平价沿用底色,故无 .off 规则。
       '.cm-peak-dot{display:inline-flex;align-items:center;gap:6px;margin-top:4px;min-width:0}',
       '.cm-peak-dot-circle{flex:none;display:inline-block;width:9px;height:9px;border-radius:999px;background:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent);transition:background .4s ease,box-shadow .4s ease}',
-      '.cm-peak-dot.peak .cm-peak-dot-circle{background:#ff9800;box-shadow:0 0 0 3px color-mix(in srgb,#ff9800 22%,transparent)}',
-      '.cm-peak-dot.off .cm-peak-dot-circle{background:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent)}',
-      '.cm-peak-dot.weekend .cm-peak-dot-circle{background:#34a853;box-shadow:0 0 0 3px color-mix(in srgb,#34a853 22%,transparent)}',
+      '.cm-peak-dot-circle.peak{background:#ff9800;box-shadow:0 0 0 3px color-mix(in srgb,#ff9800 22%,transparent)}',
+      '.cm-peak-dot-circle.weekend{background:#34a853;box-shadow:0 0 0 3px color-mix(in srgb,#34a853 22%,transparent)}',
       '.cm-peak-dot-text{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;font-weight:600;line-height:1.2;white-space:nowrap;color:var(--dsw-alias-label-secondary)}',
       '.cm-peak-rail-dot{display:flex;flex-direction:column;align-items:center;gap:4px;width:40px;box-sizing:border-box}',
       '.cm-peak-rail-dot .cm-peak-dot-circle{width:10px;height:10px}',
