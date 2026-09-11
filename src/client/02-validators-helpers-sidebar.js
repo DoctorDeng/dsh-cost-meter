@@ -83,26 +83,13 @@
         cacheMiss: needNum(v.cacheMiss, path + '.cacheMiss'),
         output: needNum(v.output, path + '.output'),
       }
-      if (v.offPeak !== undefined) {
-        out.offPeak = {
-          cacheHit: needNum(v.offPeak.cacheHit, path + '.offPeak.cacheHit'),
-          cacheMiss: needNum(v.offPeak.cacheMiss, path + '.offPeak.cacheMiss'),
-          output: needNum(v.offPeak.output, path + '.offPeak.output'),
-        }
-      }
-      if (v.peak !== undefined) {
-        out.peak = {
-          cacheHit: needNum(v.peak.cacheHit, path + '.peak.cacheHit'),
-          cacheMiss: needNum(v.peak.cacheMiss, path + '.peak.cacheMiss'),
-          output: needNum(v.peak.output, path + '.peak.output'),
-        }
-      }
-      if (v.legacyBase !== undefined) {
-        out.legacyBase = {
-          cacheHit: needNum(v.legacyBase.cacheHit, path + '.legacyBase.cacheHit'),
-          cacheMiss: needNum(v.legacyBase.cacheMiss, path + '.legacyBase.cacheMiss'),
-          output: needNum(v.legacyBase.output, path + '.legacyBase.output'),
-        }
+      for (const key of ['cacheWrite', 'reasoning']) if (v[key] !== undefined) out[key] = needNum(v[key], path + '.' + key)
+      for (const key of ['offPeak', 'peak', 'legacyBase', 'longContext']) {
+        if (v[key] === undefined) continue
+        const tier = v[key], part = {}
+        for (const field of ['cacheHit', 'cacheMiss', 'output']) part[field] = needNum(tier[field], path + '.' + key + '.' + field)
+        for (const field of ['cacheWrite', 'reasoning', 'aboveInputTokens']) if (tier[field] !== undefined) part[field] = needNum(tier[field], path + '.' + key + '.' + field)
+        out[key] = part
       }
       if (v.legacy !== undefined) out.legacy = needBool(v.legacy, path + '.legacy')
       if (v.rateHistory !== undefined) {
@@ -145,6 +132,8 @@
         showTotalWithPlan: v.showTotalWithPlan === true,
         sidebarSimple: v.sidebarSimple === true,
         sidebarSimplePromptSeen: v.sidebarSimplePromptSeen === true,
+        codexQuotaEnabled: v.codexQuotaEnabled === true,
+        includeSubagentCost: v.includeSubagentCost === true,
         sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
         priceMatchDismissed: Array.isArray(v.priceMatchDismissed) ? v.priceMatchDismissed.filter(key => typeof key === 'string') : [],
         // 官方价格币种(issue #47):读侧白名单缺失会导致下拉选择保存后读不回。
@@ -528,74 +517,60 @@
       package: 'dsh-cost-meter',
       descriptors: [
         {
-          id: 'dsh-cost-meter#costMeter/getState', service: 'costMeter', namespace: 'costMeter', method: 'getState',
-          invocation: { kind: 'direct' }, parameters: [],
+          method: 'getState',
           result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CostState', schema: stateCodec },
         },
         {
-          id: 'dsh-cost-meter#costMeter/updateConfig', service: 'costMeter', namespace: 'costMeter', method: 'updateConfig',
-          invocation: { kind: 'direct' },
+          method: 'updateConfig',
           parameters: [{ name: 'patch', wire: 'patch', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#ConfigPatch', schema: patchCodec } }],
           result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CostState', schema: stateCodec },
         },
         {
-          id: 'dsh-cost-meter#costMeter/fetchPrices', service: 'costMeter', namespace: 'costMeter', method: 'fetchPrices',
-          invocation: { kind: 'direct' }, parameters: [],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
+          method: 'fetchPrices',
+          },
         {
-          id: 'dsh-cost-meter#costMeter/refreshBalance', service: 'costMeter', namespace: 'costMeter', method: 'refreshBalance',
-          invocation: { kind: 'direct' }, parameters: [],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
+          method: 'refreshBalance',
+          },
         {
-          id: 'dsh-cost-meter#costMeter/refreshGoQuota', service: 'costMeter', namespace: 'costMeter', method: 'refreshGoQuota',
-          invocation: { kind: 'direct' }, parameters: [],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
+          method: 'refreshGoQuota',
+          },
         {
-          id: 'dsh-cost-meter#costMeter/refreshCustomBalance', service: 'costMeter', namespace: 'costMeter', method: 'refreshCustomBalance',
-          invocation: { kind: 'direct' },
+          method: 'refreshCustomBalance',
           // index(v1.7.1):与宿主侧 manifest 同口径——acceptsUndefined 允许旧调用
           // 不带参数(等价全量刷新);codec 与 providerCodec 同为本地 parse 形态。
           parameters: [{ name: 'index', wire: 'index', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CustomBalanceIndex', schema: indexCodec } }],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
+          },
         {
-          id: 'dsh-cost-meter#costMeter/refreshCodingPlan', service: 'costMeter', namespace: 'costMeter', method: 'refreshCodingPlan',
-          invocation: { kind: 'direct' },
+          method: 'refreshCodingPlan',
           parameters: [{ name: 'provider', wire: 'provider', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CodingPlanProvider', schema: providerCodec } }],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
+          },
         {
-          id: 'dsh-cost-meter#costMeter/refreshGatewayQuota', service: 'costMeter', namespace: 'costMeter', method: 'refreshGatewayQuota',
-          invocation: { kind: 'direct' },
+          method: 'refreshGatewayQuota',
           parameters: [{ name: 'sourceId', wire: 'sourceId', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#GatewayQuotaSourceId', schema: codecOf(v => {
             if (v === undefined || v === null) return undefined
             if (typeof v !== 'string' || v.length > 48 || !/^[a-z0-9][a-z0-9_-]*$/.test(v)) fail('sourceId', 'gateway source id')
             return v
           }) } }],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
+          },
         {
-          id: 'dsh-cost-meter#costMeter/resetHistory', service: 'costMeter', namespace: 'costMeter', method: 'resetHistory',
-          invocation: { kind: 'direct' }, parameters: [],
+          method: 'resetHistory',
           result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CostState', schema: stateCodec },
         },
         {
-          id: 'dsh-cost-meter#costMeter/importLegacyHistory', service: 'costMeter', namespace: 'costMeter', method: 'importLegacyHistory',
-          invocation: { kind: 'direct' }, parameters: [],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
+          method: 'importLegacyHistory',
+          },
         {
-          id: 'dsh-cost-meter#costMeter/getDaySessions', service: 'costMeter', namespace: 'costMeter', method: 'getDaySessions',
-          invocation: { kind: 'direct' },
+          method: 'getDaySessions',
           parameters: [{ name: 'date', wire: 'date', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#DayKey', schema: dateCodec } }],
           result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#DayRecord', schema: dayCodec },
         },
         {
-          id: 'dsh-cost-meter#costMeter/getTopSessions', service: 'costMeter', namespace: 'costMeter', method: 'getTopSessions',
-          invocation: { kind: 'direct' },
+          method: 'getSessionCost',
+          parameters: [{ name: 'sessionId', wire: 'sessionId', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionId', schema: providerCodec } }],
+          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionCost', schema: codecOf(v => ({ own: parseSession(v.own, 'own'), subagents: parseSession(v.subagents, 'subagents'), found: needBool(v.found, 'found'), subagentCount: needNum(v.subagentCount, 'subagentCount') })) },
+        },
+        {
+          method: 'getTopSessions',
           parameters: [
             { name: 'limit', wire: 'limit', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionLimit', schema: limitCodec } },
             { name: 'sort', wire: 'sort', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionSort', schema: sortCodec }, acceptsUndefined: true },
@@ -605,24 +580,21 @@
         },
         {
           // 写入一枚密钥到 DSH 凭据库(v1.6.8):与服务端 typert 清单一一对应。
-          id: 'dsh-cost-meter#costMeter/setCredential', service: 'costMeter', namespace: 'costMeter', method: 'setCredential',
-          invocation: { kind: 'direct' },
+          method: 'setCredential',
           parameters: [
             { name: 'target', wire: 'target', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CredentialTarget', schema: credTargetCodec } },
             { name: 'value', wire: 'value', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CredentialValue', schema: credValueCodec } },
           ],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
+          },
         {
           // 从 DSH 凭据库移除一枚密钥(v1.6.8)。
-          id: 'dsh-cost-meter#costMeter/clearCredential', service: 'costMeter', namespace: 'costMeter', method: 'clearCredential',
-          invocation: { kind: 'direct' },
+          method: 'clearCredential',
           parameters: [
             { name: 'target', wire: 'target', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CredentialTarget', schema: credTargetCodec } },
           ],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec },
-        },
-      ],
+          },
+      ].map(def => ({ id: 'dsh-cost-meter#costMeter/' + def.method, service: 'costMeter', namespace: 'costMeter',
+        invocation: { kind: 'direct' }, parameters: [], result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec }, ...def })),
     }
 
     // ── 计费与显示助手(与服务端 pricing.js 一致) ───────────────────────────
@@ -645,6 +617,7 @@
       const out = { cacheHit: hit, cacheMiss: miss, output: n('output') ?? 0 }
       const reasoning = n('reasoning')
       if (reasoning !== undefined) out.reasoning = reasoning
+      if (n('cacheWrite') !== undefined) out.cacheWrite = n('cacheWrite')
       return out
     }
     function normalizeClientPrice(raw) {
@@ -656,6 +629,7 @@
         const tier = normalizeClientTier(raw[key])
         if (tier !== undefined) base[key] = tier
       }
+      if (Number.isFinite(raw.longContext?.aboveInputTokens) && raw.longContext.aboveInputTokens > 0) base.longContext = { ...normalizeClientTier(raw.longContext), aboveInputTokens: raw.longContext.aboveInputTokens }
       if (Array.isArray(raw.rateHistory)) base.rateHistory = raw.rateHistory.slice(0, 16).map(period => {
         const out = { ...normalizeClientTier(period), before: period.before }
         for (const key of ['offPeak', 'peak']) {
@@ -706,7 +680,8 @@
     const LEGACY_BASE_BOUNDARY_MS = Date.parse('2026-08-16T16:00:00Z')
     function tierFor(entry, atMs, peak) {
       const base = priceAt(entry, atMs) ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
-      const asTier = price => ({ cacheHit: price.cacheHit, cacheMiss: price.cacheMiss, output: price.output, reasoning: price.reasoning ?? 0 })
+      const asTier = price => ({ cacheHit: price.cacheHit, cacheMiss: price.cacheMiss, output: price.output, reasoning: price.reasoning ?? 0,
+        ...(price.cacheWrite === undefined ? {} : { cacheWrite: price.cacheWrite }), ...(price.longContext === undefined ? {} : { longContext: price.longContext }) })
       // 峰谷时代之前按当时的基础价计费(历史正确;与 lib/pricing.js tierFor 同分支,
       // v1.6.9 审计修复:客户端镜像此前缺该分支,分界前回放桶会按当前价重算)。
       if (Number.isFinite(atMs) && atMs < LEGACY_BASE_BOUNDARY_MS) {
@@ -732,7 +707,8 @@
       const cacheRead = Math.max(0, Number(buckets.cacheRead) || 0)
       const cacheWrite = Math.max(0, Number(buckets.cacheWrite) || 0)
       const reasoning = Math.max(0, Number(buckets.reasoning) || 0)
-      return (input * tier.cacheMiss + output * tier.output + (cacheRead + cacheWrite) * tier.cacheHit + reasoning * (tier.reasoning ?? 0)) / 1_000_000
+      if (tier.longContext && input + cacheRead + cacheWrite > tier.longContext.aboveInputTokens) tier = tier.longContext
+      return (input * tier.cacheMiss + output * tier.output + cacheRead * tier.cacheHit + cacheWrite * (tier.cacheWrite ?? tier.cacheHit) + reasoning * (tier.reasoning ?? 0)) / 1_000_000
     }
     function usdFromCostLocal(cost, currency, rate) {
       const c = Number(cost)
@@ -1149,6 +1125,17 @@
     function billedInput(usage) {
       return (usage?.input ?? 0) + (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0)
     }
+    function recordedApiCost(usage, config) {
+      if (usage?.apiCost !== undefined) return moneyCostOf(usage)
+      if (!usageHasPlanClass(usage, config)) return usageCost(usage, config)
+      let plan = 0
+      for (const [key, row] of Object.entries(usage.byProviderModel ?? {})) {
+        if (!Number.isFinite(row.cost)) return usageSplit(usage, config).api
+        const i = key.indexOf(':')
+        if (billingClassOfLocal(key.slice(0, i), key.slice(i + 1), config) === 'plan') plan += row.cost
+      }
+      return Math.max(0, usageCost(usage, config) - plan)
+    }
 
     // ── 时区错位提示(issue #74):「今日/本月」日键按宿主机进程时区取,宿主与
     //    浏览器时区不同时,用户本地午夜后的调用会落到前一日键下(今日显示 ¥0、
@@ -1323,11 +1310,53 @@
       }, [identity])
     }
 
+    function mergeSessionUsage(projection, snapshot, include, config) {
+      const tokens = v => ['input', 'output', 'cacheRead', 'cacheWrite'].reduce((n, k) => n + (v?.[k] ?? 0), 0)
+      const base = snapshot?.found && tokens(snapshot.own) >= tokens(projection) ? snapshot.own : projection
+      if (!include || !snapshot?.subagentCount) return base
+      const extra = snapshot.subagents, out = { ...base }
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'cost']) out[key] = (base?.[key] ?? 0) + (extra?.[key] ?? 0)
+      out.apiCost = recordedApiCost(base, config) + moneyCostOf(extra)
+      for (const key of ['byModel', 'byProviderModel']) {
+        out[key] = { ...base?.[key] }
+        for (const [id, row] of Object.entries(extra?.[key] ?? {})) {
+          const combined = { ...out[key][id] }
+          for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'cost']) combined[field] = (combined[field] ?? 0) + (row[field] ?? 0)
+          // 桶内分类可能来自投影，未带 apiCost；不保留只覆盖主会话的旧派生值。
+          delete combined.apiCost
+          out[key][id] = combined
+        }
+      }
+      return out
+    }
+    function useSessionUsage(props) {
+      const projection = props.useProjection ? props.useProjection('costUsage') : undefined
+      const state = props.useCost?.(s => s)?.state
+      const config = state?.config
+      const [snapshot, setSnapshot] = useState(null)
+      useProjectionRefresh(props, projection)
+      useEffect(() => {
+        if (!props.sessionId || !props.api?.getSessionCost) return
+        let active = true, pending = false
+        const refresh = async () => {
+          if (pending) return
+          pending = true
+          try {
+            const value = await props.api.getSessionCost(props.sessionId)
+            if (active) setSnapshot({ id: props.sessionId, include: config?.includeSubagentCost === true, value })
+          } catch { /* 旧服务无 RPC 时保留投影显示。 */ }
+          finally { pending = false }
+        }
+        void refresh()
+        const timer = config?.includeSubagentCost === true ? setInterval(refresh, 10000) : null
+        return () => { active = false; if (timer !== null) clearInterval(timer) }
+      }, [props.sessionId, state?.meta?.now, projection, config?.includeSubagentCost])
+      const saved = snapshot?.id === props.sessionId && snapshot.include === (config?.includeSubagentCost === true) ? snapshot.value : null
+      return { usage: mergeSessionUsage(projection, saved, config?.includeSubagentCost === true, config), config }
+    }
+
     function SessionCost(props) {
-      const usage = props.useProjection ? props.useProjection('costUsage') : undefined
-      const costStore = props.useCost ? props.useCost(s => s) : undefined
-      useProjectionRefresh(props, usage)
-      const config = costStore?.state?.config
+      const { usage, config } = useSessionUsage(props)
       if (!usage || !config || (billedInput(usage) + (usage?.output ?? 0)) === 0) return null
       const t = makeT(resolveLocale(config.locale))
       // Plan/API 双轨(issue #64):会话内存在 Plan 类模型时,徽章显示真金白银
@@ -1335,8 +1364,8 @@
       // 单一总额口径(v1.6.0);无 Plan 用量时保持宿主精确成本快路径。
       let planPart = 0
       let cost = usageCost(usage, config)
-      if (config.showTotalWithPlan !== true && usageHasPlanClass(usage, config)) {
-        const split = usageSplit(usage, config)
+      if (config.showTotalWithPlan !== true && (usage.apiCost !== undefined || usageHasPlanClass(usage, config))) {
+        const split = { total: usageCost(usage, config), api: recordedApiCost(usage, config) }
         planPart = Math.max(0, split.total - split.api)
         if (planPart > 0) cost = split.api
       }
@@ -1362,10 +1391,7 @@
     }
 
     function DockLine(props) {
-      const usage = props.useProjection ? props.useProjection('costUsage') : undefined
-      const costStore = props.useCost ? props.useCost(s => s) : undefined
-      useProjectionRefresh(props, usage)
-      const config = costStore?.state?.config
+      const { usage, config } = useSessionUsage(props)
       if (!usage || !config) return null
       const input = usage.input ?? 0
       const cache = (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0)
@@ -1377,8 +1403,8 @@
       // 开启时回到单一总额口径(v1.6.0)。
       let planPart = 0
       let cost = usageCost(usage, config)
-      if (config.showTotalWithPlan !== true && usageHasPlanClass(usage, config)) {
-        const split = usageSplit(usage, config)
+      if (config.showTotalWithPlan !== true && (usage.apiCost !== undefined || usageHasPlanClass(usage, config))) {
+        const split = { total: usageCost(usage, config), api: recordedApiCost(usage, config) }
         planPart = Math.max(0, split.total - split.api)
         if (planPart > 0) cost = split.api
       }
@@ -2362,7 +2388,8 @@
      * 探测 Codex 周额度。结果写模块缓存并广播;非 force 时 5 分钟内直接用缓存
      * (404/未登录/网络错误都按 unavailable 缓存,避免每次渲染反复打同一空路由)。
      */
-    async function fetchCodexQuota(force = false) {
+    async function fetchCodexQuota(force = false, enabled = false) {
+      if (!enabled) return
       if (codexQuotaCache.inFlight !== null) return codexQuotaCache.inFlight
       if (!force && codexQuotaCache.fetchedAt > 0 && Date.now() - codexQuotaCache.fetchedAt < 5 * 60_000) return undefined
       const task = (async () => {
@@ -2387,24 +2414,23 @@
       return task
     }
 
-    // bundle 装载即做一次被动探测:让「其余显示全关、只开 Codex」的极端配置也能出卡片。
-    void fetchCodexQuota(false)
-
-    function useCodexQuota() {
+    function useCodexQuota(enabled) {
       const [snap, setSnap] = useState(() => ({
         status: codexQuotaCache.status,
         windows: codexQuotaCache.windows,
         fetchedAt: codexQuotaCache.fetchedAt,
       }))
       useEffect(() => {
+        if (!enabled) return
         let mounted = true
         const sync = () => {
           if (mounted) setSnap({ status: codexQuotaCache.status, windows: codexQuotaCache.windows, fetchedAt: codexQuotaCache.fetchedAt })
         }
         const unsubscribe = subscribeCodexQuota(sync)
-        void fetchCodexQuota(false)
+        sync()
+        void fetchCodexQuota(false, true)
         return () => { mounted = false; unsubscribe() }
-      }, [])
+      }, [enabled])
       return snap
     }
 
@@ -2413,9 +2439,9 @@
       const hoverProps = useQuotaHoverRefresh()
       const { state, wide } = props
       const t = makeT(resolveLocale(state.config?.locale))
-      const snap = useCodexQuota()
-      const refresh = useClickRefresh(() => fetchCodexQuota(true))
-      if (snap.status !== 'ok') return null
+      const snap = useCodexQuota(state.config?.codexQuotaEnabled === true)
+      const refresh = useClickRefresh(() => fetchCodexQuota(true, state.config?.codexQuotaEnabled === true))
+      if (state.config?.codexQuotaEnabled !== true || snap.status !== 'ok') return null
       const win = snap.windows.weekly ?? null
       if (win === null) return null
       const direction = barDirectionOf(state.config, 'plan')
@@ -2502,16 +2528,11 @@
               ...rows)))
     }
 
-    const readGatewayAccountLS = (id, list) => {
-      try {
-        const s = window.localStorage?.getItem?.('cm.gw.' + id)
-        const i = (list ?? []).findIndex(a => a.id === s || a.label === s)
-        return i >= 0 ? i : Math.max(0, Math.min((list?.length ?? 1) - 1, Number(s) || 0))
-      } catch { return 0 }
+    const readGatewayAccountLS = id => {
+      try { return window.localStorage?.getItem?.('cm.gw.' + id) ?? '' } catch { return '' }
     }
-
-    const writeGatewayAccountLS = (id, a, i) => {
-      try { window.localStorage?.setItem?.('cm.gw.' + id, a?.label || a?.id || String(i)) } catch {}
+    const writeGatewayAccountLS = (id, accountId) => {
+      try { window.localStorage?.setItem?.('cm.gw.' + id, accountId) } catch {}
     }
 
     // ── 网关(CLIProxyAPI)额度侧边栏卡片(issue #96)─────────────────────────
@@ -2525,11 +2546,13 @@
       const hoverProps = useQuotaHoverRefresh()
       const { source, snapshot, state, wide, api } = props
       const t = makeT(resolveLocale(state.config?.locale))
-      const [accountIdx, setAccountIdx] = useState(() => readGatewayAccountLS(source.id, snapshot.accounts))
+      const [selection, setSelection] = useState(() => ({ source: source.id, id: readGatewayAccountLS(source.id) }))
       const refresh = useClickRefresh(api ? () => api.refreshGatewayQuota(source.id) : null)
       const direction = barDirectionOf(state.config, 'plan')
       const multi = snapshot.accounts.length > 1
-      const activeIdx = multi ? accountIdx % snapshot.accounts.length : 0
+      const selectedId = selection.source === source.id ? selection.id : readGatewayAccountLS(source.id)
+      const selectedIdx = snapshot.accounts.findIndex(a => a.id === selectedId)
+      const activeIdx = selectedIdx >= 0 ? selectedIdx : Math.max(0, snapshot.accounts.findIndex(a => a.windows.length > 0 || a.credits != null))
       const currentAccount = snapshot.accounts[activeIdx] ?? snapshot.accounts[0]
       const currentAccountName = currentAccount?.label || currentAccount?.id || ''
       const prefix = account => multi ? (GATEWAY_PROVIDER_LABELS[account.provider] ?? account.provider) + ' · ' : ''
@@ -2546,7 +2569,7 @@
           rows.push({ win: null, name: prefix(account) + (account.credits.unit || 'credits'), text: (account.credits.used ?? '—') + ' / ' + (account.credits.limit ?? '—') })
         }
       }
-      if (rows.length === 0) return null
+      if (rows.length === 0) rows.push({ name: t('gatewayQuotaEmpty'), text: '—' })
       const level = rows.some(r => r.view?.level === 'over') ? 'over' : rows.some(r => r.view?.level === 'warn') ? 'warn' : 'ok'
       const detailParts = rows.map(r => {
         if (r.text != null) return r.name + ' ' + r.text
@@ -2563,15 +2586,13 @@
         ? el('div', { key: i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, r.name), el('span', { className: 'cm-mm-text cm-num' }, r.text))
         : el(Fragment, { key: i }, r.view.row))
 
-            const onSwitch = e => {
+      const onSwitch = e => {
         if (!e.key || e.key === 'Enter' || e.key === ' ') {
           e.stopPropagation()
           e.preventDefault?.()
-          setAccountIdx(i => {
-            const next = (i + 1) % snapshot.accounts.length
-            writeGatewayAccountLS(source.id, snapshot.accounts[next], next)
-            return next
-          })
+          const next = snapshot.accounts[(activeIdx + 1) % snapshot.accounts.length]
+          writeGatewayAccountLS(source.id, next.id)
+          setSelection({ source: source.id, id: next.id })
         }
       }
 
@@ -2599,7 +2620,7 @@
         el('div', {
           ...hoverProps, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
           ...clickableRefreshProps(refresh.busy, refresh.run),
-        }, wide === false ? rail : body))
+        }, wide === false ? el(Fragment, null, rail, switchBtn) : body))
     }
 
     /** 侧边栏网关卡片列表:按来源配置(display/enabled)与快照状态过滤,见 GatewayQuotaBox 注释。 */
@@ -2632,6 +2653,7 @@
 
     function QuotaStrip(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
+      useCodexQuota(costStore?.state?.config?.codexQuotaEnabled === true)
       // Hook 先于一切条件返回(React 规则):横条会因 state 缺失/开关关闭随时提前 return null。
       const [busyKey, setBusyKey] = useState(null)
       const [errs, setErrs] = useState({})
@@ -2735,7 +2757,7 @@
       }
       // Codex chip(issue #59):dsh-codex-connect 在位且已登录时出现;已用口径与各家一致。
       // 独立于 Coding Plan 开关:即使 strip.plans 为 false,Codex chip 仍应渲染。
-      const codexWin = codexQuotaCache.status === 'ok' ? codexQuotaCache.windows.weekly ?? null : null
+      const codexWin = config.codexQuotaEnabled === true && codexQuotaCache.status === 'ok' ? codexQuotaCache.windows.weekly ?? null : null
       if (codexWin !== null && typeof codexWin.percent === 'number') {
         const pct = Math.max(0, Math.min(100, Math.round(Number(codexWin.percent) || 0)))
         const resets = typeof codexWin.resetsAt === 'string' && codexWin.resetsAt.length > 0
@@ -2759,7 +2781,7 @@
         Promise.resolve()
           .then(() => (key === 'budget' ? api.reload()
             : key === 'go' ? api.refreshGoQuota()
-              : key === 'codex' ? fetchCodexQuota(true)
+              : key === 'codex' ? fetchCodexQuota(true, config.codexQuotaEnabled === true)
                 : api.refreshCodingPlan(key)))
           .catch(error => { setErrs(m => ({ ...m, [key]: error?.message ?? String(error) })) })
           .finally(() => setBusyKey(null))
@@ -2979,6 +3001,7 @@
 
     function SidebarFooter(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
+      useCodexQuota(costStore?.state?.config?.codexQuotaEnabled === true)
       // 侧边栏页脚非会话作用域插槽:useProjection 在部分宿主/页面可能不可用或
       // 抛错(无活跃会话),try/catch 退化,联动刷新随之失效(60s 轮询兜底)。
       let projectionUsage
@@ -3060,7 +3083,7 @@
       const gatewayNodes = gatewaySidebarCards(state, config, wide, props.api)
       // Codex 周额度(issue #59):客户端探测 dsh-codex-connect,ok 时并入侧边栏;
       // 其余显示全关时也要为它保留渲染入口(模块装载即有被动探测,快照同步读)。
-      const codexOn = codexQuotaCache.status === 'ok'
+      const codexOn = config.codexQuotaEnabled === true && codexQuotaCache.status === 'ok'
         && codexQuotaCache.windows.weekly !== null
       const budgetOn = (config.budget ?? {}).enabled === true
       const showToday = config.sidebar !== false && config.hideTodayCost !== true
