@@ -1,9 +1,26 @@
 {
-  "generatedAt": "2026-09-01",
+  "generatedAt": "2026-09-11",
   "note": "Auto-generated from lib/pricing.js DEFAULT_PROVIDER_PRICE_TABLE. USD per 1M tokens; unpriced entries have no verified official price.",
   "providers": {
     "openai": {
       "models": {
+        "gpt-6-astra": {
+          "input": 10,
+          "cachedInput": 1,
+          "cacheWrite": 12.5,
+          "output": 50,
+          "longContext": {
+            "aboveInputTokens": 272000,
+            "cacheMiss": 20,
+            "cacheHit": 2,
+            "cacheWrite": 25,
+            "output": 75
+          },
+          "billingMode": "flat",
+          "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+          "checkedAt": "2026-09-11",
+          "notes": "标准 API 价，OpenCode Zen 同价；完整输入（含缓存读写）超过 272K 时整次请求按长上下文档计费；不含 Batch/Flex/Fast 服务档折扣或倍率"
+        },
         "gpt-5.6-sol": {
           "input": 2,
           "cachedInput": 0.2,

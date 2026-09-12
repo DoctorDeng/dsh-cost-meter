@@ -2176,6 +2176,9 @@
           el('h3', { className: 'cm-h' }, t('displaySettings')),
           el('div', { className: 'cm-grid' },
             el('div', { className: 'cm-grid-group' }, t('groupGeneral')),
+            ...['includeSubagentCost', 'codexQuotaEnabled'].map(key => el('label', { key, className: 'cm-check' },
+              el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
+              el('span', null, t(key)))),
             USAGE_POSITION_SWITCHABLE
               ? el('div', { className: 'cm-field' },
                   el('label', null, t('usagePositionLabel')),
@@ -2728,6 +2731,7 @@
         // 按需拉取某天会话明细(issue #22),返回当日完整记录。
         getDaySessions: async date => call('getDaySessions', [date]),
         // 跨全部日期的会话排行(issue #22 不分日期视角):支持费用/时间升降序与实时顺序。
+        getSessionCost: async id => call('getSessionCost', [id]),
         getTopSessions: async (limit, sort, dir) => call('getTopSessions', [limit, sort, dir]),
         refreshBalance: async () => {
           const result = await costMeter.refreshBalance()
@@ -2904,7 +2908,7 @@
         const showToday = state?.config?.sidebar !== false && state?.config?.hideTodayCost !== true
         const balanceDisplay = state?.config?.balance?.display ?? 'both'
         const showBalance = (balanceDisplay === 'sidebar' || balanceDisplay === 'both') && state?.config?.hideOfficialBalance !== true
-        const footer = showToday || showBalance
+        const footer = showToday || showBalance || state?.config?.codexQuotaEnabled === true
         const cornerEnabled = state?.config?.corner?.enabled === true
         const sectionLocale = resolveLocale(state?.config?.locale)
         const usagePosition = state?.config?.usage?.position ?? 'cost'

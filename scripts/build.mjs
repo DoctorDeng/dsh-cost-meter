@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { transform } from 'esbuild'
+import { runInNewContext } from 'node:vm'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -40,7 +41,15 @@ for (const name of fragments) {
   }
 }
 
-const src = fragments.map(name => readFileSync(resolve(clientDir, name), 'utf8')).join('')
+let src = fragments.map(name => readFileSync(resolve(clientDir, name), 'utf8')).join('')
+// CSS 在源码保留逐行审阅形式；发布时先按 CSS 语法压缩，再嵌入同一客户端。
+// 不删除规则、不调整选择器优先级，所有样式仍在受字节门禁检查的 bundle 内。
+const cssMatch = src.match(/const css = (\[[\s\S]*?\]\.join\('\\n'\))/)
+if (!cssMatch) throw new Error('client CSS source not found')
+const css = runInNewContext(cssMatch[1], Object.create(null), { timeout: 1000 })
+const cssResult = await transform(css, { loader: 'css', minify: true, charset: 'utf8', target: 'es2022' })
+if (cssResult.warnings.length) throw new Error('client CSS contains build warnings')
+src = src.replace(cssMatch[0], () => `const css = ${JSON.stringify(cssResult.code.trim())}`)
 const result = await transform(src, {
   minify: true,
   keepNames: false,

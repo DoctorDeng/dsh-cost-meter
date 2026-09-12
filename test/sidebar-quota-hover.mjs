@@ -35,7 +35,7 @@ const view = ui.miniMaxRow('完整的长窗口名称', win, 'remaining', zh)
 assert.equal(view.row.props.title, undefined, '行元素不设原生 title，避免与外层卡片 Tooltip 重叠冲突')
 assert.equal(view.row.children[2].children[0], '75%')
 assert.equal(view.row.children[0].props.title, undefined, '子标签不设原生 title')
-const state = { config: { locale: 'zh', barDirections: { plan: 'remaining' } }, codingPlans: { kimi: { status: 'ok', windows: { daily: win }, fetchedAt: now } } }
+const state = { config: { locale: 'zh', codexQuotaEnabled: true, barDirections: { plan: 'remaining' } }, codingPlans: { kimi: { status: 'ok', windows: { daily: win }, fetchedAt: now } } }
 const snapshot = { accounts: [{ provider: 'codex', windows: [{ ...win, label: 'Weekly long account window' }] }, { provider: 'antigravity', windows: [{ ...win, label: 'Daily' }] }], fetchedAt: now }
 ui.codexQuotaCache.status = 'ok'; ui.codexQuotaCache.windows = { weekly: win }
 const cards = [

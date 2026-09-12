@@ -202,7 +202,7 @@ console.log('[ok] 浏览器端 bundle 语法门禁(client.js vm 编译)通过')
   // 门控:来源启用 + display 侧边栏/两者 + 快照有数据(ok/partial/stale;error/loading/off 不出卡)。
   assert.ok(src96.includes('source.enabled === false || (source.display !== \'sidebar\' && source.display !== \'both\')'), 'issue #96:网关侧边栏卡片按 display(侧边栏/两者)门控')
   assert.ok(src96.includes("live.status !== 'ok' && live.status !== 'partial' && live.status !== 'stale'"), 'issue #96:仅 ok/partial/stale(有数据)状态出卡,error/loading/off 留在设置页')
-  assert.ok(src96.includes('live.accounts.length === 0') && src96.includes('if (rows.length === 0) return null'), 'issue #96:无账号/无行的来源不出卡')
+  assert.ok(src96.includes('live.accounts.length === 0') && src96.includes("if (rows.length === 0) rows.push({ name: t('gatewayQuotaEmpty')"), '无账号的来源隐藏；空额度账号保留切换入口')
   // 挂载:SidebarFooter 早退条件与节点插入都包含网关卡片(此前整条路径无 gateway 分支)。
   assert.ok(src96.includes('!showToday && gatewayNodes.length === 0) return null'), 'issue #96:SidebarFooter 早退条件纳入网关卡片')
   assert.ok(src96.includes('nodes.push(...gatewayNodes)'), 'issue #96:SidebarFooter 节点序列插入网关卡片(计划卡之后、Codex 之前)')
@@ -1258,7 +1258,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   const qstripBody = clientSource.slice(clientSource.indexOf('function QuotaStrip('), clientSource.indexOf('function QuotaStripGuide('))
   assert.ok(qstripBody.indexOf('const [busyKey, setBusyKey] = useState(null)') < qstripBody.indexOf('if (!state) return null'), 'Hook 先于条件返回(React 规则)')
   assert.ok(clientSource.includes("key === 'budget' ? api.reload()") && clientSource.includes("key === 'go' ? api.refreshGoQuota()") && clientSource.includes("api.refreshCodingPlan(key)"), '点击按 key 多路分发刷新')
-  assert.ok(clientSource.includes("key === 'codex' ? fetchCodexQuota(true)"), 'Codex chip 点击走客户端重探(issue #59)')
+  assert.ok(clientSource.includes("key === 'codex' ? fetchCodexQuota(true, config.codexQuotaEnabled === true)"), 'Codex chip 点击仅在开启后重探')
   assert.ok(clientSource.includes('clickableRefreshProps(busy, () => doRefresh(c.key))'), 'chip 复用可点击属性 helper(role/tabIndex/aria-busy/键盘)')
   assert.ok(clientSource.includes("'cm-qseg'") && clientSource.includes("'cm-qsep'"), '厂商多窗口分段渲染与竖分隔线样式类存在')
   console.log('[ok] 输入框上方额度横条(默认值/校验/清洗/双端声明/接线/首次引导/点击刷新与厂商融合)通过')
@@ -1511,9 +1511,20 @@ assert.equal(gtsInvocation.result.mode, 'strict', 'getTopSessions 返回 strict 
 }
 // 客户端 descriptor 清单与服务端 typert 清单逐方法对齐(issue #16 回归:漏注册 refreshCodingPlan 曾致刷新按钮报 is not a function)。
 const clientSrc = readClientSource()
-const clientMethods = [...new Set([...clientSrc.matchAll(/id: 'dsh-cost-meter#costMeter\/([A-Za-z]+)'/g)].map(m => m[1]))].sort()
+let descriptorFactory
+vm.runInNewContext(clientSrc.replace('exports.apply = apply', 'exports.descriptors = CONTRIBUTION.descriptors; exports.apply = apply'), {
+  window: { __ModuleLoader__: { load: value => { descriptorFactory = value.factory } } }, navigator: { language: 'en' },
+})
+const descriptors = descriptorFactory(() => ({})).descriptors
+const clientMethods = Array.from(descriptors, d => d.method).sort()
 const serverMethods = TYPERT.invocations.map(i => i.method).sort()
 assert.deepEqual(clientMethods, serverMethods, '客户端 descriptor 与服务端 typert 清单方法一一对齐')
+for (const descriptor of descriptors) {
+  const host = TYPERT.invocations.find(row => row.method === descriptor.method)
+  assert.equal(descriptor.id, host.id)
+  assert.equal(descriptor.result.typeSymbol, host.result.typeSymbol)
+  assert.equal(JSON.stringify(descriptor.parameters.map(p => [p.name, p.codec.typeSymbol, p.acceptsUndefined === true])), JSON.stringify(host.parameters.map(p => [p.name, p.codec.typeSymbol, p.acceptsUndefined === true])))
+}
 console.log('[ok] coding plan adapter/解析器/软失败/配置清洗/清单断言通过')
 
 // 网络重试封装(issue #28):仅瞬时网络错误重试,每次尝试新建超时信号。
@@ -1746,7 +1757,7 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
   // 旧 v3 checkpoint(ver 不匹配)隔离——宿主 ver 检查拒绝旧行并全量 refold,
   // 不会对旧结构 state 调用 parse。
   const projRow = { ver: def.stateVersion, seq: events.length, val: structuredClone(projState) }
-  assert.equal(projRow.ver, 9, 'stateVersion 为 9(旧 checkpoint 重放，包含摘要计量和默认峰谷价修复)')
+  assert.equal(projRow.ver, 10, 'stateVersion 为 10（重放旧 checkpoint，修复重启误扣历史）')
   usageProjectionStateSchema.parse(projRow.val)
   // ⑤ issue #43 崩溃点复现对照:缺 stateSchema 的定义(fork 0.2.0 场景)在
   // restore 路径抛出与 issue 报错完全一致的 TypeError。
@@ -2235,7 +2246,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(scheduled >= 1, '清洗后调度落盘')
   // 投影与启动接线:源码结构断言(投影无独立运行时入口,行为经宿主重放自愈)。
   const indexSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-  assert.ok(indexSource.includes('stateVersion: 9'), '投影 stateVersion 9:触发宿主重放，包含 #63/#77 及默认峰谷价修复')
+  assert.ok(indexSource.includes('stateVersion: 10'), '投影 stateVersion 10:触发宿主重放，包含普通重启费用修复')
   assert.ok(indexSource.includes("if (event.type === 'session')") && indexSource.includes('createdAt') && indexSource.includes('seedLength'), '投影记录会话创建时刻与 seedLength(旧宿主兼容+多 end-seed 延迟扣除)')
   assert.ok(indexSource.includes("if (event.type === 'session/end-seed')"), '投影识别 session/end-seed fork 种子边界(issue #55)')
   assert.ok(indexSource.includes('isSeedBySeq') && indexSource.includes('isSeedByLength') && indexSource.includes('seedEndSeq'), '投影按 seq/length/time 三重过滤种子段(issue #55/#61)')
@@ -4599,7 +4610,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.deepEqual(clearDesc.parameters.map(p => p.name), ['target'], 'clearCredential 参数 (target)')
   assert.equal(secretRefOf('codingPlans.scnet'), null, 'scnet 无凭据引用(不在 SECRET_TARGETS)')
   const clientSrcV168 = readClientSource()
-  assert.ok(clientSrcV168.includes("id: 'dsh-cost-meter#costMeter/setCredential'") && clientSrcV168.includes("id: 'dsh-cost-meter#costMeter/clearCredential'"), '客户端 descriptors 与服务端双侧同步')
+  assert.ok(descriptors.some(d => d.id === setDesc.id) && descriptors.some(d => d.id === clearDesc.id), '客户端 descriptors 与服务端双侧同步')
   assert.ok(clientSrcV168.includes('function CredentialField') && clientSrcV168.includes('api.setCredential') && clientSrcV168.includes('api.clearCredential'), '客户端 write-only 凭据输入组件接线')
   assert.ok(clientSrcV168.includes('function SecretMigrationNotice'), '客户端迁移提示组件存在')
   // 补丁闸门:密钥不得经 updateConfig 回到 config(叠加此前 873 行/volcengine 两处断言)。
@@ -6555,4 +6566,9 @@ await import('./project-audit.mjs')
 await import('./deepseek-pricing-september.mjs')
 await import('./sidebar-simple.mjs')
 await import('./sidebar-regressions.mjs')
+await import('./gpt-astra-pricing.mjs')
+await import('./subagent-billing.mjs')
+await import('./session-restart.mjs')
+await import('./native-search-billing.mjs')
+await import('./client-issues-127-129.mjs')
 console.log('[ok] 全部验证通过')
