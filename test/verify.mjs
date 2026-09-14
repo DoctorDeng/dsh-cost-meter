@@ -3605,8 +3605,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 设置页:每张 provider 卡片内的显示位置下拉(统一卡片外壳后 planId 由卡片组件持有,setPlan 不再带 id)。
   assert.ok(planSrc.includes("t('codingPlanDisplayLabel')"), '显示位置标签在设置页渲染')
   assert.ok(planSrc.includes("setPlan('display', event.target.value)"), '显示位置下拉写回该厂商 display')
-  const optionCount = [...planSrc.matchAll(/el\('option', \{ value: 'sidebar' \}, t\('balanceSidebar'\)\)/g)].length
-  assert.ok(optionCount >= 2, '显示位置下拉选项复用余额位置文案(sidebar 选项存在)')
+  // 选项值、文案及列表身份由 model-quota-cards.mjs 执行实际组件验证。
   // 侧边栏:按 display 门控的循环 + MiniMax 专用卡片 + 通用 CodingPlanBox。
   assert.ok(planSrc.includes('const sidebarPlanIds = CODING_PLAN_ROWS'), '侧边栏按 CODING_PLAN_ROWS 遍历厂商')
   assert.ok(planSrc.includes("entry.display !== 'sidebar' && entry.display !== 'both'"), '侧边栏门控 display=sidebar/both')

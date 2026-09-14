@@ -281,6 +281,12 @@ const planRows = e.mount(e.ui.PlanQuotaCard, { ...quotaProps(), planId: 'command
   draft: { ...draft, codingPlans: { ...draft.codingPlans, commandcode: { enabled: true } } },
   state: { ...quotaState, codingPlans: { commandcode: { status: 'ok', windows: { a_b: { percent: 10 }, 'a b': { text: '100 credits' } } } } } })
 assert.deepEqual(withClass(planRows.tree.props.statusNode, 'cm-go-row').map(n => n.props.key), ['a_b', 'a b'], '窗口行使用唯一原始 key，避免 React 列表警告')
+for (const settings of [goSettings, planRows.tree.props.configNode]) {
+  const select = nodes(settings).find(n => n.type === 'select' && nodes(n).some(o => o.type === 'option' && o.props.value === 'sidebar'))
+  assert.ok(select, 'Go 和 Coding Plan 均有显示位置选择器')
+  assert.deepEqual(nodes(select).filter(n => n.type === 'option').map(n => [n.props.value, textOf(n)]),
+    [['sidebar', t('balanceSidebar')], ['settings', t('balanceSettings')], ['both', t('balanceBoth')], ['off', t('off')]], '显示位置选项与余额文案一致')
+}
 
 // 实际 activate API：共享快照计时器、隐藏页面门控、slot 注册和 RPC 返回传播。
 const activation = environment(), registered = new Map(), cleanups = []
