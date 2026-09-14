@@ -704,57 +704,42 @@
     /** 按模型统计面板:今日/近90天两个口径,费用排行、Token 消耗(堆叠)、缓存命中率、性价比。
      *  纯前端聚合:state.today.byProviderModel 与 state.history[].byProviderModel(宿主已逐次计费)。
      *  口径:命中率 = 缓存读/(缓存读+非缓存输入);综合单价 = 费用/总token×1M;性价比 = 总token/费用。 */
-    function ModelStatsPanel(props) {
-      const { state, config, t, initialTab } = props
-      const [tab, setTab] = useState(initialTab === 'history' ? 'history' : 'today')
-      // 默认收起,保持设置页简洁;需要时点三角展开。
-      const [open, setOpen] = useState(false)
-      // 旧账本兼容:优先 byProviderModel(provider:model 键);旧格式回退 byModel(纯模型名键);
-      // 两者皆缺时用会话明细按会话 provider/model 近似重建;再兑底为未分模型合计行。
+    function modelStatsRows(state, config, t, source) {
+      const fields = ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'cost', 'calls']
+      const num = value => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : 0
+      const addRow = (out, key, b) => {
+        if (!b || typeof b !== 'object') return
+        const row = out[key] ?? (out[key] = Object.fromEntries([...fields, 'apiCost'].map(k => [k, 0])))
+        for (const k of fields) row[k] += num(b[k])
+        const sep = key.indexOf(':')
+        row.apiCost += num(b.apiCost ?? (billingClassOfLocal(sep > 0 ? key.slice(0, sep) : 'deepseek', sep > 0 ? key.slice(sep + 1) : key, config) === 'plan' ? 0 : b.cost))
+      }
+      // 旧账本依次回退 byModel、会话内分模型明细、会话模型和未分模型合计。
       const modelMapOf = src => {
-        if (src === null || typeof src !== 'object') return {}
-        if (src.byProviderModel && Object.keys(src.byProviderModel).length > 0) return src.byProviderModel
-        if (src.byModel && Object.keys(src.byModel).length > 0) return src.byModel
+        if (!src || typeof src !== 'object') return {}
+        if (src.byProviderModel && Object.keys(src.byProviderModel).length) return src.byProviderModel
+        if (src.byModel && Object.keys(src.byModel).length) return Object.fromEntries(Object.entries(src.byModel).map(([k, v]) => [k.includes(':') ? k : 'deepseek:' + k, v]))
         const rebuilt = {}
-        if (Array.isArray(src.sessions)) {
-          for (const s of src.sessions) {
-            if (s === null || typeof s !== 'object') continue
-            const provider = typeof s.provider === 'string' && s.provider.length > 0 ? s.provider : 'deepseek'
-            const model = typeof s.model === 'string' && s.model.length > 0 ? s.model : 'unknown'
-            const key = provider + ':' + model
-            const row = rebuilt[key] ?? (rebuilt[key] = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, cost: 0 })
-            const num = x => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : 0)
-            row.input += num(s.input); row.output += num(s.output)
-            row.cacheRead += num(s.cacheRead); row.cacheWrite += num(s.cacheWrite)
-            row.reasoning += num(s.reasoning); row.cost += num(s.cost)
-          }
+        for (const s of Array.isArray(src.sessions) ? src.sessions : []) {
+          if (!s || typeof s !== 'object') continue
+          if (s.byProviderModel && Object.keys(s.byProviderModel).length) {
+            for (const [key, b] of Object.entries(s.byProviderModel)) addRow(rebuilt, key, b)
+          } else addRow(rebuilt, (s.provider || 'deepseek') + ':' + (s.model || 'unknown'), s)
         }
-        if (Object.keys(rebuilt).length > 0) return rebuilt
-        if ((Number(src.cost) > 0 || Number(src.input) > 0 || Number(src.output) > 0)) {
-          // 更旧版本连模型明细都没有:合计作为未分模型行,保证费用/用量可见。
-          const num = x => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : 0)
-          return { 'deepseek:legacy': { input: num(src.input), output: num(src.output), cacheRead: num(src.cacheRead), cacheWrite: num(src.cacheWrite), reasoning: num(src.reasoning), cost: num(src.cost) } }
-        }
-        return {}
+        if (Object.keys(rebuilt).length) return rebuilt
+        return fields.some(k => num(src[k]) > 0) ? { 'deepseek:legacy': src } : {}
       }
       const aggregate = source => {
         const out = {}
-        const add = map => {
-          for (const key of Object.keys(map ?? {})) {
-            const b = map[key]
-            if (b === null || typeof b !== 'object') continue
-            const row = out[key] ?? (out[key] = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, cost: 0, calls: 0 })
-            row.input += Number(b.input) || 0
-            row.output += Number(b.output) || 0
-            row.cacheRead += Number(b.cacheRead) || 0
-            row.cacheWrite += Number(b.cacheWrite) || 0
-            row.reasoning += Number(b.reasoning) || 0
-            row.cost += Number(b.cost) || 0
-            row.calls += Number(b.calls) || 0
+        const add = map => { for (const [key, b] of Object.entries(map ?? {})) addRow(out, key, b) }
+        if (source === 'today') add(modelMapOf(state.today))
+        else {
+          const end = Date.parse((state.meta?.dayKey || new Date().toISOString().slice(0, 10)) + 'T00:00:00Z')
+          for (const day of state.history ?? []) {
+            const stamp = Date.parse(day.date + 'T00:00:00Z')
+            if (stamp <= end && stamp >= end - 89 * 86400000) add(modelMapOf(day))
           }
         }
-        if (source === 'today') add(modelMapOf(state.today))
-        else for (const day of state.history ?? []) add(modelMapOf(day))
         return Object.entries(out).map(([key, b]) => {
           const sep = key.indexOf(':')
           const provider = (sep > 0 ? key.slice(0, sep) : 'deepseek').toLowerCase()
@@ -764,7 +749,7 @@
           return {
             label: key === 'deepseek:legacy' ? t('modelStatsLegacy')
               : (provider === 'deepseek' || provider === '' ? model : prettyProvider(provider) + ':' + model),
-            ...b, tokens,
+            key, ...b, tokens,
             // 计费方式(issue #64):plan=订阅额度(费用为等值口径),api=按量计费。
             cls: billingClassOfLocal(provider, model, config),
             hitRate: hitDen > 0 ? b.cacheRead / hitDen : null,
@@ -778,7 +763,15 @@
           }
         }).filter(r => r.tokens > 0 || r.cost > 0)
       }
-      const rows = aggregate(tab).sort((a, b) => b.cost - a.cost || b.tokens - a.tokens)
+      return aggregate(source).sort((a, b) => b.cost - a.cost || b.tokens - a.tokens)
+    }
+
+    function ModelStatsPanel(props) {
+      const { state, config, t, initialTab } = props
+      const [tab, setTab] = useState(initialTab === 'history' ? 'history' : 'today')
+      // 默认收起,保持设置页简洁;需要时点三角展开。
+      const [open, setOpen] = useState(false)
+      const rows = modelStatsRows(state, config, t, tab)
       const pct = v => (Math.max(0, Math.min(1, v)) * 100).toFixed(1) + '%'
       const maxCost = rows.reduce((m, r) => Math.max(m, r.cost), 0)
       const maxTokens = rows.reduce((m, r) => Math.max(m, r.tokens), 0)
@@ -1113,20 +1106,20 @@
 
     /** 统一卡片外壳。入参见下方各 XxxQuotaCard 的调用。 */
     function QuotaCard(props) {
-      const { name, enabled, busy, open, statusNode, configNode, errorMsg, onToggle, onRefresh, onRemove, onToggleOpen, t } = props
+      const { name, enabled, saved, busy, open, statusNode, configNode, errorMsg, onToggle, onRefresh, onRemove, onToggleOpen, t } = props
       const expandable = configNode != null
       return el('div', { className: 'cm-budget cm-quota-card' },
         el('div', { className: 'cm-budget-head' },
           el('label', { className: 'cm-check' },
-            el('input', { type: 'checkbox', checked: enabled === true, onChange: event => onToggle(event.target.checked) })),
+            el('input', { type: 'checkbox', 'aria-label': t('enable') + ': ' + name, checked: enabled === true, onChange: event => onToggle(event.target.checked) })),
           el('div', { className: 'cm-quota-name' },
             expandable ? collapseHeader(open === true, onToggleOpen, name) : el('h3', { className: 'cm-h' }, name)),
+          onRemove ? el('button', { className: 'cm-btn small', onClick: onRemove }, t('quotaRemove')) : null,
           el('button', {
             className: 'cm-btn small', onClick: onRefresh,
-            disabled: busy === true || enabled !== true,
-            title: enabled === true ? undefined : t('quotaEnableFirst'),
-          }, busy === true ? t('refreshing') : t('refresh')),
-          onRemove ? el('button', { className: 'cm-btn small', onClick: onRemove }, t('quotaRemove')) : null),
+            disabled: busy === true || enabled !== true || saved?.enabled !== true || saved.display === 'off',
+            title: enabled !== true ? t('quotaEnableFirst') : saved?.enabled !== true || saved.display === 'off' ? t('quotaRefreshReady') : t('refresh'),
+          }, busy === true ? t('refreshing') : t('refresh'))),
         statusNode,
         expandable && open === true ? el('div', { className: 'cm-collapse-body' }, configNode) : null,
         errorMsg != null ? el('div', { className: 'cm-msg ' + errorMsg.kind }, errorMsg.text) : null)
@@ -1136,8 +1129,10 @@
     function useQuotaRefresh(t, run) {
       const [busy, setBusy] = useState(false)
       const [msg, setMsg] = useState(null)
+      const pending = useRef(false)
       const trigger = async () => {
-        if (busy) return
+        if (pending.current) return
+        pending.current = true
         setBusy(true)
         setMsg(null)
         try {
@@ -1146,6 +1141,7 @@
         } catch (error) {
           setMsg({ kind: 'err', text: t('syncFailed', { message: error?.message ?? String(error) }) })
         } finally {
+          pending.current = false
           setBusy(false)
         }
       }
@@ -1160,9 +1156,9 @@
     }
 
     /** 额度窗口行(Go 与 Coding Plan 共用):无百分比的文本窗口显示为纯文本行。 */
-    const quotaWindowRow = (t, label, win, direction, main) => {
+    const quotaWindowRow = (t, label, win, direction, main, key = label) => {
       if (typeof win?.percent !== 'number') {
-        return el('div', { className: 'cm-go-row' + (main ? ' main' : '') },
+        return el('div', { key, className: 'cm-go-row' + (main ? ' main' : '') },
           el('span', { className: 'cm-go-label' }, label),
           el('span', { className: 'cm-go-num' }, typeof win?.text === 'string' ? win.text : '—'))
       }
@@ -1171,7 +1167,7 @@
       const resets = typeof win.resetsAt === 'string' && win.resetsAt.length > 0
         ? t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() })
         : ''
-      return el('div', { className: 'cm-go-row' + (main ? ' main' : '') },
+      return el('div', { key, className: 'cm-go-row' + (main ? ' main' : '') },
         el('span', { className: 'cm-go-label' }, label),
         el('div', { className: 'cm-go-bar' },
           el('div', { className: 'cm-go-fill', style: { width: barView.width + '%' } })),
@@ -1370,7 +1366,7 @@
               jsonErr.extract ? el('span', { className: 'cm-hint err' }, jsonErr.extract) : null)))
       return el(QuotaCard, {
         name: `#${index + 1} · ` + (resolveCustomBalanceLabel(entry, resolveLocale(config?.locale)) || t('customBalanceTitle')),
-        enabled, busy, open, statusNode: preview, configNode: configFields, errorMsg: msg,
+        enabled, saved: JSON.stringify(entry) === JSON.stringify(config.customBalances?.[index]) ? config.customBalances[index] : null, busy, open, statusNode: preview, configNode: configFields, errorMsg: msg,
         onToggle: value => setField('enabled', value),
         onRefresh: doRefresh,
         onRemove: canRemove ? onRemove : null,
@@ -1379,8 +1375,21 @@
       })
     }
 
+    function GoQuotaSettings({ config, draft, setDraft, t, api }) {
+      const cfg = draft?.goQuota ?? config.goQuota
+      const set = (key, value) => { if (draft) setDraft({ ...draft, goQuota: { ...cfg, [key]: value } }) }
+      return el(Fragment, null,
+        [['display', 'goQuotaDisplayLabel'], ['main', 'goMainLabel']].map(([key, label]) => el('div', { key, className: 'cm-field' }, el('label', null, t(label)),
+          el('select', { className: 'cm-input', value: cfg[key], onChange: e => set(key, e.target.value) }, key === 'display' ? displayOptions(t) : ['rolling', 'weekly', 'monthly'].map((v, i) => el('option', { key: v, value: v }, t(['goWindowRolling', 'goWindowWeekly', 'goWindowMonthly'][i])))))),
+        el('div', { className: 'cm-field' }, el('label', null, t('goQuotaRefreshIntervalLabel')),
+          numInput({ value: cfg.refreshMinutes }, v => set('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v)))))),
+        el('label', null, t('goQuotaKeyLabel')),
+        el(CredentialField, { target: 'goQuota', configured: config.goQuota?.keyConfigured === true, source: config.goQuota?.keySource, t, api, placeholder: 'sk-…' }))
+    }
+
     function GoQuotaCard(props) {
       const { state, api, t, draft, setDraft } = props
+      const [open, setOpen] = useState(false)
       const goQuota = state.goQuota
       const config = state.config
       const enabled = draft?.goQuota?.enabled ?? config.goQuota?.enabled ?? true
@@ -1407,7 +1416,8 @@
               ? el('p', { className: 'cm-note' }, goQuota.message)
               : el('div', { className: 'cm-bal-line' }, t('goQuotaNotQueried'))
       return el(QuotaCard, {
-        name: t('goQuotaTitle'), enabled, busy, statusNode: body, errorMsg: msg,
+        name: t('goQuotaTitle'), enabled, saved: config.goQuota, busy, open, statusNode: body, errorMsg: msg,
+        configNode: el(GoQuotaSettings, { config, draft, setDraft, t, api }), onToggleOpen: () => setOpen(v => !v),
         onToggle: value => setGoQuota('enabled', value),
         onRefresh: doRefresh,
         t,
@@ -1444,12 +1454,12 @@
         const view = miniMaxRow(window?.label || window?.id || t('gatewaySourceUnknown'), window, barDirectionOf(config, 'plan'), t)
         return el(Fragment, { key: window?.id || i }, view.row, window?.resetsAt ? el('div', { className: 'cm-note' }, miniMaxResetText(window, t)) : null)
       }
-      const pkgRow = pkg => el('div', { className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, pkg.label || 'package'), el('span', { className: 'cm-bbox-pct cm-num' }, (pkg.used ?? '—') + ' / ' + (pkg.limit ?? '—')), el('span', { className: 'cm-bbox-pct cm-num' }, (pkg.remaining ?? '—') + ' remaining'))
+      const pkgRow = (pkg, i) => el('div', { key: pkg.id || i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, pkg.label || 'package'), el('span', { className: 'cm-bbox-pct cm-num' }, (pkg.used ?? '—') + ' / ' + (pkg.limit ?? '—')), el('span', { className: 'cm-bbox-pct cm-num' }, (pkg.remaining ?? '—') + ' remaining'))
       const credits = value => value == null ? null : el(Fragment, null, el('div', { className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, value.unit || 'credits'), el('span', { className: 'cm-bbox-pct cm-num' }, (value.used ?? '—') + ' / ' + (value.limit ?? '—')), el('span', { className: 'cm-bbox-pct cm-num' }, (value.remaining ?? '—') + ' remaining')), (value.packages ?? []).map(pkgRow))
       const account = (a, i) => el('div', { key: a.id || i, className: 'cm-budget', style: { marginTop: '8px', padding: '10px 12px' } }, el('div', { className: 'cm-budget-head' }, el('strong', null, (GATEWAY_PROVIDER_LABELS[a.provider] ?? a.provider ?? t('gatewaySourceUnknown')) + ' · ' + (a.label || t('gatewaySourceUnknown'))), el('span', { className: 'cm-hint' }, a.status)), a.plan ? el('div', { className: 'cm-note' }, a.plan) : null, a.windows.length > 0 ? el('div', { className: 'cm-go-list' }, a.windows.map(windowRow)) : null, credits(a.credits), a.message ? el('div', { className: 'cm-note' }, a.message) : null)
       return el(QuotaCard, {
         name: s.label || s.id || t('gatewayQuotaTitle'),
-        enabled: s.enabled === true, busy, open, errorMsg: msg,
+        enabled: s.enabled === true, saved: config.gatewayQuotas?.sources?.find(v => v.id === s.id), busy, open, errorMsg: msg,
         statusNode: el('div', { className: 'cm-note' }, t('gatewaySourceStatus') + ': ' + (live.status ?? t('gatewaySourceUnknown')) + (live.serverVersion ? ' · ' + live.serverVersion : '') + (live.fetchedAt > 0 ? ' · ' + t('gatewaySourceFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }) : '') + (live.message ? ' · ' + live.message : '')),
         configNode: el(Fragment, null,
           el('div', { className: 'cm-grid' },
@@ -1481,7 +1491,6 @@
       { id: 'qwen', labelKey: 'codingPlanQwen' },
     ]
 
-    /** Coding Plan 面板展开状态:localStorage 记住,默认折叠。 */
     /** 单个 Coding Plan 订阅卡片(10 家共用:开关在标题行,展示/间隔/计划额度/凭据收在展开区)。 */
     function PlanQuotaCard(props) {
       const { state, api, t, draft, setDraft, planId, labelKey } = props
@@ -1544,7 +1553,7 @@
                   wide: true,
                   direction: barDirectionOf(config, 'plan'),
                 })
-                : Object.entries(windows).map(([name, win]) => quotaWindowRow(t, name.replace(/_/g, ' '), win, barDirectionOf(config, 'plan'), false)))
+                : Object.entries(windows).map(([name, win]) => quotaWindowRow(t, name.replace(/_/g, ' '), win, barDirectionOf(config, 'plan'), false, name)))
               : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried')),
             el('div', { className: 'cm-go-time' }, t('goQuotaFetchedAt', {
               time: live.fetchedAt > 0 ? new Date(live.fetchedAt).toLocaleTimeString() : '—',
@@ -1659,7 +1668,7 @@
                 placeholder: 'sk-…',
               })))
       return el(QuotaCard, {
-        name: t(labelKey), enabled, busy, open, errorMsg: msg,
+        name: t(labelKey), enabled, saved: config.codingPlans?.[planId], busy, open, errorMsg: msg,
         statusNode, configNode,
         onToggle: value => setPlan('enabled', value),
         onRefresh: doRefresh,
@@ -1683,6 +1692,10 @@
         if (draft === null) return
         setDraft({ ...draft, customBalances: next, ...(next.length === 0 ? { customBalance: { ...(config.customBalance ?? {}), enabled: false, request: { url: '', headers: {} } } } : {}) })
       }
+      const identities = useRef({ next: 0, keys: [] }).current
+      while (identities.keys.length < entries.length) identities.keys.push(identities.next++)
+      identities.keys.length = entries.length
+      const removeEntry = index => { identities.keys.splice(index, 1); setEntries(entries.filter((_, i) => i !== index)) }
       const setEntry = (index, patch) => setEntries(entries.map((e, i) => i === index ? { ...e, ...patch } : e))
       const addEntry = (adapter = 'custom') => {
         if (entries.length >= 8) return
@@ -1711,10 +1724,10 @@
       }
       // 四类归一成同一种卡片形状,排序只认 enabled:已启用组在前,两组各自保持默认顺序。
       const items = [
-        ...CODING_PLAN_ROWS.map(row => ({ kind: 'plan', key: 'plan-' + row.id, planId: row.id, labelKey: row.labelKey, enabled: plans[row.id]?.enabled === true })),
-        { kind: 'go', key: 'go', enabled: base.goQuota?.enabled !== false },
         ...sources.map((source, index) => ({ kind: 'gateway', key: 'gw-' + (source.id ?? index), index, enabled: source.enabled === true })),
-        ...entries.map((entry, index) => ({ kind: 'custom', key: 'cb-' + index, index, enabled: entry.enabled === true })),
+        { kind: 'go', key: 'go', enabled: base.goQuota?.enabled !== false },
+        ...CODING_PLAN_ROWS.map(row => ({ kind: 'plan', key: 'plan-' + row.id, planId: row.id, labelKey: row.labelKey, enabled: plans[row.id]?.enabled === true })),
+        ...entries.map((entry, index) => ({ kind: 'custom', key: 'cb-' + identities.keys[index], index, enabled: entry.enabled === true })),
       ]
       const cardOf = item => {
         if (item.kind === 'plan') return el(PlanQuotaCard, { key: item.key, planId: item.planId, labelKey: item.labelKey, state, api, t, draft, setDraft })
@@ -1723,7 +1736,7 @@
         return el(CustomBalanceEntryPanel, {
           key: item.key, state, api, t, entry: entries[item.index], index: item.index, canRemove: true,
           onPatch: patch => setEntry(item.index, patch),
-          onRemove: () => setEntries(entries.filter((_, i) => i !== item.index)),
+          onRemove: () => removeEntry(item.index),
         })
       }
       return el('div', null,
@@ -2123,6 +2136,7 @@
         : null,
         // ── 显示:界面语言、徽章/侧边栏位置、图框开关等 ──
         tab === 'display' ? el(Fragment, { key: 'display' },
+          el(ModelSidebarSettings, { draft, setDraft, t }),
         // 存量明文密钥未迁出提示(v1.6.8):仅在确有密钥无法自动导入凭据库时出现。
         state?.secretMigration?.pending?.length > 0
           ? el(SecretMigrationNotice, { pending: state.secretMigration.pending, t })
@@ -2318,55 +2332,7 @@
                 if (draft === null) return
                 setDraft({ ...draft, customBalance: { ...(draft.customBalance ?? config.customBalance ?? {}), refreshMinutes: Math.min(1440, Math.max(1, Math.floor(v))) } })
               })),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('goQuotaDisplayLabel')),
-              el('select', {
-                className: 'cm-input',
-                value: draft?.goQuota?.display ?? 'both',
-                onChange: event => {
-                  if (draft === null) return
-                  setDraft({ ...draft, goQuota: { ...(draft.goQuota ?? { display: 'both', refreshMinutes: 15, apiKey: '' }), display: event.target.value } })
-                },
-              },
-                ...displayOptions(t))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('goMainLabel')),
-              el('select', {
-                className: 'cm-input',
-                value: draft?.goQuota?.main ?? 'rolling',
-                onChange: event => {
-                  if (draft === null) return
-                  setDraft({ ...draft, goQuota: { ...(draft.goQuota ?? { display: 'both', refreshMinutes: 15, apiKey: '', main: 'rolling' }), main: event.target.value } })
-                },
-              },
-                el('option', { value: 'rolling' }, t('goWindowRolling')),
-                el('option', { value: 'weekly' }, t('goWindowWeekly')),
-                el('option', { value: 'monthly' }, t('goWindowMonthly')))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('goQuotaRefreshIntervalLabel')),
-              el('div', { className: 'cm-range-row' },
-                el('input', {
-                  className: 'cm-range',
-                  type: 'range', min: '1', max: '60', step: '1',
-                  value: Math.min(60, Math.max(1, Math.floor(Number(draft?.goQuota?.refreshMinutes) || 15))),
-                  onChange: event => {
-                    if (draft === null) return
-                    setDraft({ ...draft, goQuota: { ...(draft.goQuota ?? { display: 'both', refreshMinutes: 15, apiKey: '' }), refreshMinutes: Math.min(60, Math.max(1, Math.floor(Number(event.target.value) || 15))) } })
-                  },
-                }),
-                el('span', { className: 'cm-range-value' },
-                  `${Math.min(60, Math.max(1, Math.floor(Number(draft?.goQuota?.refreshMinutes) || 15)))} ${t('goQuotaRefreshMinutesUnit')}`))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('goQuotaKeyLabel'))),
-            // 密钥改由 DSH 凭据库托管(v1.6.8):不再读/写 config.goQuota.apiKey,
-            // 经 setCredential / clearCredential 单向操作,输入框永不回显。
-            el(CredentialField, {
-              target: 'goQuota',
-              configured: config.goQuota?.keyConfigured === true,
-              source: config.goQuota?.keySource,
-              t, api,
-              placeholder: 'sk-…',
-            }),
+            el(GoQuotaSettings, { config, draft, setDraft, t, api }),
             el('div', { className: 'cm-grid-group' }, t('quotaStripGroup')),
             el('div', { className: 'cm-field' },
               el('label', { className: 'cm-check' },
@@ -2642,10 +2608,12 @@
         }
         return result.value
       }
+      let lastPoll = Date.now()
       let reloading = false
       const reload = async () => {
         if (reloading) return // 并发防抖:轮询/手动刷新/重连不叠加 getState,避免乱序覆盖
         reloading = true
+        lastPoll = Date.now()
         const prev = store.getSnapshot()
         try {
           const state = await call('getState')
@@ -2660,13 +2628,23 @@
       }
       ctx.effect(() => ctx.on('connection/reset', () => { void reload() }), 'cost-meter: reconnect reload')
       // 侧边栏「今日费用/余额」与设置页看板依赖 getState 快照渲染,没有推送通道:
-      // 60s 周期轮询(页面隐藏时跳过) + visibilitychange 重新可见时立即刷新,避免冻结在加载时刻(#3)。
-      const pollTimer = setInterval(() => { if (!document.hidden) void reload() }, 60_000)
+      // 默认 60s 轮询,启用模型卡片时按其 10–60s 设置(页面隐藏时跳过) + visibilitychange 重新可见时立即刷新,避免冻结在加载时刻(#3)。
+      const pollTimer = setInterval(() => {
+        const cfg = store.getSnapshot().state?.config.sidebarModels
+        const seconds = cfg?.enabled || cfg?.dock ? cfg.refreshSeconds : 60
+        if (!document.hidden && Date.now() - lastPoll >= (seconds || 60) * 1000) void reload()
+      }, 1000)
       ctx.effect(() => () => { clearInterval(pollTimer) }, 'cost-meter: poll timer')
       const onVisible = () => { if (document.visibilityState === 'visible') void reload() }
       document.addEventListener('visibilitychange', onVisible)
       ctx.effect(() => () => { document.removeEventListener('visibilitychange', onVisible) }, 'cost-meter: visibility reload')
 
+      const receive = async (promise, errorKey = 'rpcSyncFailed', valueMessage = false) => {
+        const result = await promise
+        if (result === null || typeof result !== 'object' || result.ok !== true) throw new Error(result?.error?.message ?? (valueMessage ? result?.value?.message : undefined) ?? rpcT()(errorKey))
+        if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
+        return result.value
+      }
       const api = {
         reload,
         updateConfig: async patch => {
@@ -2674,14 +2652,7 @@
           store.set({ status: 'ready', error: null, state })
           return state
         },
-        fetchPrices: async () => {
-          const result = await costMeter.fetchPrices()
-          if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? rpcT()('rpcSyncFailed'))
-          }
-          if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
-          return result.value
-        },
+        fetchPrices: async () => receive(costMeter.fetchPrices()),
         resetHistory: async () => {
           const state = await call('resetHistory')
           store.set({ status: 'ready', error: null, state })
@@ -2701,68 +2672,14 @@
         // 跨全部日期的会话排行(issue #22 不分日期视角):支持费用/时间升降序与实时顺序。
         getSessionCost: async id => call('getSessionCost', [id]),
         getTopSessions: async (limit, sort, dir) => call('getTopSessions', [limit, sort, dir]),
-        refreshBalance: async () => {
-          const result = await costMeter.refreshBalance()
-          if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? rpcT()('rpcBalanceFailed'))
-          }
-          if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
-          return result.value
-        },
-        refreshGoQuota: async () => {
-          const result = await costMeter.refreshGoQuota()
-          if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? rpcT()('rpcSyncFailed'))
-          }
-          if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
-          return result.value
-        },
-        refreshGatewayQuota: async (sourceId = null) => {
-          const result = sourceId === null || sourceId === undefined
-            ? await costMeter.refreshGatewayQuota()
-            : await costMeter.refreshGatewayQuota(sourceId)
-          if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? rpcT()('rpcSyncFailed'))
-          }
-          if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
-          return result.value
-        },
-        refreshCustomBalance: async (index = null) => {
-          // index(v1.7.0,issue #79):多配置形态下刷新指定条目;缺省全量(旧单条行为)。
-          const result = index === null || index === undefined
-            ? await costMeter.refreshCustomBalance()
-            : await costMeter.refreshCustomBalance(index)
-          if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? rpcT()('rpcSyncFailed'))
-          }
-          if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
-          return result.value
-        },
-        refreshCodingPlan: async provider => {
-          const result = await costMeter.refreshCodingPlan(provider)
-          if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? rpcT()('rpcSyncFailed'))
-          }
-          if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
-          return result.value
-        },
+        refreshBalance: async () => receive(costMeter.refreshBalance(), 'rpcBalanceFailed'),
+        refreshGoQuota: async () => receive(costMeter.refreshGoQuota()),
+        refreshGatewayQuota: async (sourceId = null) => receive(sourceId == null ? costMeter.refreshGatewayQuota() : costMeter.refreshGatewayQuota(sourceId)),
+        refreshCustomBalance: async (index = null) => receive(index == null ? costMeter.refreshCustomBalance() : costMeter.refreshCustomBalance(index)),
+        refreshCodingPlan: async provider => receive(costMeter.refreshCodingPlan(provider)),
         // 密钥写入/清除(v1.6.8):值只沿此通道单向送入 DSH 凭据库,服务端永不回传明文。
-        setCredential: async (target, value) => {
-          const result = await costMeter.setCredential(target, value)
-          if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? result?.value?.message ?? rpcT()('rpcSyncFailed'))
-          }
-          if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
-          return result.value
-        },
-        clearCredential: async target => {
-          const result = await costMeter.clearCredential(target)
-          if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? result?.value?.message ?? rpcT()('rpcSyncFailed'))
-          }
-          if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
-          return result.value
-        },
+        setCredential: async (target, value) => receive(costMeter.setCredential(target, value), 'rpcSyncFailed', true),
+        clearCredential: async target => receive(costMeter.clearCredential(target), 'rpcSyncFailed', true),
       }
 
       void reload()
@@ -2876,8 +2793,8 @@
         const showToday = state?.config?.sidebar !== false && state?.config?.hideTodayCost !== true
         const balanceDisplay = state?.config?.balance?.display ?? 'both'
         const showBalance = (balanceDisplay === 'sidebar' || balanceDisplay === 'both') && state?.config?.hideOfficialBalance !== true
-        const footer = showToday || showBalance || state?.config?.codexQuotaEnabled === true
-        const cornerEnabled = state?.config?.corner?.enabled === true
+        const footer = showToday || showBalance || state?.config?.codexQuotaEnabled === true || state?.config?.sidebarModels?.enabled === true
+        const cornerEnabled = state?.config?.corner?.enabled === true || state?.config?.sidebarModels?.dock === true
         const sectionLocale = resolveLocale(state?.config?.locale)
         const usagePosition = state?.config?.usage?.position ?? 'cost'
         if (position !== lastPosition) {

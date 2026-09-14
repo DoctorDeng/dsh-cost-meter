@@ -132,6 +132,7 @@
         showTotalWithPlan: v.showTotalWithPlan === true,
         sidebarSimple: v.sidebarSimple === true,
         sidebarSimplePromptSeen: v.sidebarSimplePromptSeen === true,
+        sidebarModels: Object.fromEntries(Object.entries(MODEL_SIDEBAR_DEFAULTS).map(([k, v0]) => [k, v.sidebarModels?.[k] ?? v0])),
         codexQuotaEnabled: v.codexQuotaEnabled === true,
         includeSubagentCost: v.includeSubagentCost === true,
         sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
@@ -1809,8 +1810,12 @@
         ? Math.round(Math.max(0, Math.min(100, win.percent)))
         : null
       const chips = []
+      if (config.sidebarModels?.dock) {
+        const rows = sidebarModelRows(state, config.sidebarModels.period, t)
+        if (rows.length) chips.push({ key: 'model-top', text: el(Fragment, null, el('span', { className: 'cm-bal-label' }, rows[0].label), el('span', { className: 'cm-bal-amt' }, formatMoneyUsd(rows[0].cost, config))), tip: rows[0].label + ' ' + formatMoneyUsd(rows[0].cost, config), level: 'ok' })
+      }
       const pushGo = (on, win, shortKey, labelKey) => {
-        if (!on || !goOk) return
+        if (!corner.enabled || !on || !goOk) return
         const pct = pctOf(win)
         if (pct === null) return
         const resets = typeof win.resetsAt === 'string' && win.resetsAt.length > 0
@@ -1835,7 +1840,7 @@
         pushGo(corner[flagKey] === true, win, shortKey, labelKey)
       }
       // 预算 chip:预算图框同款口径(≥80% 预警、≥100% 超支)。
-      if (corner.budget === true) {
+      if (corner.enabled && corner.budget === true) {
         const budget = config.budget ?? { enabled: false, amount: 100, period: 'month' }
         if (budget.enabled === true) {
           const rate = Number(config.exchangeRate)
@@ -1861,7 +1866,7 @@
       if (chips.length === 0) return null
       return el('div', { className: 'cm-corner' },
         chips.map(c => el(Tooltip, { key: c.key, label: c.tip, side: 'top', delayMs: 500 },
-          el('span', { className: 'cm-corner-chip' + (c.level === 'ok' ? '' : ' ' + c.level) }, c.text))))
+          el('span', { className: 'cm-corner-chip' + (c.key === 'model-top' ? ' cm-model-top' : '') + (c.level === 'ok' ? '' : ' ' + c.level) }, c.text))))
     }
 
     /**
@@ -3087,7 +3092,8 @@
         && codexQuotaCache.windows.weekly !== null
       const budgetOn = (config.budget ?? {}).enabled === true
       const showToday = config.sidebar !== false && config.hideTodayCost !== true
-      if (!showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && gatewayNodes.length === 0) return null
+      const modelsOn = config.sidebarModels?.enabled === true
+      if (!modelsOn && !showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && gatewayNodes.length === 0) return null
       // 紧凑模式(侧边栏进度条样式):宽栏下各额度卡内部的时间段进度行排两列
       // (CSS 于 .cm-footer-stack.compact 生效);卡片本身与收起(rail)态维持原样。
       const simple = config.sidebarSimple === true
@@ -3101,6 +3107,7 @@
       else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: props.api }))
       if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { state, wide, api: props.api }))
       else if (showCustomBalance) nodes.push(el(CustomBalanceRowContent, { state, wide, api: props.api }))
+      const afterBalance = nodes.length
       if (plansOn) nodes.push(...sidebarPlanIds.map(id => id === 'minimax'
         ? el(MiniMaxPlanBox, { state, wide, api: props.api })
         : el(CodingPlanBox, { id, state, wide, api: props.api })))
@@ -3125,6 +3132,8 @@
       if (simple && wide && showToday) nodes.push(peakNoticeEl(state, config, t))
       // 收起(rail)态:无论预算/Go 额度开关状态,统一在图框下方追加竖向峰谷进度条(受 peakNotice 等门控,内部自行返回 null)。
       if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
+      if (modelsOn) nodes.splice(config.sidebarModels.position === 'first' ? 0 : config.sidebarModels.position === 'afterBalance' ? afterBalance : nodes.length, 0,
+        el(SidebarModelCosts, { key: 'models', state, wide }))
       // 外壳的 footerActions 是横向 flex;这里用自建纵向堆叠保证余额在上、图框在下。
       return el('div', { ref: rootRef, ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : '') }, ...nodes)
     }
