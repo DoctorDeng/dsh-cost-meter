@@ -270,6 +270,12 @@ const go = e.mount(e.ui.GoQuotaCard, quotaProps())
 go.tree.props.onToggleOpen(); await e.flush()
 assert.ok(go.tree.props.configNode)
 assert.equal(go.tree.props.open, true)
+const goSettings = e.ui.GoQuotaSettings(go.tree.props.configNode.props)
+for (const select of nodes(goSettings).filter(n => n.type === 'select')) {
+  const options = nodes(select).filter(n => n.type === 'option')
+  assert.ok(options.every(n => n.props.key), 'Go 选项具有 React 列表标识')
+  assert.equal(new Set(options.map(n => n.props.key)).size, options.length)
+}
 assert.equal(e.storage.size, 1, '额度卡片展开只在内存，未增加 localStorage 项')
 const planRows = e.mount(e.ui.PlanQuotaCard, { ...quotaProps(), planId: 'commandcode', labelKey: 'codingPlanCommandCode',
   draft: { ...draft, codingPlans: { ...draft.codingPlans, commandcode: { enabled: true } } },

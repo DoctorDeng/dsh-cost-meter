@@ -1044,10 +1044,10 @@
     // ── 余额面板(设置页,按 balance.display 配置挂载) ────────────────────────
 
     const displayOptions = t => [
-      el('option', { value: 'sidebar' }, t('balanceSidebar')),
-      el('option', { value: 'settings' }, t('balanceSettings')),
-      el('option', { value: 'both' }, t('balanceBoth')),
-      el('option', { value: 'off' }, t('off')),
+      el('option', { key: 'sidebar', value: 'sidebar' }, t('balanceSidebar')),
+      el('option', { key: 'settings', value: 'settings' }, t('balanceSettings')),
+      el('option', { key: 'both', value: 'both' }, t('balanceBoth')),
+      el('option', { key: 'off', value: 'off' }, t('off')),
     ]
     const cmMsg = m => (m != null ? el('div', { className: 'cm-msg ' + m.kind }, m.text) : null)
     function BalancePanel(props) {
