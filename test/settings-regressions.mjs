@@ -8,7 +8,7 @@ import { qwenTokenPlanWindows } from '../lib/coding-plans.js'
 // 执行真实组件和事件回调，再经过服务端清洗与客户端读取；不向发布产物暴露接口。
 const dir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(dir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, dir), 'utf8')).join('')
-const code = source.replace('exports.apply = apply', 'exports.test = { CodingPlansPanel, CostSection, parseConfig, makeT, codingPlanWindowLabel }; exports.apply = apply')
+const code = source.replace('exports.apply = apply', 'exports.test = { PlanQuotaCard, CostSection, parseConfig, makeT, codingPlanWindowLabel }; exports.apply = apply')
 let active
 const react = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
@@ -49,6 +49,8 @@ function renderer(component, props) {
     for (let round = 0; round < 20; round++) {
       active = runner; runner.cursor = 0; runner.effects = []; runner.dirty = false
       tree = component(props())
+      // 额度区统一后卡片外壳为 QuotaCard 组件:再展开一层,便于断言展开区内的配置节点。
+      if (tree && typeof tree.type === 'function' && tree.type !== 'fragment') tree = tree.type(tree.props)
       for (const effect of runner.effects) effect()
       if (!runner.dirty) return tree
     }
@@ -65,8 +67,11 @@ for (const locale of ['zh', 'en']) {
   const t = ui.makeT(locale)
   let draft = roundTrip({ locale, codingPlans: { qwen: { enabled: true } } })
   const state = { config: draft, codingPlans: {}, customVarStatus: {} }
-  const render = renderer(ui.CodingPlansPanel, () => ({ state, draft, setDraft: value => { draft = value }, api: {}, t }))
+  const render = renderer(ui.PlanQuotaCard, () => ({ state, draft, setDraft: value => { draft = value }, api: {}, t, planId: 'qwen', labelKey: 'codingPlanQwen' }))
   let tree = render()
+  // 统一卡片外壳默认收起:先展开,配置区(含千问费率)才渲染。
+  nodes(tree).find(node => node.props.className === 'cm-collapse-h').props.onClick()
+  tree = render()
   nodes(tree).find(node => node.props.placeholder === t('qwenRatesModelPlaceholder')).props.onChange({ target: { value: 'qwen3.8-flash' } })
   button(render(), t('qwenRatesAdd')).props.onClick()
   tree = render()
