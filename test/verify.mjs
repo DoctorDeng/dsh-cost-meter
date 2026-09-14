@@ -186,7 +186,9 @@ console.log('[ok] 浏览器端 bundle 语法门禁(client.js vm 编译)通过')
 {
   const clientSrc = readClientSource()
   assert.ok(!clientSrc.includes("sources.length > 1 ? el('button'"), 'gateway 删除来源按钮不再按数量门控(单来源可删)')
-  assert.ok(/collapseHeader\(open, \(\) => toggleSource\(s\.id\)/.test(clientSrc), 'gateway 来源卡片标题行走折叠头部(collapseHeader)')
+  // 额度区统一后(四类卡片共用 QuotaCard 外壳),折叠头部由 collapseHeader 统一产出;
+  // 原先网关来源卡自带的 collapseHeader(open, () => toggleSource(s.id)) 调用形式随之外移。
+  assert.ok(/collapseHeader\(open === true, onToggleOpen, name\)/.test(clientSrc), 'gateway 来源卡片标题行走折叠头部(统一外壳经 collapseHeader 产出)')
   assert.ok(clientSrc.includes("gatewaySourceFetchedAt: '抓取于 {time}'"), 'gatewaySourceFetchedAt 中文文案存在')
   assert.ok(clientSrc.includes("gatewaySourceFetchedAt: 'fetched {time}'"), 'gatewaySourceFetchedAt 英文文案存在')
   console.log('[ok] 网关额度设置 UI 回归(单来源可删 + 折叠标题行 + fetchedAt 文案)通过')
@@ -3561,7 +3563,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 分组接线:各面板/标题落在正确标签分支区间内(分支起点按源码顺序)。
   const branch = {}
   for (const id of ['overview', 'quotas', 'usage', 'display', 'pricing']) {
-    branch[id] = tabsSrc.indexOf(`tab === '${id}' ? el(Fragment, { key: '${id}' },`)
+    branch[id] = tabsSrc.indexOf(`tab === '${id}' ? `)
     assert.ok(branch[id] > 0, `标签分支 ${id} 存在`)
   }
   assert.ok(branch.overview < branch.quotas && branch.quotas < branch.usage && branch.usage < branch.display && branch.display < branch.pricing, '五分支顺序完整(overview→quotas→usage→display→pricing)')
@@ -3573,10 +3575,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   between('el(BudgetPanel, { state, draft, setDraft, t }),', branch.overview, branch.quotas, '预算面板在概览标签')
   between('el(BalancePanel, { state, api, t, draft, setDraft })', branch.overview, branch.quotas, '官方余额面板在概览标签')
   between('el(TodaySessions, { state, t })', branch.overview, branch.quotas, '今日会话在概览标签')
-  // 额度:Go 订阅 + Coding Plan + 自定义 Provider。
-  between('el(GoQuotaPanel, { state, api, t, draft, setDraft })', branch.quotas, branch.usage, 'Go 额度面板在额度标签')
-  between('el(CodingPlansPanel, { state, api, t, draft, setDraft })', branch.quotas, branch.usage, 'Coding Plan 面板在额度标签')
-  between('el(CustomBalancePanel, { state, api, t, draft, setDraft })', branch.quotas, branch.usage, '自定义余额面板在额度标签')
+  // 额度:四类来源(订阅 / Go / 网关 / 自定义余额)统一由 QuotasSection 总装,仍落在同一标签分支。
+  between("el(QuotasSection, { key: 'quotas', state, api, t, draft, setDraft })", branch.quotas, branch.usage, '统一额度区(QuotasSection)在额度标签')
   // 用量:用量统计 + 按模型 + 历史 + 会话排行 + 历史数据操作。
   between('el(ModelStatsPanel, { state, config: draft ?? config, t })', branch.usage, branch.display, '按模型统计在用量标签')
   between('el(HistoryPanel, { state, api })', branch.usage, branch.display, '历史面板在用量标签')
@@ -3602,9 +3602,9 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     const count = [...planSrc.matchAll(new RegExp(key + ":", 'g'))].length
     assert.equal(count, 2, `文案 ${key} 在 zh/en 各声明一次`)
   }
-  // 设置页:每家 provider 行内的显示位置下拉,写回 setPlan(id, 'display', ...)。
+  // 设置页:每张 provider 卡片内的显示位置下拉(统一卡片外壳后 planId 由卡片组件持有,setPlan 不再带 id)。
   assert.ok(planSrc.includes("t('codingPlanDisplayLabel')"), '显示位置标签在设置页渲染')
-  assert.ok(planSrc.includes("setPlan(id, 'display', event.target.value)"), '显示位置下拉写回该厂商 display')
+  assert.ok(planSrc.includes("setPlan('display', event.target.value)"), '显示位置下拉写回该厂商 display')
   const optionCount = [...planSrc.matchAll(/el\('option', \{ value: 'sidebar' \}, t\('balanceSidebar'\)\)/g)].length
   assert.ok(optionCount >= 2, '显示位置下拉选项复用余额位置文案(sidebar 选项存在)')
   // 侧边栏:按 display 门控的循环 + MiniMax 专用卡片 + 通用 CodingPlanBox。
@@ -3653,11 +3653,11 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const labelCount = [...planSrc.matchAll(/codingPlanRefreshIntervalLabel:/g)].length
   assert.equal(labelCount, 2, '文案 codingPlanRefreshIntervalLabel 在 zh/en 各声明一次')
   assert.ok(planSrc.includes("t('codingPlanRefreshIntervalLabel')"), '刷新间隔标签在设置页渲染')
-  assert.ok(planSrc.includes("setPlan(id, 'refreshMinutes'"), '刷新间隔写回该厂商 refreshMinutes')
+  assert.ok(planSrc.includes("setPlan('refreshMinutes',"), '刷新间隔写回该厂商 refreshMinutes')
   assert.ok(planSrc.includes('Math.min(1440, Math.max(1, Math.floor(v)))'), '刷新间隔客户端钳制 1-1440')
   // SCNet 本地计量无缓存间隔:控件仅对非 scnet 厂商渲染(渲染点前 200 字符内有排除断言)。
   const renderAt = planSrc.indexOf("t('codingPlanRefreshIntervalLabel')")
-  assert.ok(renderAt >= 0 && planSrc.slice(Math.max(0, renderAt - 200), renderAt).includes("id !== 'scnet'"), 'SCNet 不渲染刷新间隔控件(本地计量无缓存间隔)')
+  assert.ok(renderAt >= 0 && planSrc.slice(Math.max(0, renderAt - 200), renderAt).includes("planId !== 'scnet'"), 'SCNet 不渲染刷新间隔控件(本地计量无缓存间隔)')
   // 服务端钳制:非法回落 15 已有断言,补上限 1440 收敛。
   const clamped = sanitizeConfig({ codingPlans: { kimi: { enabled: true, refreshMinutes: 5000 } } })
   assert.equal(clamped.codingPlans.kimi.refreshMinutes, 1440, 'codingPlan 刷新间隔上限钳制 1440')
@@ -3820,7 +3820,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(clientSrc.includes('volcengineNote'), '客户端说明文案存在')
   // v1.6.8 密钥治理:AK/SK 双输入框改走 write-only CredentialField,目标为凭据库引用键。
   assert.ok(clientSrc.includes("target: 'codingPlans.volcengine.ak'") && clientSrc.includes("target: 'codingPlans.volcengine.sk'"), '客户端 AK/SK 双输入框写回凭据库')
-  assert.ok(clientSrc.includes("id === 'volcengine'"), '客户端 volcengine 分支渲染')
+  assert.ok(clientSrc.includes("planId === 'volcengine'"), '客户端 volcengine 分支渲染')
   assert.ok(clientSrc.includes("STRIP_VENDOR_SHORT") && clientSrc.includes("volcengine: 'Ark'"), '横条短标签包含 volcengine')
   // 8) 端点白名单
   assert.ok(CODING_PLAN_ENDPOINTS.volcengine.every(u => new URL(u).host === VOLCENGINE_HOST), 'volcengine 端点 Host 统一为 open.volcengineapi.com')
@@ -4404,7 +4404,9 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(clientSrcV16.includes('barDirections:'), '客户端 parseConfig 白名单含 barDirections')
   assert.ok(clientSrcV16.includes('function barDirectionOf'), 'barDirectionOf 辅助存在')
   assert.ok(clientSrcV16.includes('function simpleBarByDirection'), 'simpleBarByDirection 辅助存在')
-  assert.ok(clientSrcV16.includes("BalanceBar, { segments, direction: barDirectionOf") && clientSrcV16.includes("simpleBarByDirection(pct === null") && clientSrcV16.includes("simpleBarByDirection(percent, barDirectionOf"), '余额/预算/Go 条按方向换算填色与标签')
+  // 额度区统一后 Go/Plan 的窗口行共用 quotaWindowRow(方向由调用方传入),断言改指统一函数内的
+  // 换算点 + Go/Plan 卡片各自传入的方向配置,覆盖语义不变。
+  assert.ok(clientSrcV16.includes("BalanceBar, { segments, direction: barDirectionOf") && clientSrcV16.includes("simpleBarByDirection(pct === null") && clientSrcV16.includes("simpleBarByDirection(percent, direction)") && clientSrcV16.includes("barDirectionOf(config, 'go')") && clientSrcV16.includes("barDirectionOf(config, 'plan')"), '余额/预算/Go 条按方向换算填色与标签')
   assert.ok(clientSrcV16.includes("barDirectionOf(state.config, 'plan')") && clientSrcV16.includes("miniMaxRow(t('goShortWeekly'), win, direction"), 'Plan/Codex/MiniMax 额度条按 plan 方向换算')
   assert.ok(clientSrcV16.includes("barDirectionRemaining") && clientSrcV16.includes("barDirectionUsed") && clientSrcV16.includes("barDirectionsTitle"), '条方向中英文案存在')
   assert.ok(clientSrcV16.includes("segments.rev") && clientSrcV16.includes("cm-dir-row"), '条方向 CSS 与设置 UI 存在')
@@ -5470,7 +5472,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 {
   const client79 = readClientSource()
   assert.ok(client79.includes('function CustomBalanceEntryPanel('), '设置页逐条编辑组件存在')
-  assert.ok(client79.includes("t('customBalanceAdd')") && client79.includes("t('customBalanceRemove')"), '添加/删除条目按钮接线(双语)')
+  assert.ok(client79.includes("t('customBalanceAdd')") && client79.includes("t('quotaRemove')"), '添加/删除条目按钮接线(双语)')
   assert.ok(client79.includes('function visibleCustomEntries(state, config)'), '侧边栏可见条目统一判定 helper 存在')
   assert.ok(client79.includes('api.refreshCustomBalance(index)'), '侧边栏逐条按 index 刷新')
   assert.ok(client79.includes('const visibleCustom = visibleCustomEntries(state, config)'), 'SidebarFooter 用可见条目集门控')

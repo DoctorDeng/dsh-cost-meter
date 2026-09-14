@@ -1107,55 +1107,80 @@
         cmMsg(msg))
     }
 
-    function CustomBalancePanel(props) {
-      const { state, api, t, draft, setDraft } = props
-      const config = state.config
-      // 多配置形态(v1.7.0,issue #79):entries 为运行期真源;旧单配置 customBalance
-      // 由 parseConfig/sanitizeConfig 迁移包装为 entries(编辑写回也走数组,单条键
-      // 由服务端镜像),旧宿主快照自动兼容。
-      const entries = draft?.customBalances ?? config.customBalances ?? []
-      const setEntries = next => {
-        if (draft === null) return
-        setDraft({ ...draft, customBalances: next, ...(next.length === 0 ? { customBalance: { ...(config.customBalance ?? {}), enabled: false, request: { url: '', headers: {} } } } : {}) })
-      }
-      const setEntry = (index, patch) => {
-        setEntries(entries.map((e, i) => i === index ? { ...e, ...patch } : e))
-      }
-      const removeEntry = index => {
-        setEntries(entries.filter((_, i) => i !== index))
-      }
-      const addEntry = (adapter = 'custom') => {
-        if (entries.length >= 8) return
-        setEntries([...entries, {
-          ...(adapter === 'aliyun' ? { adapter } : {}),
-          enabled: false,
-          label: adapter === 'aliyun' ? '千问 / 阿里云' : '',
-          labelEn: adapter === 'aliyun' ? 'Qianwen / Alibaba Cloud' : '',
-          display: 'both',
-          unit: adapter === 'aliyun' ? 'CNY' : 'USD',
-          refreshMinutes: 15,
-          request: { url: adapter === 'aliyun' ? 'https://business.aliyuncs.com/' : '', method: adapter === 'aliyun' ? 'POST' : 'GET', headers: {} },
-          extract: {},
-          allowedHosts: [],
-        }])
-      }
-      return el('div', { className: 'cm-budget' },
+    // ── 额度区统一卡片(订阅 / OpenCode Go / 网关 / 自定义余额共用外壳)──────────
+    // 四类来源归一成同一种卡片:开关在标题行最左、刷新按钮最右、点名称展开自己的配置。
+    // 展开状态只存组件内存,不写配置、不写 localStorage。
+
+    /** 统一卡片外壳。入参见下方各 XxxQuotaCard 的调用。 */
+    function QuotaCard(props) {
+      const { name, enabled, busy, open, statusNode, configNode, errorMsg, onToggle, onRefresh, onRemove, onToggleOpen, t } = props
+      const expandable = configNode != null
+      return el('div', { className: 'cm-budget cm-quota-card' },
         el('div', { className: 'cm-budget-head' },
-          el('h3', { className: 'cm-h' }, t('customBalanceTitle')),
-          el('button', { className: 'cm-btn small', onClick: () => addEntry(), disabled: entries.length >= 8 }, t('customBalanceAdd')),
-          el('button', { className: 'cm-btn small', onClick: () => addEntry('aliyun'), disabled: entries.length >= 8 }, t('aliyunBalanceAdd'))),
-        el('p', { className: 'cm-note' }, t('customBalanceMultiNote')),
-        entries.length === 0
-          ? el('p', { className: 'cm-hint' }, t('customBalanceEmpty'))
-          : entries.map((entry, index) =>
-            el(CustomBalanceEntryPanel, { key: 'cbe-' + index, state, api, t, entry, index, canRemove: true, onPatch: patch => setEntry(index, patch), onRemove: () => removeEntry(index) })))
+          el('label', { className: 'cm-check' },
+            el('input', { type: 'checkbox', checked: enabled === true, onChange: event => onToggle(event.target.checked) })),
+          el('div', { className: 'cm-quota-name' },
+            expandable ? collapseHeader(open === true, onToggleOpen, name) : el('h3', { className: 'cm-h' }, name)),
+          el('button', {
+            className: 'cm-btn small', onClick: onRefresh,
+            disabled: busy === true || enabled !== true,
+            title: enabled === true ? undefined : t('quotaEnableFirst'),
+          }, busy === true ? t('refreshing') : t('refresh')),
+          onRemove ? el('button', { className: 'cm-btn small', onClick: onRemove }, t('quotaRemove')) : null),
+        statusNode,
+        expandable && open === true ? el('div', { className: 'cm-collapse-body' }, configNode) : null,
+        errorMsg != null ? el('div', { className: 'cm-msg ' + errorMsg.kind }, errorMsg.text) : null)
     }
 
+    /** 四类共用的刷新状态机(原四块各写一遍 try/catch,这里只留一份)。 */
+    function useQuotaRefresh(t, run) {
+      const [busy, setBusy] = useState(false)
+      const [msg, setMsg] = useState(null)
+      const trigger = async () => {
+        if (busy) return
+        setBusy(true)
+        setMsg(null)
+        try {
+          const result = await run()
+          setMsg({ kind: result.ok ? 'ok' : 'err', text: result.message })
+        } catch (error) {
+          setMsg({ kind: 'err', text: t('syncFailed', { message: error?.message ?? String(error) }) })
+        } finally {
+          setBusy(false)
+        }
+      }
+      return [busy, msg, trigger]
+    }
+
+    /** 排序:已启用的排前面,两组内部各自保持默认顺序(纯由 enabled 派生,不落盘)。 */
+    const sortQuotaCards = cards => {
+      const on = cards.filter(card => card.enabled === true)
+      const off = cards.filter(card => card.enabled !== true)
+      return [...on, ...off]
+    }
+
+    /** 额度窗口行(Go 与 Coding Plan 共用):无百分比的文本窗口显示为纯文本行。 */
+    const quotaWindowRow = (t, label, win, direction, main) => {
+      if (typeof win?.percent !== 'number') {
+        return el('div', { className: 'cm-go-row' + (main ? ' main' : '') },
+          el('span', { className: 'cm-go-label' }, label),
+          el('span', { className: 'cm-go-num' }, typeof win?.text === 'string' ? win.text : '—'))
+      }
+      const percent = Math.max(0, Math.min(100, Number(win.percent) || 0))
+      const barView = simpleBarByDirection(percent, direction)
+      const resets = typeof win.resetsAt === 'string' && win.resetsAt.length > 0
+        ? t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() })
+        : ''
+      return el('div', { className: 'cm-go-row' + (main ? ' main' : '') },
+        el('span', { className: 'cm-go-label' }, label),
+        el('div', { className: 'cm-go-bar' },
+          el('div', { className: 'cm-go-fill', style: { width: barView.width + '%' } })),
+        el('span', { className: 'cm-go-num' }, barView.label === null ? '—' : t('goQuotaPercent', { percent: String(Math.round(barView.label)) })),
+        resets ? el('span', { className: 'cm-go-reset' }, resets) : null)
+    }
     function CustomBalanceEntryPanel(props) {
       const { state, api, t, entry, index, canRemove, onPatch, onRemove } = props
       const aliyun = entry.adapter === 'aliyun'
-      const [busy, setBusy] = useState(false)
-      const [msg, setMsg] = useState(null)
       const [open, setOpen] = useState(false)
       const [headersText, setHeadersText] = useState(() => JSON.stringify(entry.request?.headers ?? {}, null, 2))
       const [extractText, setExtractText] = useState(() => JSON.stringify(entry.extract ?? {}, null, 2))
@@ -1223,21 +1248,12 @@
           setJsonErr(err => ({ ...err, extract: t('customBalanceInvalidJson') }))
         }
       }
-      const doRefresh = async () => {
+      const [busy, msg, doRefresh] = useQuotaRefresh(t, () => {
         // 门控用服务端已保存配置(而非草稿):避免刚勾选启用未过防抖保存时点刷新被服务端拒绝。
         const saved = (config.customBalances ?? [])[index]
-        if (busy || saved?.enabled !== true) return
-        setBusy(true)
-        setMsg(null)
-        try {
-          const result = await api.refreshCustomBalance(index)
-          setMsg({ kind: result.ok ? 'ok' : 'err', text: result.message })
-        } catch (error) {
-          setMsg({ kind: 'err', text: t('customBalanceRefreshFailed', { message: error?.message ?? String(error) }) })
-        } finally {
-          setBusy(false)
-        }
-      }
+        if (saved?.enabled !== true) return Promise.resolve({ ok: false, message: t('quotaEnableFirst') })
+        return api.refreshCustomBalance(index)
+      })
       const preview = custom !== null && custom.status === 'ok'
         ? el(Fragment, null,
           config.balance?.showProgressBar === true
@@ -1250,8 +1266,7 @@
         : custom !== null && custom.status === 'error'
           ? el('div', { className: 'cm-bal-line err' }, custom.message || t('unknownError'))
           : el('div', { className: 'cm-bal-line' }, custom?.message || t('balanceNotQueried'))
-      const configFields = open
-        ? el(Fragment, null,
+      const configFields = el(Fragment, null,
           el('p', { className: 'cm-note' }, t(aliyun ? 'aliyunBalanceNote' : 'customBalanceConfigNote')),
           el('div', { className: 'cm-grid' },
             el('div', { className: 'cm-field' },
@@ -1353,25 +1368,19 @@
                 onChange: event => applyExtractText(event.target.value),
               }),
               jsonErr.extract ? el('span', { className: 'cm-hint err' }, jsonErr.extract) : null)))
-        : el('p', { className: 'cm-note cm-collapsed-note' }, resolveCustomBalanceLabel(entry, resolveLocale(config?.locale)) || t('customBalanceTitle'))
-      return el('div', { className: 'cm-budget', style: { marginTop: '10px' } },
-        el('div', { className: 'cm-budget-head' },
-          el('h3', { className: 'cm-h' }, `#${index + 1} · ` + (resolveCustomBalanceLabel(entry, resolveLocale(config?.locale)) || t('customBalanceTitle'))),
-          el('button', { className: 'cm-toggle-btn', onClick: toggleOpen }, open ? t('customBalanceCollapseConfig') : t('customBalanceOpenConfig')),
-          el('button', { className: 'cm-btn small', onClick: doRefresh, disabled: busy || enabled === false }, busy ? t('refreshing') : t('refreshCustomBalance')),
-          canRemove ? el('button', { className: 'cm-btn small', onClick: onRemove }, t('customBalanceRemove')) : null),
-        el('label', { className: 'cm-check' },
-          el('input', { type: 'checkbox', checked: enabled === true, onChange: event => setField('enabled', event.target.checked) }),
-          el('span', null, t('enable'))),
-        preview,
-        configFields,
-        cmMsg(msg))
+      return el(QuotaCard, {
+        name: `#${index + 1} · ` + (resolveCustomBalanceLabel(entry, resolveLocale(config?.locale)) || t('customBalanceTitle')),
+        enabled, busy, open, statusNode: preview, configNode: configFields, errorMsg: msg,
+        onToggle: value => setField('enabled', value),
+        onRefresh: doRefresh,
+        onRemove: canRemove ? onRemove : null,
+        onToggleOpen: toggleOpen,
+        t,
+      })
     }
 
-    function GoQuotaPanel(props) {
+    function GoQuotaCard(props) {
       const { state, api, t, draft, setDraft } = props
-      const [busy, setBusy] = useState(false)
-      const [msg, setMsg] = useState(null)
       const goQuota = state.goQuota
       const config = state.config
       const enabled = draft?.goQuota?.enabled ?? config.goQuota?.enabled ?? true
@@ -1379,45 +1388,16 @@
         if (draft === null) return
         setDraft({ ...draft, goQuota: { ...(draft.goQuota ?? config.goQuota), [field]: value } })
       }
-      const doRefresh = async () => {
-        if (busy || enabled === false) return
-        setBusy(true)
-        setMsg(null)
-        try {
-          const result = await api.refreshGoQuota()
-          setMsg({ kind: result.ok ? 'ok' : 'err', text: result.message })
-        } catch (error) {
-          setMsg({ kind: 'err', text: t('syncFailed', { message: error?.message ?? String(error) }) })
-        } finally {
-          setBusy(false)
-        }
-      }
+      const [busy, msg, doRefresh] = useQuotaRefresh(t, () => api.refreshGoQuota())
       const mainKey = config.goQuota?.main === 'weekly' || config.goQuota?.main === 'monthly' ? config.goQuota.main : 'rolling'
       const goOrder = [mainKey, ...['rolling', 'weekly', 'monthly'].filter(k => k !== mainKey)]
       const goLabelOf = k => k === 'rolling' ? 'goWindowRolling' : k === 'weekly' ? 'goWindowWeekly' : 'goWindowMonthly'
       const goWinOf = k => k === 'rolling' ? goQuota.rolling : k === 'weekly' ? goQuota.weekly : goQuota.monthly
-      const windowRow = (labelKey, win, main) => {
-        // 窗口为 null(未返回该窗口)时显示「—」且不渲染进度条填充,
-        // 与侧栏 goBoxBody 的 pctOf 口径一致(原来硬编码成 0% 引起误读)。
-        const has = win !== null && typeof win === 'object' && typeof win.percent === 'number'
-        const percent = has ? Math.max(0, Math.min(100, Number(win.percent) || 0)) : null
-        // 条形方向(issue #67):与侧栏 Go 图框同一配置。
-        const barView = simpleBarByDirection(percent, barDirectionOf(config, 'go'))
-        const resets = has && typeof win.resetsAt === 'string' && win.resetsAt.length > 0
-          ? t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() })
-          : ''
-        return el('div', { className: 'cm-go-row' + (main ? ' main' : '') },
-          el('span', { className: 'cm-go-label' }, t(labelKey)),
-          el('div', { className: 'cm-go-bar' },
-            percent === null ? null : el('div', { className: 'cm-go-fill', style: { width: barView.width + '%' } })),
-          el('span', { className: 'cm-go-num' }, barView.label === null ? '—' : t('goQuotaPercent', { percent: String(Math.round(barView.label)) })),
-          resets ? el('span', { className: 'cm-go-reset' }, resets) : null)
-      }
       const body = enabled === false
         ? el('p', { className: 'cm-note' }, t('goQuotaDisabledNote'))
         : goQuota.status === 'ok'
           ? el('div', { className: 'cm-go-list' },
-            goOrder.map(k => windowRow(goLabelOf(k), goWinOf(k), k === mainKey)),
+      goOrder.map(k => quotaWindowRow(t, t(goLabelOf(k)), goWinOf(k), barDirectionOf(config, 'go'), k === mainKey)),
             el('div', { className: 'cm-go-time' }, t('goQuotaFetchedAt', {
               time: goQuota.fetchedAt > 0 ? new Date(goQuota.fetchedAt).toLocaleTimeString() : '—',
             })))
@@ -1426,19 +1406,12 @@
             : goQuota.status === 'off' && goQuota.message
               ? el('p', { className: 'cm-note' }, goQuota.message)
               : el('div', { className: 'cm-bal-line' }, t('goQuotaNotQueried'))
-      return el('div', { className: 'cm-budget' },
-        el('div', { className: 'cm-budget-head' },
-          el('h3', { className: 'cm-h' }, t('goQuotaTitle')),
-          el('label', { className: 'cm-check' },
-            el('input', {
-              type: 'checkbox',
-              checked: enabled === true,
-              onChange: event => setGoQuota('enabled', event.target.checked),
-            }),
-            el('span', null, t('enableGoQuota'))),
-          el('button', { className: 'cm-btn small', onClick: doRefresh, disabled: busy || enabled === false }, busy ? t('refreshing') : t('refreshGoQuota'))),
-        body,
-        cmMsg(msg))
+      return el(QuotaCard, {
+        name: t('goQuotaTitle'), enabled, busy, statusNode: body, errorMsg: msg,
+        onToggle: value => setGoQuota('enabled', value),
+        onRefresh: doRefresh,
+        t,
+      })
     }
 
     // ── Coding Plan 额度面板(Anthropic / Z.ai·GLM / MiniMax,各家独立开关与凭据) ───
@@ -1449,51 +1422,50 @@
       const prefix = 'CLIPROXYAPI_MANAGEMENT_KEY_' + stem
       return Object.keys(status ?? {}).find(name => name === prefix || name.startsWith(prefix + '_')) ?? prefix
     }
-    function GatewayQuotaPanel(props) {
-      const { state, api, t, draft, setDraft } = props
-      const [busyId, setBusyId] = useState(null)
-      const [msgs, setMsgs] = useState({})
-      // 来源卡片展开状态:默认折叠(只占标题一行),新增来源时自动展开便于填写。
-      const [openIds, setOpenIds] = useState({})
+    /** 单张网关来源卡片(可多实例:标题行有开关与删除,其余配置收在展开区)。 */
+    function GatewayQuotaCard(props) {
+      const { state, api, t, draft, setDraft, index } = props
       const config = state.config
       const base = draft ?? config
       const sources = base.gatewayQuotas?.sources ?? []
+      const s = sources[index] ?? {}
       const snapshots = Array.isArray(state.gatewayQuotas) ? state.gatewayQuotas : []
-      const write = next => { if (draft !== null) setDraft({ ...draft, gatewayQuotas: { ...(draft.gatewayQuotas ?? config.gatewayQuotas ?? {}), sources: next } }) }
-      const patch = (index, value) => write(sources.map((s, i) => i === index ? { ...s, ...value } : s))
-      const toggleSource = id => setOpenIds(m => ({ ...m, [id]: m[id] !== true }))
-      const refresh = async id => {
-        if (busyId !== null) return
-        const saved = (config.gatewayQuotas?.sources ?? []).find(source => source.id === id)
-        if (!saved || saved.enabled !== true || saved.display === 'off') return
-        setBusyId(id); setMsgs(m => ({ ...m, [id]: null }))
-        try {
-          const result = await api.refreshGatewayQuota(id)
-          setMsgs(m => ({ ...m, [id]: { kind: result.ok ? 'ok' : 'err', text: result.message } }))
-        } catch (error) { setMsgs(m => ({ ...m, [id]: { kind: 'err', text: error?.message ?? String(error) } }))
-        } finally { setBusyId(null) }
+      const live = snapshots.find(q => q.id === s.id) ?? { id: s.id, status: 'off', accounts: [], unsupportedProviders: [] }
+      const varName = gatewayVarOf(s, state.customVarStatus)
+      const [open, setOpen] = useState(false)
+      const [busy, msg, doRefresh] = useQuotaRefresh(t, () => api.refreshGatewayQuota(s.id))
+      const write = next => {
+        if (draft === null) return
+        setDraft({ ...draft, gatewayQuotas: { ...(draft.gatewayQuotas ?? config.gatewayQuotas ?? {}), sources: next } })
       }
-      const add = () => {
-        if (sources.length >= 4) return
-        const id = 'gateway-' + Date.now().toString(36)
-        setOpenIds(m => ({ ...m, [id]: true }))
-        write([...sources, { id, type: 'cliproxyapi', label: 'CLIProxyAPI', baseURL: 'http://127.0.0.1:8317', enabled: false, display: 'both', refreshMinutes: 15, includeProviders: GATEWAY_PROVIDERS, allowedHosts: [], allowInsecureHttp: false }])
-      }
+      const patch = value => write(sources.map((x, i) => i === index ? { ...x, ...value } : x))
       const field = (label, value, onChange) => el('div', { className: 'cm-field' }, el('label', null, label), el('input', { className: 'cm-input', value: value ?? '', onChange }))
-      const windowRow = (window, index) => {
+      const windowRow = (window, i) => {
         const view = miniMaxRow(window?.label || window?.id || t('gatewaySourceUnknown'), window, barDirectionOf(config, 'plan'), t)
-        return el(Fragment, { key: window?.id || index }, view.row, window?.resetsAt ? el('div', { className: 'cm-note' }, miniMaxResetText(window, t)) : null)
+        return el(Fragment, { key: window?.id || i }, view.row, window?.resetsAt ? el('div', { className: 'cm-note' }, miniMaxResetText(window, t)) : null)
       }
       const pkgRow = pkg => el('div', { className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, pkg.label || 'package'), el('span', { className: 'cm-bbox-pct cm-num' }, (pkg.used ?? '—') + ' / ' + (pkg.limit ?? '—')), el('span', { className: 'cm-bbox-pct cm-num' }, (pkg.remaining ?? '—') + ' remaining'))
       const credits = value => value == null ? null : el(Fragment, null, el('div', { className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, value.unit || 'credits'), el('span', { className: 'cm-bbox-pct cm-num' }, (value.used ?? '—') + ' / ' + (value.limit ?? '—')), el('span', { className: 'cm-bbox-pct cm-num' }, (value.remaining ?? '—') + ' remaining')), (value.packages ?? []).map(pkgRow))
-      const account = (a, index) => el('div', { key: a.id || index, className: 'cm-budget', style: { marginTop: '8px', padding: '10px 12px' } }, el('div', { className: 'cm-budget-head' }, el('strong', null, (GATEWAY_PROVIDER_LABELS[a.provider] ?? a.provider ?? t('gatewaySourceUnknown')) + ' · ' + (a.label || t('gatewaySourceUnknown'))), el('span', { className: 'cm-hint' }, a.status)), a.plan ? el('div', { className: 'cm-note' }, a.plan) : null, a.windows.length > 0 ? el('div', { className: 'cm-go-list' }, a.windows.map(windowRow)) : null, credits(a.credits), a.message ? el('div', { className: 'cm-note' }, a.message) : null)
-      const source = (s, index) => {
-        const live = snapshots.find(q => q.id === s.id) ?? { id: s.id, status: 'off', accounts: [], unsupportedProviders: [] }
-        const varName = gatewayVarOf(s, state.customVarStatus)
-        const open = openIds[s.id] === true
-        return el('div', { key: s.id || index, className: 'cm-budget' }, el('div', { className: 'cm-budget-head' }, collapseHeader(open, () => toggleSource(s.id), s.label || s.id || t('gatewayQuotaTitle')), open ? null : el('span', { className: 'cm-hint' }, live.status ?? t('gatewaySourceUnknown')), el('button', { className: 'cm-btn small', onClick: () => refresh(s.id), disabled: busyId !== null || s.enabled !== true }, busyId === s.id ? t('gatewaySourceRefreshing') : t('refreshGoQuota')), el('button', { className: 'cm-btn small', onClick: () => write(sources.filter((_, i) => i !== index)) }, t('gatewaySourceRemove'))), open ? el('div', { className: 'cm-collapse-body' }, el('label', { className: 'cm-check' }, el('input', { type: 'checkbox', checked: s.enabled === true, onChange: e => patch(index, { enabled: e.target.checked }) }), t('gatewaySourceEnabled')), el('div', { className: 'cm-grid' }, field(t('gatewaySourceLabel'), s.label, e => patch(index, { label: e.target.value })), field(t('gatewaySourceBaseURL'), s.baseURL, e => patch(index, { baseURL: e.target.value })), el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceDisplay')), el('select', { className: 'cm-input', value: s.display ?? 'both', onChange: e => patch(index, { display: e.target.value }) }, ...displayOptions(t))), field(t('gatewaySourceAllowlist'), (s.allowedHosts ?? []).join(', '), e => patch(index, { allowedHosts: e.target.value.split(/[\s,;]+/).filter(Boolean) }))), varName ? el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceCredential')), el(CredentialField, { target: 'customVar:' + varName, configured: state.customVarStatus?.[varName]?.configured === true, source: state.customVarStatus?.[varName]?.source ?? '', t, api, placeholder: varName })) : null, el('div', { className: 'cm-note' }, t('gatewaySourceStatus') + ': ' + (live.status ?? t('gatewaySourceUnknown')) + (live.serverVersion ? ' · ' + live.serverVersion : '') + (live.fetchedAt > 0 ? ' · ' + t('gatewaySourceFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }) : '') + (live.message ? ' · ' + live.message : '')), live.unsupportedProviders.length > 0 ? el('div', { className: 'cm-note' }, t('gatewaySourceUnsupported') + ': ' + live.unsupportedProviders.join(', ')) : null, live.accounts.length > 0 ? live.accounts.map(account) : el('div', { className: 'cm-bal-line' }, t('gatewaySourceNoAccounts')), msgs[s.id] ? el('div', { className: 'cm-msg ' + msgs[s.id].kind }, msgs[s.id].text) : null) : null)
-      }
-      return el('div', { className: 'cm-budget' }, el('div', { className: 'cm-budget-head' }, el('h3', { className: 'cm-h' }, t('gatewayQuotaTitle')), el('button', { className: 'cm-btn small', onClick: add, disabled: sources.length >= 4 }, t('gatewaySourceAdd')), el('button', { className: 'cm-btn small', onClick: () => api.refreshGatewayQuota(), disabled: busyId !== null || sources.length === 0 }, busyId === null ? t('refreshGoQuota') : t('gatewaySourceRefreshing'))), el('p', { className: 'cm-note' }, t('gatewayQuotaNote')), sources.length === 0 ? el('p', { className: 'cm-hint' }, t('gatewaySourceEmpty')) : sources.map(source))
+      const account = (a, i) => el('div', { key: a.id || i, className: 'cm-budget', style: { marginTop: '8px', padding: '10px 12px' } }, el('div', { className: 'cm-budget-head' }, el('strong', null, (GATEWAY_PROVIDER_LABELS[a.provider] ?? a.provider ?? t('gatewaySourceUnknown')) + ' · ' + (a.label || t('gatewaySourceUnknown'))), el('span', { className: 'cm-hint' }, a.status)), a.plan ? el('div', { className: 'cm-note' }, a.plan) : null, a.windows.length > 0 ? el('div', { className: 'cm-go-list' }, a.windows.map(windowRow)) : null, credits(a.credits), a.message ? el('div', { className: 'cm-note' }, a.message) : null)
+      return el(QuotaCard, {
+        name: s.label || s.id || t('gatewayQuotaTitle'),
+        enabled: s.enabled === true, busy, open, errorMsg: msg,
+        statusNode: el('div', { className: 'cm-note' }, t('gatewaySourceStatus') + ': ' + (live.status ?? t('gatewaySourceUnknown')) + (live.serverVersion ? ' · ' + live.serverVersion : '') + (live.fetchedAt > 0 ? ' · ' + t('gatewaySourceFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }) : '') + (live.message ? ' · ' + live.message : '')),
+        configNode: el(Fragment, null,
+          el('div', { className: 'cm-grid' },
+            field(t('gatewaySourceLabel'), s.label, e => patch({ label: e.target.value })),
+            field(t('gatewaySourceBaseURL'), s.baseURL, e => patch({ baseURL: e.target.value })),
+            el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceDisplay')), el('select', { className: 'cm-input', value: s.display ?? 'both', onChange: e => patch({ display: e.target.value }) }, ...displayOptions(t))),
+            field(t('gatewaySourceAllowlist'), (s.allowedHosts ?? []).join(', '), e => patch({ allowedHosts: e.target.value.split(/[\s,;]+/).filter(Boolean) }))),
+          varName ? el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceCredential')), el(CredentialField, { target: 'customVar:' + varName, configured: state.customVarStatus?.[varName]?.configured === true, source: state.customVarStatus?.[varName]?.source ?? '', t, api, placeholder: varName })) : null,
+          live.unsupportedProviders.length > 0 ? el('div', { className: 'cm-note' }, t('gatewaySourceUnsupported') + ': ' + live.unsupportedProviders.join(', ')) : null,
+          live.accounts.length > 0 ? live.accounts.map(account) : el('div', { className: 'cm-bal-line' }, t('gatewaySourceNoAccounts'))),
+        onToggle: value => patch({ enabled: value }),
+        onRefresh: doRefresh,
+        onRemove: () => write(sources.filter((_, i) => i !== index)),
+        onToggleOpen: () => setOpen(v => !v),
+        t,
+      })
     }
 
     const CODING_PLAN_ROWS = [
@@ -1510,40 +1482,28 @@
     ]
 
     /** Coding Plan 面板展开状态:localStorage 记住,默认折叠。 */
-    const CODING_PLANS_OPEN_KEY = 'dsh-cost-meter.codingPlans.open'
-    function readCodingPlansOpen() {
-      try { return window.localStorage.getItem(CODING_PLANS_OPEN_KEY) === '1' } catch { return false }
-    }
-
-    function CodingPlansPanel(props) {
-      const { state, api, t, draft, setDraft } = props
-      const [busyId, setBusyId] = useState(null)
-      const [msgs, setMsgs] = useState({})
-      const [open, setOpen] = useState(readCodingPlansOpen)
-      const toggleOpen = () => {
-        setOpen(o => {
-          const next = !o
-          try { window.localStorage.setItem(CODING_PLANS_OPEN_KEY, next ? '1' : '0') } catch { /* 存储不可用时仅本会话生效 */ }
-          return next
-        })
-      }
-      const plansState = state.codingPlans ?? {}
+    /** 单个 Coding Plan 订阅卡片(10 家共用:开关在标题行,展示/间隔/计划额度/凭据收在展开区)。 */
+    function PlanQuotaCard(props) {
+      const { state, api, t, draft, setDraft, planId, labelKey } = props
       const config = state.config
-      const draftEntry = id => (draft?.codingPlans?.[id] ?? config.codingPlans?.[id] ?? {})
-      const liveEntry = id => plansState[id] ?? { status: 'off', message: '', fetchedAt: 0, windows: {} }
-      const setPlan = (id, field, value) => {
+      const plansState = state.codingPlans ?? {}
+      const cfgEntry = draft?.codingPlans?.[planId] ?? config.codingPlans?.[planId] ?? {}
+      const live = plansState[planId] ?? { status: 'off', message: '', fetchedAt: 0, windows: {} }
+      const enabled = cfgEntry.enabled === true
+      const [open, setOpen] = useState(false)
+      const [busy, msg, doRefresh] = useQuotaRefresh(t, () => api.refreshCodingPlan(planId))
+      const setPlan = (field, value) => {
         if (draft === null) return
         const base = draft.codingPlans ?? config.codingPlans ?? {}
-        setDraft({ ...draft, codingPlans: { ...base, [id]: { ...(base[id] ?? {}), [field]: value } } })
+        setDraft({ ...draft, codingPlans: { ...base, [planId]: { ...(base[planId] ?? {}), [field]: value } } })
       }
-      // 千问抵扣率编辑(#103)：三项未填齐时保留本地草稿，完整后才自动保存。
+      // 千问抵扣率编辑(#103):三项未填齐时保留本地草稿,完整后才自动保存。
+      // 空行属于编辑状态,不能放进自动保存的 rates:服务端会清除空费率。
       const [qwenNewRateModel, setQwenNewRateModel] = useState('')
-      // 空行属于编辑状态，不能放进自动保存的 rates：服务端会清除空费率。
-      // 保留到显式移除或离开面板，轮询与保存回读不会让输入框消失。
       const [qwenRateDrafts, setQwenRateDrafts] = useState({})
       const ratesDraftOf = entry => (entry?.rates !== null && typeof entry?.rates === 'object' && !Array.isArray(entry.rates) ? entry.rates : {})
       const rateFields = ['input', 'cachedInput', 'output']
-      const qwenRateEntry = model => qwenRateDrafts[model] ?? ratesDraftOf(draftEntry('qwen'))[model] ?? {}
+      const qwenRateEntry = model => qwenRateDrafts[model] ?? ratesDraftOf(cfgEntry)[model] ?? {}
       const rateReady = entry => rateFields.every(field => Number.isFinite(Number(entry[field])) && Number(entry[field]) > 0)
       const setPlanRates = (model, field, raw) => {
         if (draft === null) return
@@ -1559,7 +1519,7 @@
       }
       const setPlanRatesAdd = model => {
         if (draft === null) return
-        setQwenRateDrafts(rows => ({ ...rows, [model]: rows[model] ?? ratesDraftOf(draftEntry('qwen'))[model] ?? {} }))
+        setQwenRateDrafts(rows => ({ ...rows, [model]: rows[model] ?? ratesDraftOf(cfgEntry)[model] ?? {} }))
       }
       const setPlanRatesRemove = model => {
         if (draft === null) return
@@ -1569,194 +1529,210 @@
         delete current[model]
         setDraft({ ...draft, codingPlans: { ...base, qwen: { ...(base.qwen ?? {}), rates: current } } })
       }
-      const doRefresh = async id => {
-        if (busyId !== null) return
-        setBusyId(id)
-        setMsgs(m => ({ ...m, [id]: null }))
-        try {
-          const result = await api.refreshCodingPlan(id)
-          setMsgs(m => ({ ...m, [id]: { kind: result.ok ? 'ok' : 'err', text: result.message } }))
-        } catch (error) {
-          setMsgs(m => ({ ...m, [id]: { kind: 'err', text: t('syncFailed', { message: error?.message ?? String(error) }) } }))
-        } finally {
-          setBusyId(null)
-        }
-      }
-      const windowRow = (name, win) => {
-        // 文本窗口(余额等无百分比的量):直接显示文本行。
-        if (typeof win?.percent !== 'number') {
-          return el('div', { className: 'cm-go-row' },
-            el('span', { className: 'cm-go-label' }, name.replace(/_/g, ' ')),
-            el('span', { className: 'cm-go-num' }, typeof win?.text === 'string' ? win.text : '—'))
-        }
-        const percent = win ? Math.max(0, Math.min(100, Number(win.percent) || 0)) : 0
-        // 条形方向(issue #67):与 Plan 卡同一配置。
-        const barView = simpleBarByDirection(percent, barDirectionOf(config, 'plan'))
-        const resets = win && typeof win.resetsAt === 'string' && win.resetsAt.length > 0
-          ? t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() })
-          : ''
-        return el('div', { className: 'cm-go-row' },
-          el('span', { className: 'cm-go-label' }, name.replace(/_/g, ' ')),
-          el('div', { className: 'cm-go-bar' },
-            el('div', { className: 'cm-go-fill', style: { width: barView.width + '%' } })),
-          el('span', { className: 'cm-go-num' }, t('goQuotaPercent', { percent: String(Math.round(barView.label)) })),
-          resets ? el('span', { className: 'cm-go-reset' }, resets) : null)
-      }
-      const renderRow = ({ id, labelKey }) => {
-        const cfgEntry = draftEntry(id)
-        const live = liveEntry(id)
-        const enabled = cfgEntry.enabled === true
-        const windows = live.windows !== null && typeof live.windows === 'object' ? live.windows : {}
-        const body = enabled === false
-          ? el('p', { className: 'cm-note' }, t('codingPlanDisabledNote'))
-          : live.status === 'ok'
-            ? el('div', { className: 'cm-go-list' },
-              Object.keys(windows).length > 0
-                ? (id === 'minimax' && (miniMaxWindowsOf(windows).five != null || miniMaxWindowsOf(windows).seven != null)
-                  ? el(MiniMaxPlanCard, {
-                    five: miniMaxWindowsOf(windows).five,
-                    seven: miniMaxWindowsOf(windows).seven,
-                    fetchedAt: live.fetchedAt,
-                    t,
-                    wide: true,
-                    direction: barDirectionOf(config, 'plan'),
-                  })
-                  : Object.entries(windows).map(([name, win]) => windowRow(name, win)))
-                : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried')),
-              el('div', { className: 'cm-go-time' }, t('goQuotaFetchedAt', {
-                time: live.fetchedAt > 0 ? new Date(live.fetchedAt).toLocaleTimeString() : '—',
-              })))
-            : live.status === 'error'
-              ? el('div', { className: 'cm-bal-line err' }, live.message || t('unknownError'))
-              : live.status === 'off' && live.message
-                ? el('p', { className: 'cm-note' }, live.message)
-                : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried'))
-        return el('div', { key: id, className: 'cm-budget', style: { marginTop: '8px' } },
-          el('div', { className: 'cm-budget-head' },
-            el('h3', { className: 'cm-h' }, t(labelKey)),
-            el('label', { className: 'cm-check' },
+      const windows = live.windows !== null && typeof live.windows === 'object' ? live.windows : {}
+      const statusNode = enabled === false
+        ? el('p', { className: 'cm-note' }, t('codingPlanDisabledNote'))
+        : live.status === 'ok'
+          ? el('div', { className: 'cm-go-list' },
+            Object.keys(windows).length > 0
+              ? (planId === 'minimax' && (miniMaxWindowsOf(windows).five != null || miniMaxWindowsOf(windows).seven != null)
+                ? el(MiniMaxPlanCard, {
+                  five: miniMaxWindowsOf(windows).five,
+                  seven: miniMaxWindowsOf(windows).seven,
+                  fetchedAt: live.fetchedAt,
+                  t,
+                  wide: true,
+                  direction: barDirectionOf(config, 'plan'),
+                })
+                : Object.entries(windows).map(([name, win]) => quotaWindowRow(t, name.replace(/_/g, ' '), win, barDirectionOf(config, 'plan'), false)))
+              : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried')),
+            el('div', { className: 'cm-go-time' }, t('goQuotaFetchedAt', {
+              time: live.fetchedAt > 0 ? new Date(live.fetchedAt).toLocaleTimeString() : '—',
+            })))
+          : live.status === 'error'
+            ? el('div', { className: 'cm-bal-line err' }, live.message || t('unknownError'))
+            : live.status === 'off' && live.message
+              ? el('p', { className: 'cm-note' }, live.message)
+              : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried'))
+      const configNode = el(Fragment, null,
+        el('div', { className: 'cm-field' },
+          el('label', null, t('codingPlanDisplayLabel')),
+          el('select', {
+            className: 'cm-input',
+            value: typeof cfgEntry.display === 'string' ? cfgEntry.display : (planId === 'minimax' ? 'both' : 'settings'),
+            onChange: event => setPlan('display', event.target.value),
+          },
+            el('option', { value: 'sidebar' }, t('balanceSidebar')),
+            el('option', { value: 'settings' }, t('balanceSettings')),
+            el('option', { value: 'both' }, t('balanceBoth')),
+            el('option', { value: 'off' }, t('off'))),
+          el('span', { className: 'cm-hint' }, t('codingPlanDisplayNote'))),
+        // 刷新间隔(issue #33):进程内缓存过期分钟数,1-1440,保存后生效;
+        // SCNet / 千问为本地计量(每次状态组装随账本重算,无缓存间隔),不显示该控件。
+        planId !== 'scnet' && planId !== 'qwen' ? el('div', { className: 'cm-field' },
+          el('label', null, t('codingPlanRefreshIntervalLabel')),
+          numInput({ value: typeof cfgEntry.refreshMinutes === 'number' && Number.isFinite(cfgEntry.refreshMinutes) && cfgEntry.refreshMinutes > 0 ? cfgEntry.refreshMinutes : 15 }, v => {
+            setPlan('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v))))
+          })) : null,
+        planId === 'scnet' || planId === 'qwen'
+          ? el(Fragment, null,
+            el('div', { className: 'cm-field' },
+              el('label', null, t(planId === 'qwen' ? 'qwenPlanCreditsLabel' : 'scnetPlanCreditsLabel')),
               el('input', {
-                type: 'checkbox',
-                checked: enabled,
-                onChange: event => setPlan(id, 'enabled', event.target.checked),
-              }),
-              el('span', null, t('enableCodingPlan'))),
-            el('button', { className: 'cm-btn small', onClick: () => { void doRefresh(id) }, disabled: busyId !== null || enabled === false }, busyId === id ? t('refreshing') : t('refreshCodingPlan'))),
-          enabled ? el('div', { className: 'cm-field' },
-            el('label', null, t('codingPlanDisplayLabel')),
-            el('select', {
-              className: 'cm-input',
-              value: typeof cfgEntry.display === 'string' ? cfgEntry.display : (id === 'minimax' ? 'both' : 'settings'),
-              onChange: event => setPlan(id, 'display', event.target.value),
-            },
-              el('option', { value: 'sidebar' }, t('balanceSidebar')),
-              el('option', { value: 'settings' }, t('balanceSettings')),
-              el('option', { value: 'both' }, t('balanceBoth')),
-              el('option', { value: 'off' }, t('off'))),
-            el('span', { className: 'cm-hint' }, t('codingPlanDisplayNote'))) : null,
-          // 刷新间隔(issue #33):进程内缓存过期分钟数,1-1440,保存后生效;
-          // SCNet / 千问为本地计量(每次状态组装随账本重算,无缓存间隔),不显示该控件。
-          enabled && id !== 'scnet' && id !== 'qwen' ? el('div', { className: 'cm-field' },
-            el('label', null, t('codingPlanRefreshIntervalLabel')),
-            numInput({ value: typeof cfgEntry.refreshMinutes === 'number' && Number.isFinite(cfgEntry.refreshMinutes) && cfgEntry.refreshMinutes > 0 ? cfgEntry.refreshMinutes : 15 }, v => {
-              setPlan(id, 'refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v))))
-            })) : null,
-          enabled ? (id === 'scnet' || id === 'qwen'
-            ? el(Fragment, null,
+                className: 'cm-input', type: 'number', min: '1', step: '1000',
+                value: typeof cfgEntry.planCredits === 'number' && Number.isFinite(cfgEntry.planCredits) && cfgEntry.planCredits > 0 ? cfgEntry.planCredits : (planId === 'qwen' ? 500000 : 240000),
+                onChange: event => {
+                  const n = Number(event.target.value)
+                  if (Number.isFinite(n) && n > 0) setPlan('planCredits', Math.floor(n))
+                },
+              })),
+            el('div', { className: 'cm-field' },
+              el('label', null, t(planId === 'qwen' ? 'qwenPlanStartLabel' : 'scnetPlanStartLabel')),
+              el('input', {
+                className: 'cm-input', type: 'date',
+                value: typeof cfgEntry.planStart === 'string' ? cfgEntry.planStart : '',
+                onChange: event => setPlan('planStart', event.target.value),
+              })),
+            // 千问抵扣率覆盖(issue #78):模型名 + 输入/缓存读/输出三费率(每百万
+            // token 抵扣的 Credits);留空用内置表,改指模型按新表折算。
+            planId === 'qwen' ? el(Fragment, null,
               el('div', { className: 'cm-field' },
-                el('label', null, t(id === 'qwen' ? 'qwenPlanCreditsLabel' : 'scnetPlanCreditsLabel')),
-                el('input', {
-                  className: 'cm-input', type: 'number', min: '1', step: '1000',
-                  value: typeof cfgEntry.planCredits === 'number' && Number.isFinite(cfgEntry.planCredits) && cfgEntry.planCredits > 0 ? cfgEntry.planCredits : (id === 'qwen' ? 500000 : 240000),
+                el('label', null, t('qwenRatesLabel'))),
+              [...new Set([...Object.keys(ratesDraftOf(cfgEntry)), ...Object.keys(qwenRateDrafts)])].sort().map(model => el('div', { key: model, className: 'cm-match-row' },
+                el('span', { style: { minWidth: '120px' } }, model),
+                rateFields.map(field => el('input', {
+                  key: field, className: 'cm-input narrow', type: 'number', min: '0', step: '0.1',
+                  value: qwenRateEntry(model)[field] ?? '',
+                  placeholder: t('qwenRate_' + field), 'aria-label': model + ' · ' + t('qwenRate_' + field),
                   onChange: event => {
-                    const n = Number(event.target.value)
-                    if (Number.isFinite(n) && n > 0) setPlan(id, 'planCredits', Math.floor(n))
+                    const raw = event.target.value
+                    setPlanRates(model, field, raw)
                   },
                 })),
-              el('div', { className: 'cm-field' },
-                el('label', null, t(id === 'qwen' ? 'qwenPlanStartLabel' : 'scnetPlanStartLabel')),
+                el('button', { className: 'cm-btn small', onClick: () => setPlanRatesRemove(model) }, t('overrideRemove')),
+                model in qwenRateDrafts && !rateReady(qwenRateEntry(model)) ? el('span', { className: 'cm-note' }, t('qwenRateDraftNote')) : null)),
+              el('div', { className: 'cm-buttons' },
                 el('input', {
-                  className: 'cm-input', type: 'date',
-                  value: typeof cfgEntry.planStart === 'string' ? cfgEntry.planStart : '',
-                  onChange: event => setPlan(id, 'planStart', event.target.value),
-                })),
-              // 千问抵扣率覆盖(issue #78):模型名 + 输入/缓存读/输出三费率(每百万
-              // token 抵扣的 Credits);留空用内置表,改指模型按新表折算。
-              id === 'qwen' ? el(Fragment, null,
-                el('div', { className: 'cm-field' },
-                  el('label', null, t('qwenRatesLabel'))),
-                [...new Set([...Object.keys(ratesDraftOf(cfgEntry)), ...Object.keys(qwenRateDrafts)])].sort().map(model => el('div', { key: model, className: 'cm-match-row' },
-                  el('span', { style: { minWidth: '120px' } }, model),
-                  rateFields.map(field => el('input', {
-                    key: field, className: 'cm-input narrow', type: 'number', min: '0', step: '0.1',
-                    value: qwenRateEntry(model)[field] ?? '',
-                    placeholder: t('qwenRate_' + field), 'aria-label': model + ' · ' + t('qwenRate_' + field),
-                    onChange: event => {
-                      const raw = event.target.value
-                      setPlanRates(model, field, raw)
-                    },
-                  })),
-                  el('button', { className: 'cm-btn small', onClick: () => setPlanRatesRemove(model) }, t('overrideRemove')),
-                  model in qwenRateDrafts && !rateReady(qwenRateEntry(model)) ? el('span', { className: 'cm-note' }, t('qwenRateDraftNote')) : null)),
-                el('div', { className: 'cm-buttons' },
-                  el('input', {
-                    className: 'cm-input narrow', type: 'text', placeholder: t('qwenRatesModelPlaceholder'),
-                    value: qwenNewRateModel,
-                    onChange: event => setQwenNewRateModel(event.target.value),
-                  }),
-                  el('button', { className: 'cm-btn small', onClick: () => {
-                    const name = qwenNewRateModel.trim()
-                    if (name.length === 0) return
-                    setPlanRatesAdd(name)
-                    setQwenNewRateModel('')
-                  }, disabled: qwenNewRateModel.trim().length === 0 }, t('qwenRatesAdd'))))
-                : null,
-              el('p', { className: 'cm-note' }, t(id === 'qwen' ? 'qwenLocalNote' : 'scnetLocalNote')))
-            : id === 'volcengine'
-              ? el(Fragment, null,
-                el('div', { className: 'cm-field' },
-                  el('label', null, t('volcengineAccessKeyIdLabel'))),
-                // 密钥改由 DSH 凭据库托管(v1.6.8):不再读/写 config 里的明文,
-                // 经 setCredential / clearCredential 单向操作凭据库,输入框永不回显。
-                el(CredentialField, {
-                  target: 'codingPlans.volcengine.ak',
-                  configured: live.keyConfigured === true,
-                  source: live.keySource,
-                  t, api,
-                  placeholder: t('volcengineAccessKeyPlaceholder'),
+                  className: 'cm-input narrow', type: 'text', placeholder: t('qwenRatesModelPlaceholder'),
+                  value: qwenNewRateModel,
+                  onChange: event => setQwenNewRateModel(event.target.value),
                 }),
-                el('div', { className: 'cm-field' },
-                  el('label', null, t('volcengineSecretAccessKeyLabel'))),
-                el(CredentialField, {
-                  target: 'codingPlans.volcengine.sk',
-                  configured: live.keyConfigured === true,
-                  source: live.keySource,
-                  t, api,
-                  placeholder: t('volcengineSecretPlaceholder'),
-                }),
-                el('p', { className: 'cm-note' }, t('volcengineNote')))
-              : el(Fragment, null,
-                el('div', { className: 'cm-field' },
-                  el('label', null, t('codingPlanKeyLabel'))),
-                el(CredentialField, {
-                  target: 'codingPlans.' + id,
-                  configured: live.keyConfigured === true,
-                  source: live.keySource,
-                  t, api,
-                  placeholder: 'sk-…',
-                }))) : null,
-          body,
-          msgs[id] != null ? el('div', { className: 'cm-msg ' + msgs[id].kind }, msgs[id].text) : null)
+                el('button', { className: 'cm-btn small', onClick: () => {
+                  const name = qwenNewRateModel.trim()
+                  if (name.length === 0) return
+                  setPlanRatesAdd(name)
+                  setQwenNewRateModel('')
+                }, disabled: qwenNewRateModel.trim().length === 0 }, t('qwenRatesAdd'))))
+              : null,
+            el('p', { className: 'cm-note' }, t(planId === 'qwen' ? 'qwenLocalNote' : 'scnetLocalNote')))
+          : planId === 'volcengine'
+            ? el(Fragment, null,
+              el('div', { className: 'cm-field' },
+                el('label', null, t('volcengineAccessKeyIdLabel'))),
+              // 密钥改由 DSH 凭据库托管(v1.6.8):不再读/写 config 里的明文,
+              // 经 setCredential / clearCredential 单向操作凭据库,输入框永不回显。
+              el(CredentialField, {
+                target: 'codingPlans.volcengine.ak',
+                configured: live.keyConfigured === true,
+                source: live.keySource,
+                t, api,
+                placeholder: t('volcengineAccessKeyPlaceholder'),
+              }),
+              el('div', { className: 'cm-field' },
+                el('label', null, t('volcengineSecretAccessKeyLabel'))),
+              el(CredentialField, {
+                target: 'codingPlans.volcengine.sk',
+                configured: live.keyConfigured === true,
+                source: live.keySource,
+                t, api,
+                placeholder: t('volcengineSecretPlaceholder'),
+              }),
+              el('p', { className: 'cm-note' }, t('volcengineNote')))
+            : el(Fragment, null,
+              el('div', { className: 'cm-field' },
+                el('label', null, t('codingPlanKeyLabel'))),
+              el(CredentialField, {
+                target: 'codingPlans.' + planId,
+                configured: live.keyConfigured === true,
+                source: live.keySource,
+                t, api,
+                placeholder: 'sk-…',
+              })))
+      return el(QuotaCard, {
+        name: t(labelKey), enabled, busy, open, errorMsg: msg,
+        statusNode, configNode,
+        onToggle: value => setPlan('enabled', value),
+        onRefresh: doRefresh,
+        onToggleOpen: () => setOpen(v => !v),
+        t,
+      })
+    }
+
+    /** 额度区总装:四类来源归一成同一串卡片,已启用的排前面(顺序纯由 enabled 派生,不落盘)。 */
+    function QuotasSection(props) {
+      const { state, api, t, draft, setDraft } = props
+      const config = state.config
+      const base = draft ?? config
+      const plans = base.codingPlans ?? {}
+      const sources = base.gatewayQuotas?.sources ?? []
+      const entries = draft?.customBalances ?? config.customBalances ?? []
+      // 多配置形态(v1.7.0,issue #79):entries 为运行期真源;旧单配置 customBalance
+      // 由 parseConfig/sanitizeConfig 迁移包装为 entries(编辑写回也走数组,单条键
+      // 由服务端镜像),旧宿主快照自动兼容。
+      const setEntries = next => {
+        if (draft === null) return
+        setDraft({ ...draft, customBalances: next, ...(next.length === 0 ? { customBalance: { ...(config.customBalance ?? {}), enabled: false, request: { url: '', headers: {} } } } : {}) })
       }
-      return el('div', { className: 'cm-budget' },
-        el('div', { className: 'cm-budget-head' },
-          el('h3', { className: 'cm-h' }, t('codingPlansTitle')),
-          el('button', { className: 'cm-toggle-btn', onClick: toggleOpen }, open ? t('codingPlansCollapse') : t('codingPlansOpen'))),
-        open
-          ? el(Fragment, null,
-            el('p', { className: 'cm-note' }, t('codingPlansNote')),
-            CODING_PLAN_ROWS.map(renderRow))
-          : el('p', { className: 'cm-note cm-collapsed-note' }, t('codingPlansCollapsedHint')))
+      const setEntry = (index, patch) => setEntries(entries.map((e, i) => i === index ? { ...e, ...patch } : e))
+      const addEntry = (adapter = 'custom') => {
+        if (entries.length >= 8) return
+        setEntries([...entries, {
+          ...(adapter === 'aliyun' ? { adapter } : {}),
+          enabled: false,
+          label: adapter === 'aliyun' ? '千问 / 阿里云' : '',
+          labelEn: adapter === 'aliyun' ? 'Qianwen / Alibaba Cloud' : '',
+          display: 'both',
+          unit: adapter === 'aliyun' ? 'CNY' : 'USD',
+          refreshMinutes: 15,
+          request: { url: adapter === 'aliyun' ? 'https://business.aliyuncs.com/' : '', method: adapter === 'aliyun' ? 'POST' : 'GET', headers: {} },
+          extract: {},
+          allowedHosts: [],
+        }])
+      }
+      const addGateway = () => {
+        if (sources.length >= 4 || draft === null) return
+        setDraft({
+          ...draft,
+          gatewayQuotas: {
+            ...(draft.gatewayQuotas ?? config.gatewayQuotas ?? {}),
+            sources: [...sources, { id: 'gateway-' + Date.now().toString(36), type: 'cliproxyapi', label: 'CLIProxyAPI', baseURL: 'http://127.0.0.1:8317', enabled: false, display: 'both', refreshMinutes: 15, includeProviders: GATEWAY_PROVIDERS, allowedHosts: [], allowInsecureHttp: false }],
+          },
+        })
+      }
+      // 四类归一成同一种卡片形状,排序只认 enabled:已启用组在前,两组各自保持默认顺序。
+      const items = [
+        ...CODING_PLAN_ROWS.map(row => ({ kind: 'plan', key: 'plan-' + row.id, planId: row.id, labelKey: row.labelKey, enabled: plans[row.id]?.enabled === true })),
+        { kind: 'go', key: 'go', enabled: base.goQuota?.enabled !== false },
+        ...sources.map((source, index) => ({ kind: 'gateway', key: 'gw-' + (source.id ?? index), index, enabled: source.enabled === true })),
+        ...entries.map((entry, index) => ({ kind: 'custom', key: 'cb-' + index, index, enabled: entry.enabled === true })),
+      ]
+      const cardOf = item => {
+        if (item.kind === 'plan') return el(PlanQuotaCard, { key: item.key, planId: item.planId, labelKey: item.labelKey, state, api, t, draft, setDraft })
+        if (item.kind === 'go') return el(GoQuotaCard, { key: item.key, state, api, t, draft, setDraft })
+        if (item.kind === 'gateway') return el(GatewayQuotaCard, { key: item.key, index: item.index, state, api, t, draft, setDraft })
+        return el(CustomBalanceEntryPanel, {
+          key: item.key, state, api, t, entry: entries[item.index], index: item.index, canRemove: true,
+          onPatch: patch => setEntry(item.index, patch),
+          onRemove: () => setEntries(entries.filter((_, i) => i !== item.index)),
+        })
+      }
+      return el('div', null,
+        el('p', { className: 'cm-note' }, t('quotaSectionNote')),
+        el('div', { className: 'cm-quota-list' }, sortQuotaCards(items).map(cardOf)),
+        el('div', { className: 'cm-buttons' },
+          el('button', { className: 'cm-btn small', onClick: addGateway, disabled: sources.length >= 4 }, t('gatewaySourceAdd')),
+          el('button', { className: 'cm-btn small', onClick: () => addEntry(), disabled: entries.length >= 8 }, t('customBalanceAdd')),
+          el('button', { className: 'cm-btn small', onClick: () => addEntry('aliyun'), disabled: entries.length >= 8 }, t('aliyunBalanceAdd'))))
     }
 
     // ── Token 用量统计(历史总量 + 每日格子热图;显示位置可配) ────────────────
@@ -2110,15 +2086,8 @@
           ? el(BalancePanel, { state, api, t, draft, setDraft })
           : null)
         : null,
-        // ── 额度:Gateway、OpenCode Go、Coding Plan、自定义 Provider 余额 ──
-        tab === 'quotas' ? el(Fragment, { key: 'quotas' },
-        el(GatewayQuotaPanel, { state, api, t, draft, setDraft }),
-        // OpenCode Go 订阅额度(含启用开关,像预算面板一样常驻)
-        el(GoQuotaPanel, { state, api, t, draft, setDraft }),
-        // Coding Plan 额度(Anthropic / Z.ai·GLM / MiniMax,各家独立开关)
-        el(CodingPlansPanel, { state, api, t, draft, setDraft }),
-        // 自定义 Provider 余额(可配置 HTTP 查询;与 Coding Plan 同区,可折叠)
-        el(CustomBalancePanel, { state, api, t, draft, setDraft }))
+        // ── 额度:订阅 / OpenCode Go / 网关 / 自定义余额统一成一串卡片 ──
+        tab === 'quotas' ? el(QuotasSection, { key: 'quotas', state, api, t, draft, setDraft })
         : null,
         // ── 用量:热图、按模型统计、历史、按会话统计、历史数据操作 ──
         tab === 'usage' ? el(Fragment, { key: 'usage' },
