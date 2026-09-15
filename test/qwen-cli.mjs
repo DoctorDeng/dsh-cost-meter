@@ -23,6 +23,7 @@ for (const remaining of [25000, 0, 24999.5]) {
   assert.equal(actual.windows.quota.percent, Math.round((25000 - remaining) / 25000 * 1000) / 10)
 }
 assert.equal(parseQwenSummary({ token_plan: { ...plan, totalCredits: 100, remainingCredits: 99.5 } }).windows.quota.percent, 0.5)
+assert.equal(parseQwenSummary({ token_plan: { ...plan, subscribed: false, status: 'exhaust', remainingCredits: 0 } }).windows.quota.percent, 100, 'explicit exhausted subscription remains visible')
 for (const patch of [{ totalCredits: 0 }, { remainingCredits: -1 }, { remainingCredits: 25001 }, { totalCredits: Infinity }, { remainingCredits: '0' }, { remainingCredits: null }, { remainingCredits: true }, { addonRemaining: -1 }, { resetDate: 'invalid' }]) {
   assert.throws(() => parseQwenSummary({ token_plan: { ...plan, ...patch } }), { code: 'invalid' })
 }
