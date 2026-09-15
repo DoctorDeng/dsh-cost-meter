@@ -194,9 +194,13 @@ for (const position of ['first', 'afterBalance', 'last']) {
       sidebarModels: { ...state.config.sidebarModels, position } } } }) })
   assert.equal(nodes(footer.tree).filter(n => n.type === e.ui.SidebarModelCosts).length, 1)
   const order = footer.tree.children.filter(n => n && typeof n === 'object').map(n => n.type.name)
-  assert.deepEqual(order, position === 'first' ? ['SidebarModelCosts', 'BalanceRowContent', 'BudgetBoxContent']
-    : position === 'afterBalance' ? ['BalanceRowContent', 'SidebarModelCosts', 'BudgetBoxContent']
-    : ['BalanceRowContent', 'BudgetBoxContent', 'SidebarModelCosts'])
+  // fork:标准宽栏下今日费用/官方余额/峰谷条已合并为一张卡(TodayBalanceCard),上游此处的
+  // BalanceRowContent 只在余额框/余额行分支出现,不会进标准宽栏;排序语义(模型卡与余额卡、
+  // 预算卡的相对次序)与上游一致。
+  const balanceCard = 'TodayBalanceCard'
+  assert.deepEqual(order, position === 'first' ? ['SidebarModelCosts', balanceCard, 'BudgetBoxContent']
+    : position === 'afterBalance' ? [balanceCard, 'SidebarModelCosts', 'BudgetBoxContent']
+    : [balanceCard, 'BudgetBoxContent', 'SidebarModelCosts'])
 }
 
 // 额度顺序和卡片身份：不因启用重排、删除前一项而丢失后一项编辑状态。
