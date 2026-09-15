@@ -515,7 +515,7 @@
     })
 
     // ── RPC 贡献(与服务端 ./typert 清单一一对应) ───────────────────────────
-    const strictCodec = (name, schema) => ({ mode: 'strict', typeSymbol: 'dsh-cost-meter#' + name, schema })
+    const strictCodec = (name, schema) => ({ mode: 'strict', typeSymbol: 'dsh-cost-meter#' + name, schema, create: () => schema })
     const rpcParam = (name, type, schema, optional = false) => ({ name, wire: name, source: 'json', codec: strictCodec(type, schema), ...(optional ? { acceptsUndefined: true } : {}) })
 
     const CONTRIBUTION = {
