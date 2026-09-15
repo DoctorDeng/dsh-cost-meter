@@ -245,6 +245,7 @@
             includeProviders: Array.isArray(x.includeProviders) ? [...new Set(x.includeProviders.filter(p => typeof p === 'string').map(p => p.toLowerCase()).filter(p => GATEWAY_PROVIDERS.includes(p)))] : GATEWAY_PROVIDERS,
             allowedHosts: Array.isArray(x.allowedHosts) ? x.allowedHosts.filter(h => typeof h === 'string').slice(0, 16) : [],
             allowInsecureHttp: x.allowInsecureHttp === true,
+            antigravityOnlyGemini: x.antigravityOnlyGemini === true,
             keyVar: typeof x.keyVar === 'string' ? x.keyVar : '',
           })) : []
           return { sources }

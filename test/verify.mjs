@@ -6113,6 +6113,16 @@ function m_costOf85(entry, tokens) {
   assert.equal(agNamed.windows[1].label, 'Claude / GPT · Weekly')
   assert.equal(agNamed.windows[1].percent, 1)
 
+  // geminiOnly(来源配置 antigravityOnlyGemini):第三方模型池整组跳过,只留 Gemini 原生组。
+  const agGeminiOnly = parseAntigravityQuota({ groups: [
+    { displayName: 'Gemini Models', buckets: [{ window: '5h', remainingFraction: 0.88 }, { window: 'weekly', remainingFraction: 0.36 }] },
+    { displayName: 'Claude and GPT models', buckets: [{ window: 'weekly', remainingFraction: 0.99 }, { window: '5h', remainingFraction: 0.99 }] },
+  ] }, { geminiOnly: true })
+  assert.equal(agGeminiOnly.windows.length, 2, 'geminiOnly 只保留 Gemini 原生组的两个窗口')
+  assert.deepEqual(agGeminiOnly.windows.map(w => w.id), ['gemini:five-hour', 'gemini:weekly'])
+  assert.equal(agGeminiOnly.windows.some(w => /claude/i.test(w.label)), false, 'geminiOnly 不残留 Claude 窗口')
+  assert.ok(agGeminiOnly.warnings.some(w => w.includes('geminiOnly')), '过滤第三方组时给出告警')
+
   const claude = parseClaudeUsage({
     five_hour: { utilization: 12 }, seven_day: { utilization: 24 },
     seven_day_oauth_apps: { utilization: 30 }, seven_day_opus: { utilization: 40 },
@@ -6292,6 +6302,17 @@ function m_costOf85(entry, tokens) {
   assert.equal(fingerprintA, fingerprintB, 'fingerprint uses normalized source configuration')
   assert.notEqual(fingerprintA, fingerprintKey, 'configured-key bit changes source fingerprint')
   assert.equal(fingerprintA.includes('management'), false, 'fingerprint contains no credential value')
+
+  // antigravityOnlyGemini(只留 Gemini 原生组)必须穿过三层归一化,否则开关形同虚设:
+  // gateway-quotas.normalizeGatewaySource 是 queryGatewayQuota 的第一步白名单,漏字段即静默丢弃。
+  const geminiOnlySource = { ...fingerprintSource, antigravityOnlyGemini: true }
+  assert.equal(normalizeGatewaySource(geminiOnlySource).antigravityOnlyGemini, true, 'normalizeGatewaySource 保留 antigravityOnlyGemini')
+  assert.equal(normalizeGatewaySource(fingerprintSource).antigravityOnlyGemini, false, '缺省 false(向后兼容)')
+  assert.notEqual(
+    gatewaySourceFingerprint(fingerprintSource, false),
+    gatewaySourceFingerprint(geminiOnlySource, false),
+    'antigravityOnlyGemini 变化必须改变来源指纹,否则缓存旧窗口不会重取',
+  )
 
   const piiEmail = 'sentinel.user.87@example.test'
   const piiToken = 'AUTH_TOKEN_SENTINEL_87'
