@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- **自定义余额 `CREDITS` 单位**:币种新增 `CREDITS`(积分 / Credits 等非货币计数)。选它时金额按整数渲染、不加货币符号,且「当日已用」段固定为 0——积分抵扣率因模型而异,无法由美元花费换算,不伪造折算值。原 `USD` / `CNY` / `EUR` 行为不变。
+- **自定义余额放行 loopback 明文 HTTP**:端点主机为 `127.0.0.1` / `localhost` / `[::1]` 时允许 `http://`,用于只监听回环、不提供 TLS 的本机只读路由(如 `dsh-workbuddy-connect` 的 `/plugins/dsh-workbuddy-connect/status`,可直接读出 WorkBuddy 聚合积分,无需复制凭据)。**非回环主机仍强制 https**,`ftp://` 等其它协议依旧拒绝;判定复用网关层的 `isLoopbackHost`,与 `gatewayQuotas` 同口径。
+- 新增回归:CREDITS 校验 / 持久化 / 非法值回落、三种 loopback 主机放行、非 loopback 与其它协议拒绝且不发请求、https 未回归;bundle 仍低于 262144 字节上限。
+
 ## [1.7.25] - 2026-09-15
 
 - **#142 侧栏按模型花费**：新增可折叠卡片，默认关闭、首次收起；支持今日 / 近 90 天、Top-N（1–10，默认 5）、其它模型汇总、占比条及可选输入/缓存/输出 Token。复用设置页分模型账本，按现有 API / Plan 展示口径与币种计算。

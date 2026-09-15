@@ -69,6 +69,28 @@
 
 自定义 Provider 余额的 `extract` 规则支持四种形式:数字常量、点路径字符串、`add`/`subtract` 多路径加减、`divide` 按 `by` 除数缩放。**`divide` 适用于 NewApi 等以 quota 整数计量的端点**(1 USD = 500000 quota,与 cc-switch 同款换算)。
 
+- **`unit: "CREDITS"`**:非货币计数端点(积分 / Credits)请把币种选为 `CREDITS`——金额按整数渲染、不加货币符号,且「当日已用」段固定为 0(积分抵扣率因模型而异,无法由美元花费换算,故不伪造折算值)。
+- **本机回环端点支持明文 HTTP**:端点主机为 `127.0.0.1` / `localhost` / `[::1]` 时允许 `http://`(流量不出网卡),用于只监听回环、不提供 TLS 的本地只读路由(如 `dsh-workbuddy-connect` 的 `/plugins/dsh-workbuddy-connect/status`)。**非回环主机仍强制 https**,明文请求一律拒绝。
+
+### WorkBuddy 积分示例(本机插件路由)
+
+已安装 `dsh-workbuddy-connect` 时,其 Web 状态路由直接返回聚合积分,无需复制任何凭据:
+
+```json
+{
+  "enabled": true,
+  "display": "sidebar",
+  "refreshMinutes": 15,
+  "label": "WorkBuddy 积分",
+  "labelEn": "WorkBuddy Credits",
+  "unit": "CREDITS",
+  "request": { "url": "http://127.0.0.1:3080/plugins/dsh-workbuddy-connect/status", "method": "GET", "headers": {} },
+  "extract": { "remaining": "credits.total" }
+}
+```
+
+该路由的信任边界是 **loopback Host**(防 DNS rebinding):非 loopback 的 `Host` 头一律 403,跨源页面的 `Origin` 也 403;同源页面(`Origin: http://127.0.0.1:<端口>`)与不带 `Origin` 的请求均正常返回。端口按实际 DSH Web 服务端口调整。
+
 以 NewApi 的 `GET /api/usage/token` 为例(响应 `{ "code": 200, "data": { "total_granted": ..., "total_used": ..., "total_available": ..., "unlimited_quota": false } }`):
 
 ```json
