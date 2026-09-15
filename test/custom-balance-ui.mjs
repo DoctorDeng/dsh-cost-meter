@@ -7,7 +7,7 @@ import { sanitizeConfig, applyConfigPatch } from '../lib/store.js'
 // 仅在测试 VM 中暴露闭包函数，不在发布 bundle 中增加测试接口。
 const dir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(dir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, dir), 'utf8')).join('')
-const code = source.replace('exports.apply = apply', 'exports.test = { QuotasSection, CustomBalanceEntryPanel, customBalanceUnitOf, parseConfig, makeT }; exports.apply = apply')
+const code = source.replace('exports.apply = apply', 'exports.test = { QuotasSection, CustomBalanceEntryPanel, customBalanceUnitOf, formatCustomBalanceMoney, segmentsForCustomBalance, customBalanceDetailText, parseConfig, makeT }; exports.apply = apply')
 let factory
 let slots = []
 let cursor = 0
@@ -20,6 +20,21 @@ const react = {
     return [slots[i], next => { slots[i] = typeof next === 'function' ? next(slots[i]) : next }]
   },
   useRef: value => ({ current: value }), useEffect() {},
+}
+function verifyCreditsUI() {
+  const entry = { enabled: true, unit: 'CREDITS', request: { url: 'http://127.0.0.1:3080/status' } }
+  const config = sanitizeConfig({ decimals: 4, exchangeRate: 100, customBalances: [entry], balance: { budgetCap: 10000, showProgressBar: true } })
+  const live = { status: 'ok', unit: 'CREDITS', remaining: 0.125, spend: 1.875, maxBudget: 2, fetchedAt: 0 }
+  const state = { config, today: { cost: 1000 }, customBalance: live }
+  assert.equal(ui.formatCustomBalanceMoney(live.remaining, config, live, entry), '0.125 Credits')
+  const segments = ui.segmentsForCustomBalance(state, config, live, entry)
+  assert.equal(segments.cap, 2, '积分上限来自接口，不借用全局货币预算')
+  assert.equal(segments.todayPct, 0, '美元消费不转换为积分')
+  assert.equal(segments.remainingPct, 6.25)
+  assert.equal(ui.segmentsForCustomBalance(state, config, { ...live, maxBudget: null }, entry).cap, null)
+  const detail = ui.customBalanceDetailText(live, config, ui.makeT('en'), state, entry)
+  assert.ok(!detail.includes('10000'))
+  assert.equal(ui.parseConfig(config, 'config').customBalances[0].unit, 'CREDITS')
 }
 vm.runInNewContext(code, { window: { __ModuleLoader__: { load: value => { factory = value.factory } } }, navigator: { language: 'en' } })
 const ui = factory(name => name === 'react' ? react : {}).test
@@ -65,4 +80,5 @@ for (const locale of ['zh', 'en']) {
   button(card, t('quotaRemove')).props.onClick()
   assert.equal(applyConfigPatch(config, draft).config.customBalances.length, 0)
 }
+verifyCreditsUI()
 console.log('[ok] 自定义余额界面：双语新增/展开/凭据行/删除/币种与配置往返通过')

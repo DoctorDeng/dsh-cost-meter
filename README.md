@@ -65,11 +65,15 @@
 
 千问 / 阿里云资金账户余额可直接点击「添加千问 / 阿里云余额」，使用 RAM AccessKey 签名查询，显示接口返回的可用金与币种；配置步骤、所需权限及口径见[千问余额说明](docs/qianwen-balance.md)。
 
+千问 Token Plan 可在卡片内选择[官方 CLI 订阅额度](docs/qwen-cli-quota.md)，需在 DSH 主机以同一系统账号安装 CLI 并运行 `qianwen auth login`。默认保留本地估算；CLI 模式显示账号当前 Credits，不修改本地账本。
+
 千问 Token Plan 的本地 Credits 仅统计 `qwen`、`qwen-tokenplan`、`qianwen-tokenplan`、`qwen-token-plan`、`qianwen-token-plan` 订阅 provider（大小写不敏感，可带 `llm-` 前缀）；显式归类为 API 的调用不计。`qianwen` 按量 provider 即使使用相同模型名也不会计入订阅额度。自定义渠道名需使用上述订阅名称之一，模型不在抵扣表中时需补充三项费率。
+
+CLIProxyAPI 网关来源卡片可勾选「只显示 Gemini 额度」，仅影响该来源的 Antigravity 分组。默认显示全部分组；过滤后无可见额度时显示空列表，解析错误仍单独报告。
 
 自定义 Provider 余额的 `extract` 规则支持四种形式:数字常量、点路径字符串、`add`/`subtract` 多路径加减、`divide` 按 `by` 除数缩放。**`divide` 适用于 NewApi 等以 quota 整数计量的端点**(1 USD = 500000 quota,与 cc-switch 同款换算)。
 
-- **`unit: "CREDITS"`**:非货币计数端点(积分 / Credits)请把币种选为 `CREDITS`——金额按整数渲染、不加货币符号,且「当日已用」段固定为 0(积分抵扣率因模型而异,无法由美元花费换算,故不伪造折算值)。
+- **`unit: "CREDITS"`**：非货币计数端点可选 `CREDITS`，按小数精度设置显示并标明 Credits。美元花费不转换为积分，也不显示由它推算的今日积分消耗；进度条仅使用接口返回的积分上限，全局货币预算不适用。
 - **本机回环端点支持明文 HTTP**:端点主机为 `127.0.0.1` / `localhost` / `[::1]` 时允许 `http://`(流量不出网卡),用于只监听回环、不提供 TLS 的本地只读路由(如 `dsh-workbuddy-connect` 的 `/plugins/dsh-workbuddy-connect/status`)。**非回环主机仍强制 https**,明文请求一律拒绝。
 
 ### WorkBuddy 积分示例(本机插件路由)
@@ -89,7 +93,7 @@
 }
 ```
 
-该路由的信任边界是 **loopback Host**(防 DNS rebinding):非 loopback 的 `Host` 头一律 403,跨源页面的 `Origin` 也 403;同源页面(`Origin: http://127.0.0.1:<端口>`)与不带 `Origin` 的请求均正常返回。端口按实际 DSH Web 服务端口调整。
+端口和响应字段按实际本机服务调整。该示例要求对应插件已提供此路由；本插件拒绝跟随重定向，现有凭据主机白名单继续生效。
 
 以 NewApi 的 `GET /api/usage/token` 为例(响应 `{ "code": 200, "data": { "total_granted": ..., "total_used": ..., "total_available": ..., "unlimited_quota": false } }`):
 
