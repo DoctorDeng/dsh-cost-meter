@@ -5417,6 +5417,51 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   console.log('[ok] 自定义余额多配置(迁移/多条写入/上限/加载清洗)通过')
 }
 
+// 14-1c) 自定义余额 CREDITS 单位 + loopback 明文端点(v1.7.26)。
+// 场景:WorkBuddy 积分这类「非货币计数」端点,以及只监听回环、不提供 TLS 的
+// 本机只读路由(如 dsh-workbuddy-connect 的插件 status 路由)。
+{
+  // ① CREDITS 通过校验与收敛;未知单位仍被拒绝。
+  const creditsOk = applyConfigPatch(sanitizeConfig({}), {
+    customBalances: [{ enabled: true, display: 'sidebar', refreshMinutes: 15, label: 'WorkBuddy 积分', unit: 'CREDITS', request: { url: 'http://127.0.0.1:3080/plugins/x/status' }, extract: { remaining: 'credits.total' } }],
+  })
+  assert.deepEqual(creditsOk.errors, [], 'CREDITS 单位合法')
+  assert.equal(creditsOk.config.customBalances[0].unit, 'CREDITS', 'CREDITS 单位持久化')
+  const badUnit = applyConfigPatch(sanitizeConfig({}), {
+    customBalances: [{ enabled: true, display: 'sidebar', refreshMinutes: 15, label: 'x', unit: 'POINTS', request: { url: 'https://a.example.com/x' }, extract: {} }],
+  })
+  assert.ok(badUnit.errors.some(e => e.includes('CREDITS')), '未知单位被拒且报错文案列出 CREDITS')
+  // 非法单位在加载边界回落 USD(手改账本防击穿)。
+  assert.equal(sanitizeConfig({ customBalances: [{ enabled: true, display: 'sidebar', refreshMinutes: 15, label: 'x', unit: 'POINTS', request: { url: '', headers: {} }, extract: {} }] }).customBalances[0].unit, 'USD', '非法单位回落 USD')
+
+  // ② loopback 明文 http 放行,非 loopback 明文仍拒绝(安全边界不放宽)。
+  const { queryCustomBalance } = await import('../lib/custom-balance.js')
+  const realFetch = globalThis.fetch
+  const seen = []
+  globalThis.fetch = async (url) => { seen.push(String(url)); return { ok: true, status: 200, json: async () => ({ credits: { total: 1294 } }) } }
+  const mkLocal = url => ({ customBalance: { enabled: true, label: 'WB', unit: 'CREDITS', request: { url, method: 'GET', headers: {} }, extract: { remaining: 'credits.total' } } })
+  const ctxNull = { get: () => undefined }
+  try {
+    for (const url of ['http://127.0.0.1:3080/plugins/dsh-workbuddy-connect/status', 'http://localhost:3080/x', 'http://[::1]:3080/x']) {
+      const out = await queryCustomBalance(ctxNull, mkLocal(url))
+      assert.equal(out.remaining, 1294, `loopback 明文放行: ${url}`)
+      assert.equal(out.unit, 'CREDITS', `单位透传: ${url}`)
+    }
+    // 非 loopback 明文一律拒绝,且不得发出请求。
+    for (const url of ['http://192.168.3.206:8080/v1/x', 'http://evil.example.com/x', 'ftp://127.0.0.1/x']) {
+      const before = seen.length
+      await assert.rejects(() => queryCustomBalance(ctxNull, mkLocal(url)), /must use https/, `非 loopback 明文被拒: ${url}`)
+      assert.equal(seen.length, before, `被拒时不发请求: ${url}`)
+    }
+    // https 照旧放行(未回归)。
+    const secure = await queryCustomBalance(ctxNull, mkLocal('https://relay.example.com/x'))
+    assert.equal(secure.remaining, 1294, 'https 端点不受影响')
+  } finally {
+    globalThis.fetch = realFetch
+  }
+  console.log('[ok] 自定义余额 CREDITS 单位与 loopback 明文端点(v1.7.26)通过')
+}
+
 // 14-2) e2e:多条配置的快照/RPC 索引刷新/strict codec。
 {
   const prevHome79 = process.env.DSH_HOME

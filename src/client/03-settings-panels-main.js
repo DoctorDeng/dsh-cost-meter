@@ -1283,12 +1283,13 @@
               el('label', null, t('customBalanceUnitLabel')),
               el('select', {
                 className: 'cm-input',
-                value: entry.unit === 'CNY' || entry.unit === 'EUR' ? entry.unit : 'USD',
+                value: ['CNY', 'EUR', 'CREDITS'].includes(entry.unit) ? entry.unit : 'USD',
                 onChange: event => setField('unit', event.target.value),
               },
                 el('option', { value: 'USD' }, 'USD ($)'),
                 el('option', { value: 'CNY' }, 'CNY (¥)'),
-                el('option', { value: 'EUR' }, 'EUR (€)'))),
+                el('option', { value: 'EUR' }, 'EUR (€)'),
+                el('option', { value: 'CREDITS' }, 'CREDITS'))),
             el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceDisplayLabel')),
               el('select', {

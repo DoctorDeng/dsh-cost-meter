@@ -68,6 +68,28 @@ Local Qwen Token Plan credits include only the subscription providers `qwen`, `q
 
 The `extract` rules accept four forms: a numeric constant, a dot path string, `add`/`subtract` over multiple paths, and `divide` scaling by a `by` divisor. **`divide` fits NewApi and other endpoints that meter balance in integer quota** (1 USD = 500000 quota — the same conversion cc-switch uses).
 
+- **`unit: "CREDITS"`**: pick `CREDITS` for non-monetary counters (credits / points). The amount renders as an integer with no currency symbol, and the "today" bar segment stays 0 — credit burn rates differ per model, so a USD-derived conversion would be fabricated.
+- **Plain HTTP is allowed for loopback endpoints**: `http://` is accepted when the host is `127.0.0.1` / `localhost` / `[::1]` (the traffic never leaves the machine), which covers local read-only routes that listen on loopback only and serve no TLS (e.g. `dsh-workbuddy-connect`'s `/plugins/dsh-workbuddy-connect/status`). **Every non-loopback host still requires https**; plaintext is refused.
+
+### WorkBuddy credits example (local plugin route)
+
+With `dsh-workbuddy-connect` installed, its web status route already returns the aggregated credit total — no credential needs to be copied:
+
+```json
+{
+  "enabled": true,
+  "display": "sidebar",
+  "refreshMinutes": 15,
+  "label": "WorkBuddy 积分",
+  "labelEn": "WorkBuddy Credits",
+  "unit": "CREDITS",
+  "request": { "url": "http://127.0.0.1:3080/plugins/dsh-workbuddy-connect/status", "method": "GET", "headers": {} },
+  "extract": { "remaining": "credits.total" }
+}
+```
+
+That route's trust boundary is the **loopback Host** (DNS-rebinding defence): a non-loopback `Host` header is refused with 403, as is a cross-origin page `Origin`; a same-origin page (`Origin: http://127.0.0.1:<port>`) and requests without an `Origin` both succeed. Adjust the port to your actual DSH web port.
+
 For NewApi `GET /api/usage/token` (response `{ "code": 200, "data": { "total_granted": ..., "total_used": ..., "total_available": ..., "unlimited_quota": false } }`):
 
 ```json

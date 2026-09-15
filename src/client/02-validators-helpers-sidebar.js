@@ -109,7 +109,7 @@
       label: typeof e.label === 'string' ? e.label : '',
       labelEn: typeof e.labelEn === 'string' ? e.labelEn : '',
       display: oneOf(e.display, ['sidebar', 'settings', 'off'], 'both'),
-      unit: e.unit === 'CNY' || e.unit === 'EUR' ? e.unit : 'USD',
+      unit: ['CNY', 'EUR', 'CREDITS'].includes(e.unit) ? e.unit : 'USD',
       refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
       request: e.request && typeof e.request === 'object' ? e.request : { url: '' },
       extract: e.extract && typeof e.extract === 'object' ? e.extract : {},
@@ -1478,6 +1478,9 @@
       if (mode === 'custom') {
         const unit = customBalanceUnitOf(config, custom, entryCfg)
         if (unit === 'USD') return usd
+        // 积分是不可由美元花费换算的计数(抵扣率因模型而异),按 0 处理,
+        // 绝不把汇率折算结果冒充积分显示在「当日已用」段。
+        if (unit === 'CREDITS') return 0
         const rate = Number(config?.exchangeRate)
         return usd * (Number.isFinite(rate) && rate > 0 ? rate : 1)
       }
@@ -1663,14 +1666,15 @@
     function customBalanceUnitOf(config, custom, entryCfg) {
       if ((entryCfg ?? config?.customBalance)?.adapter === 'aliyun' && ['CNY', 'USD', 'EUR'].includes(custom?.unit)) return custom.unit
       const unit = entryCfg?.unit ?? config?.customBalance?.unit
-      if (unit === 'CNY' || unit === 'EUR' || unit === 'USD') return unit
-      return custom?.unit === 'CNY' || custom?.unit === 'EUR' ? custom.unit : 'USD'
+      if (['CNY', 'EUR', 'USD', 'CREDITS'].includes(unit)) return unit
+      return ['CNY', 'EUR', 'CREDITS'].includes(custom?.unit) ? custom.unit : 'USD'
     }
 
     function formatCustomBalanceMoney(amount, config, custom, entryCfg) {
       const unit = customBalanceUnitOf(config, custom, entryCfg)
-      const decimals = Math.max(2, Math.min(6, Math.floor(Number(config?.decimals) || 4)))
-      const symbol = unit === 'CNY' ? '¥' : unit === 'EUR' ? '€' : '$'
+      const credits = unit === 'CREDITS'
+      const decimals = credits ? 0 : Math.max(2, Math.min(6, Math.floor(Number(config?.decimals) || 4)))
+      const symbol = credits ? '' : unit === 'CNY' ? '¥' : unit === 'EUR' ? '€' : '$'
       const value = Number(amount)
       if (!Number.isFinite(value)) return '—'
       let fixed = value.toFixed(decimals)
