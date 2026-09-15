@@ -34,6 +34,14 @@ npx --yes --package=dsh-cost-meter@1.7.22 --package=@deepseek-ai/dsh@0.1.5-rc.2 
 
 修复完成后重新启动 DSH 并打开原会话。需要恢复备份时，先退出所有 DSH；将报告的备份复制回其对应的原日志路径即可。备份含原对话内容，请与会话数据一起保管。
 
+### 手工恢复时的目录与压缩格式（#140 后续反馈）
+
+手工复制整个会话目录时，把备份放在 `sessions` 根目录之外。在根目录内新建 `Backup` 并保留 `session.v3.jsonl.zstd` 等规范文件名，可能被宿主识别为会话日志；文件头的 `id`、`cwd` 仍指向原位置，会触发身份/路径不一致或重复会话错误。上面的修复工具使用带 `.cost-meter-backup-…` 后缀的非规范文件名，真实宿主的冷启动扫描会忽略这些相邻备份，无需搬动工具生成的备份。
+
+DSH 的 Zstandard 日志由独立压缩帧拼接组成，**第一帧必须恰好是一行 session header，且末尾保留换行**。不能把整份日志解压后重新压成单帧，也不能在重新压缩头帧时去掉换行，否则即使 JSON 内容正确，宿主仍会报 `first frame is not exactly one header line`。优先使用上述工具，它逐字节保留未修改帧，包括头帧。已经被其他脚本改坏帧结构的文件应先恢复原始备份，再运行只读检查；此工具不承诺修复这类额外损坏。
+
+`ignorable: true` 是旧日志事件的兼容标记。**1.7.22+ 已停止向宿主日志写入这类事件**，并非继续写入再加标记；搜索计费明细保存在插件自己的文件中。
+
 ## 补回此前漏扫的历史
 
 新版识别 `session.jsonl[.zstd]` 和 `session.vN.jsonl[.zstd]`；同一目录只使用数字版本最高的一份，版本相同优先 Zstandard，避免升级保留的旧代际重复入账。临时文件、备份和非规范文件名不会参与计费。
@@ -44,6 +52,8 @@ npx --yes --package=dsh-cost-meter@1.7.22 --package=@deepseek-ai/dsh@0.1.5-rc.2 
 
 ## English
 
-Upgrade to **1.7.22+** and restart DSH to stop new unsafe session events. Existing affected logs require the repair command above: run the first command for a read-only scan, then close every DSH process using that directory and run the second command with `--write`. The extra DSH package supplies the host's own kernel session lock. Use `--sessions-root` for a custom directory; no model requests are made.
+Upgrade to **1.7.22+** and restart DSH. New native-search usage is stored in separate plugin files, with no new native-search events appended to host logs; `ignorable: true` is only for repairing old events. Existing affected logs require the repair command above: run the first command for a read-only scan, then close every DSH process using that directory and run the second command with `--write`. The extra DSH package supplies the host's own kernel session lock. Use `--sessions-root` for a custom directory; no model requests are made.
 
 Each changed file gets a byte-identical backup. Only validated native-search event envelopes gain `ignorable: true`; event data, order and sequence numbers are retained. Busy, truncated, invalid or oversized logs are refused. Restart DSH after repair. For previously missed versioned history, use **Settings → Cost → Usage → Import pre-install history** once; existing ledger rows are preserved rather than added twice.
+
+Keep manual directory backups outside the sessions root. Canonical log filenames inside a backup directory can be discovered as sessions and fail identity/path checks; the tool's adjacent `.cost-meter-backup-…` files use noncanonical names and are ignored. Zstandard logs contain independent frames: the first must contain exactly the session header line, including its trailing newline. Recompressing the whole log into one frame or dropping that newline breaks host loading. The tool preserves untouched frames byte for byte. Restore an original backup first if another script has already damaged the frame structure.

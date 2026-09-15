@@ -47,6 +47,7 @@ node test/verify.mjs
 
 - **strict codec 一致性**:新增配置项要同时走 `applyConfigPatch` 校验 + `sanitizeConfig` 清洗,并加进 `lib/typert.host.js` 的 strict `configSchema`;新增状态字段加进 `stateSchema`(拿不准就 `.optional()`)。漏任何一处,`getState` 会被 strict codec 拒掉,表现为「账本不可用」。
 - **RPC 清单双侧对齐**:服务端 `lib/typert.host.js` 加了 RPC 方法,客户端 `lib/client.js` 的 `CONTRIBUTION.descriptors` 必须同步加同名条目,否则前端调用报 `is not a function`(verify.mjs 有自动对齐断言)。
+- **codec 两代契约**：两端统一通过 `strictCodec` 构造，保留 `schema` 与 `create()`。设置 `DSH_TEST_NODE_MODULES` 后 `test/verify.mjs` 必须通过已安装宿主的真实 loader；源码宿主另运行 `test/typert-source-host.mjs`，环境与固定提交见 `.github/workflows/install-smoke.yml`。npm alpha 与同版本号的源码检出不一定使用同一契约。
 - **`package.json` 的 `files`**:目前按 `lib` 目录整体发布,新增 `lib/` 模块无需再改;但若改动发布范围,务必用 `npm pack --dry-run` 核对产物,避免装出「半包」。
 - **双语**:所有面向用户的文案都要补 zh/en 两套(客户端 `makeT` 两份字典 + 服务端 `SERVER_MESSAGES` 两份)。
 - **外部端点白名单**:涉及第三方接口时,端点域名要能过 verify.mjs 的白名单断言,凭据只发往官方域名。

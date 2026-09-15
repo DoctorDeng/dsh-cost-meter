@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, appendFileSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname, resolve } from 'node:path'
+import { join, dirname, basename, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { channel } from 'node:diagnostics_channel'
@@ -117,6 +117,29 @@ try {
       } finally { await held.release() }
       const fixed = await repairSessionLog(path, { write: true, acquireLease })
       assert.equal(fixed.changedEvents, 1)
+      assert.deepEqual((await store().list()).map(item => item.header.id), [id], 'cold host discovery ignores the adjacent noncanonical backup filename')
+      const repairedBytes = readFileSync(path)
+      // #140 follow-up: a canonical filename inside a backup session directory is
+      // still a host artifact; its header identifies the original storage path.
+      const copiedDirectory = join(sessionsRoot, 'Backup', 'copied-session')
+      mkdirSync(copiedDirectory, { recursive: true })
+      const copiedPath = join(copiedDirectory, basename(path))
+      writeFileSync(copiedPath, repairedBytes)
+      try { await assert.rejects(store().list(), /header id.*identify|duplicate JSONL session/) }
+      finally { unlinkSync(copiedPath) }
+      if (compression === 'zstd') {
+        const frames = scanZstdFrames(repairedBytes)
+        const plaintext = frames.map(frame => zlib.zstdDecompressSync(repairedBytes.subarray(frame.start, frame.end)))
+        for (const malformed of [
+          zlib.zstdCompressSync(Buffer.concat(plaintext)),
+          Buffer.concat([zlib.zstdCompressSync(plaintext[0].subarray(0, -1)), ...frames.slice(1).map(frame => repairedBytes.subarray(frame.start, frame.end))]),
+        ]) {
+          writeFileSync(path, malformed)
+          try { await assert.rejects(store().list(), /first frame is not exactly one header line/) }
+          finally { writeFileSync(path, repairedBytes) }
+        }
+        assert.deepEqual((await store().list()).map(item => item.header.id), [id], 'repair retains an independently readable header with its newline')
+      }
       const reader = await store().open(id, 'read')
       const restored = (await reader.read()).events
       await reader.close()
