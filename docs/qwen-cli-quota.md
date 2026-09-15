@@ -1,0 +1,47 @@
+# 千问 CLI 订阅额度（#146）
+
+在「设置 → 费用 → 额度 → 千问 Qwen Token Plan」展开卡片，启用后将「额度来源」切换为「官方 CLI」。默认仍为「本地估算」，已有配置无需迁移。
+
+## 准备与使用
+
+在**运行 DSH 的机器**上，以同一系统账号执行：
+
+```sh
+npm install -g @qianwenai/qianwen-cli
+qianwen auth login
+qianwen usage summary --format json
+```
+
+安装后重启 DSH，使宿主读取新的 `PATH`。远程 DSH、容器或服务账号需要在对应环境安装和登录；只在本地浏览器所在机器登录不生效。插件使用 CLI 自己保存的登录态，不要求复制模型 API Key、Cookie 或管理令牌。
+
+选择 CLI 后可设置查询间隔（1–1440 分钟，默认 15），点击卡片刷新可立即重查。同一来源的并发刷新合并为一次查询；普通轮询复用缓存，失败也遵守查询间隔。关闭千问、关闭显示或切回本地估算后，不再启动 CLI；切换期间的旧结果不会覆盖新来源。
+
+## 显示口径
+
+- 只读取 `usage summary --format json` 中的 `token_plan`：总 Credits、剩余 Credits、已用比例，以及可选加量包剩余量。已用量由总量减剩余量计算，小数 Credits 保留，标记 `(CLI)`。
+- CLI 的 `resetDate` 在核验版本中来自订阅实例 `EndTime`，因此显示为「CLI 订阅到期」，不作为月度重置倒计时或采样边界。
+- 官方快照包含该账号在其他工具中的用量；插件不会把这些总量写进 DSH 账本。CLI 没有可靠的当前额度周期边界，因此此模式不生成千问「每 1% / 满窗 Token」估算。
+- 未登录、超时、异常 JSON 或无有效订阅额度时显示提示并清空本次额度。CLI 会把部分上游失败转换为 `subscribed: false`，插件不能据此断言账号没有订阅。可检查终端输出后刷新，或手动切回本地估算；不会自动用本地数值冒充官方数值。
+- 本地估算的月度额度、起始日和抵扣率保留，切回后继续使用。`usage summary` 未提供可用主订阅额度、只有加量包时，当前显示无有效订阅额度提示。
+
+## 执行与验证
+
+插件执行固定命令，不经过 shell，不接受自定义命令参数。Windows 的 npm 安装通过包内 Node 入口运行，避免执行 `.cmd` 包装脚本。只搜索绝对 `PATH` 目录；单次执行最长 15 秒，stdout/stderr 各不超过 1 MiB，stdin 关闭，窗口隐藏。错误不会包含 CLI 原始输出，登录凭据仍由 CLI 管理。
+
+回归使用合成输出与真实子进程，覆盖小数和零额度、缺失字段、异常输出、登录失败、超时、并发、切源、关闭、持久化与 RPC codec；另有双语设置组件回归。未使用真实千问订阅账号验证额度。
+
+参考：[官方 CLI 文档](https://platform.qianwenai.com/docs/api-reference/preparation/cli#usage-summary)、[核验源码的 Token Plan 映射](https://github.com/QianWen-AI/qianwen-cli/blob/bb7f7151494f0ffaee5ecb77d40b1f979beb7005/src/services/tokenplan-service.ts)、[输出类型](https://github.com/QianWen-AI/qianwen-cli/blob/bb7f7151494f0ffaee5ecb77d40b1f979beb7005/src/types/usage.ts)。核验日期：2026-09-15。
+
+## English
+
+Expand **Settings → Cost → Quota → Qwen Token Plan**, enable it and select **Official CLI** as the quota source. Existing configurations keep **Local estimate**.
+
+Install `@qianwenai/qianwen-cli` on the DSH host, run `qianwen auth login` as the same OS user, then verify `qianwen usage summary --format json`. Restart DSH after installation so it receives the updated PATH. Browser-side login alone does not configure a remote host or container.
+
+The card reads the current `token_plan` credits, computes used credits from total minus remaining, preserves fractional credits, and labels the result `(CLI)`. Optional add-on credits appear separately. The verified CLI maps `resetDate` from subscription `EndTime`; it is shown as subscription expiry, never a monthly reset. No account-wide totals are imported into the ledger, and this mode does not produce Qwen per-1% / full-window token estimates without a reliable billing period.
+
+Refreshes share one child process and use the configured 1–1440 minute cache (15 by default), including failed attempts. Manual refresh retries immediately. Disabling the source or switching to local estimates cancels pending work. Errors clear the quota and provide a setup/retry hint. Some upstream failures become `subscribed: false` inside the CLI, so that result is treated as unavailable data. Add-on-only results without a usable main subscription also show this hint. Select local estimates explicitly when needed; saved local settings remain available.
+
+Execution uses fixed arguments without a shell, an absolute PATH entry, closed stdin, a hidden window, a 15-second timeout and 1 MiB limits for stdout/stderr. Windows npm installations run their Node entry directly. Credentials remain in the CLI's store; raw child output is never returned to the browser or saved in the ledger.
+
+Tests use synthetic output, real child processes and bilingual component callbacks. No live Qianwen subscription account was used.

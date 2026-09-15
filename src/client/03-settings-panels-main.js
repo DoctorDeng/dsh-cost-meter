@@ -1283,12 +1283,13 @@
               el('label', null, t('customBalanceUnitLabel')),
               el('select', {
                 className: 'cm-input',
-                value: entry.unit === 'CNY' || entry.unit === 'EUR' ? entry.unit : 'USD',
+                value: ['CNY', 'EUR', 'CREDITS'].includes(entry.unit) ? entry.unit : 'USD',
                 onChange: event => setField('unit', event.target.value),
               },
                 el('option', { value: 'USD' }, 'USD ($)'),
                 el('option', { value: 'CNY' }, 'CNY (¥)'),
-                el('option', { value: 'EUR' }, 'EUR (€)'))),
+                el('option', { value: 'EUR' }, 'EUR (€)'),
+                el('option', { value: 'CREDITS' }, 'CREDITS'))),
             el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceDisplayLabel')),
               el('select', {
@@ -1466,7 +1467,10 @@
             field(t('gatewaySourceLabel'), s.label, e => patch({ label: e.target.value })),
             field(t('gatewaySourceBaseURL'), s.baseURL, e => patch({ baseURL: e.target.value })),
             el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceDisplay')), el('select', { className: 'cm-input', value: s.display ?? 'both', onChange: e => patch({ display: e.target.value }) }, ...displayOptions(t))),
-            field(t('gatewaySourceAllowlist'), (s.allowedHosts ?? []).join(', '), e => patch({ allowedHosts: e.target.value.split(/[\s,;]+/).filter(Boolean) }))),
+            field(t('gatewaySourceAllowlist'), (s.allowedHosts ?? []).join(', '), e => patch({ allowedHosts: e.target.value.split(/[\s,;]+/).filter(Boolean) })),
+          el('label', { className: 'cm-check' },
+            el('input', { type: 'checkbox', checked: s.antigravityOnlyGemini === true, onChange: e => patch({ antigravityOnlyGemini: e.target.checked }) }),
+            el('span', null, t('gatewayOnlyGemini')))),
           varName ? el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceCredential')), el(CredentialField, { target: 'customVar:' + varName, configured: state.customVarStatus?.[varName]?.configured === true, source: state.customVarStatus?.[varName]?.source ?? '', t, api, placeholder: varName })) : null,
           live.unsupportedProviders.length > 0 ? el('div', { className: 'cm-note' }, t('gatewaySourceUnsupported') + ': ' + live.unsupportedProviders.join(', ')) : null,
           live.accounts.length > 0 ? live.accounts.map(account) : el('div', { className: 'cm-bal-line' }, t('gatewaySourceNoAccounts'))),
@@ -1564,6 +1568,12 @@
               ? el('p', { className: 'cm-note' }, live.message)
               : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried'))
       const configNode = el(Fragment, null,
+        planId === 'qwen' ? el('div', { className: 'cm-field' },
+          el('label', null, t('qwenSource')),
+          el('select', { className: 'cm-input', value: cfgEntry.quotaSource ?? 'local', onChange: e => setPlan('quotaSource', e.target.value) },
+            el('option', { value: 'local' }, t('qwenSourceLocal')),
+            el('option', { value: 'cli' }, t('qwenSourceCli'))),
+          el('p', { className: 'cm-note' }, t('qwenCliNote'))) : null,
         el('div', { className: 'cm-field' },
           el('label', null, t('codingPlanDisplayLabel')),
           el('select', {
@@ -1577,13 +1587,13 @@
             el('option', { value: 'off' }, t('off'))),
           el('span', { className: 'cm-hint' }, t('codingPlanDisplayNote'))),
         // 刷新间隔(issue #33):进程内缓存过期分钟数,1-1440,保存后生效;
-        // SCNet / 千问为本地计量(每次状态组装随账本重算,无缓存间隔),不显示该控件。
-        planId !== 'scnet' && planId !== 'qwen' ? el('div', { className: 'cm-field' },
+        // 本地估算无缓存间隔；千问 CLI 使用可配置的查询间隔。
+        planId !== 'scnet' && (planId !== 'qwen' || cfgEntry.quotaSource === 'cli') ? el('div', { className: 'cm-field' },
           el('label', null, t('codingPlanRefreshIntervalLabel')),
           numInput({ value: typeof cfgEntry.refreshMinutes === 'number' && Number.isFinite(cfgEntry.refreshMinutes) && cfgEntry.refreshMinutes > 0 ? cfgEntry.refreshMinutes : 15 }, v => {
             setPlan('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v))))
           })) : null,
-        planId === 'scnet' || planId === 'qwen'
+        planId === 'scnet' || (planId === 'qwen' && cfgEntry.quotaSource !== 'cli')
           ? el(Fragment, null,
             el('div', { className: 'cm-field' },
               el('label', null, t(planId === 'qwen' ? 'qwenPlanCreditsLabel' : 'scnetPlanCreditsLabel')),
@@ -1634,7 +1644,7 @@
                 }, disabled: qwenNewRateModel.trim().length === 0 }, t('qwenRatesAdd'))))
               : null,
             el('p', { className: 'cm-note' }, t(planId === 'qwen' ? 'qwenLocalNote' : 'scnetLocalNote')))
-          : planId === 'volcengine'
+          : planId === 'qwen' ? null : planId === 'volcengine'
             ? el(Fragment, null,
               el('div', { className: 'cm-field' },
                 el('label', null, t('volcengineAccessKeyIdLabel'))),
