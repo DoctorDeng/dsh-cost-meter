@@ -971,7 +971,7 @@ await assert.rejects(queryCodingPlan('nobody', 'sk-x', 'zh', stubT), error => er
 const officialHosts = {
   anthropic: ['api.anthropic.com'],
   zai: ['api.z.ai', 'open.bigmodel.cn'],
-  minimax: ['www.minimaxi.com', 'www.minimax.io'],
+  minimax: ['www.minimax.cn', 'www.minimaxi.com', 'www.minimax.io'],
   kimi: ['api.moonshot.cn', 'api.kimi.com'],
   openrouter: ['openrouter.ai'],
   siliconflow: ['api.siliconflow.cn'],
@@ -6564,6 +6564,7 @@ await import('./aliyun-balance.mjs')
 await import('./gateway-retry.mjs')
 await import('./go-credentials.mjs')
 await import('./qwen-cli.mjs')
+await import('./minimax-endpoint.mjs')
 await import('./pr145-147.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./settings-regressions.mjs')

@@ -76,13 +76,13 @@
 
 ## 二、Coding Plan 额度适配
 
-设置页「Coding Plan 额度」面板支持 **9 家**,各家独立启用开关 / Key / 手动刷新 / 进度条与重置时间,并可按家配置**显示位置**(侧边栏卡片 / 设置页 / 两者 / 关闭,默认设置页;v1.5.26);凭据只发往各家**硬编码官方域名**(白名单断言入测试),发现链为:面板 Key → DSH 凭据库 → 环境变量 → CLI 登录态兜底。
+设置页「Coding Plan 额度」面板支持 **9 家**,各家独立启用开关 / Key / 手动刷新 / 进度条与重置时间,并可按家配置**显示位置**(侧边栏卡片 / 设置页 / 两者 / 关闭,默认设置页;v1.5.26);默认使用各家官方域名；MiniMax 可[手动指定可信 HTTPS 查询域名](minimax-quota-endpoint.md),发现链为:面板 Key → DSH 凭据库 → 环境变量 → CLI 登录态兜底。
 
 | 厂商 | 端点 | 显示内容 | 实测状态 |
 |---|---|---|---|
 | Anthropic Claude Pro/Max | `api.anthropic.com/api/oauth/usage` | 5 小时 / 7 天窗口用量% | 端点存活(401);自动读 `~/.claude/.credentials.json` OAuth token |
 | Z.ai / 智谱 GLM Coding Plan | `api.z.ai` 与 `open.bigmodel.cn` 双端点 | 各窗口用量% | 端点存活(401);兼容 plans 数组与扁平窗口两种响应 |
-| MiniMax Token Plan | `minimaxi.com` / `minimax.io` 双域 | Token 余量% | 端点存活(1004 需 Authorization);旧计数制端点兼容回退 |
+| MiniMax Token Plan | `www.minimax.cn` 优先，可配置 HTTPS 域名 | Token 余量% | 端点存活(1004 需 Authorization);旧计数制端点兼容回退 |
 | Kimi / Moonshot | `api.moonshot.cn/v1/users/me/balance` | 人民币余额文本 | 端点存活(401);Kimi Code 订阅窗口存活(401),`api.kimi.com/coding/v1/usages` 经 `KIMI_CODING_API_KEY` 与 UA `KimiCLI/1.6` 可查本周/5h 配额(issue #53) |
 | OpenRouter | `openrouter.ai/api/v1/credits` | 预付 credits 已用% | 端点存活(401) |
 | SiliconFlow 硅基流动 | `api.siliconflow.cn/v1/user/info` | 账户余额文本 | 端点存活(30014) |

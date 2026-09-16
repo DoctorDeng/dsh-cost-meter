@@ -4,6 +4,12 @@
 > [Commits](https://github.com/Han-1413141/dsh-cost-meter/commits/master)。
 
 
+## v1.7.28(2026-09-16)—— MiniMax 新域名与自定义查询地址
+
+- #152：MiniMax 额度查询默认优先使用 `www.minimax.cn`，保留国际站和旧国内站回退。
+- 在「设置 → 费用 → 额度 → MiniMax Token Plan」填写 HTTPS 查询域名，更新插件后保留；手动模式只访问指定域名，清空可恢复自动选择。见[配置说明](minimax-quota-endpoint.md)。
+- 切换来源清除旧缓存并取消在途请求；拒绝非法地址和重定向，覆盖配置持久化、前后端 codec、双语界面与并发回归。
+
 ## v1.7.27(2026-09-15)—— 源码宿主兼容与会话恢复说明
 
 - **#149 源码宿主加载失败**：Host 和 Client 的全部 strict codec 同时提供 `schema` 与 `create()`，修复新版 DSH 源码启动时报 `result codec has no create() factory`，保留 npm 旧宿主的 schema 接口及原有参数/结果校验。

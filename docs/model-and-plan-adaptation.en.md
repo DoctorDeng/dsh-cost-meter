@@ -76,13 +76,13 @@ Price sources: cross-checked against the **OpenCode Zen/Go official price list**
 
 ## 2. Coding Plan quota adaptation
 
-The "Coding Plan quotas" panel in Settings supports **9 vendors**, each with its own enable switch / key / manual refresh / progress bars and reset times, plus a per-vendor **display position** (sidebar card / Settings page / both / off, default Settings page; v1.5.26); credentials are only ever sent to each vendor's **hard-coded official domain** (whitelist asserted in tests). The discovery chain is: panel key → DSH credential store → environment variables → CLI login fallback.
+The "Coding Plan quotas" panel in Settings supports **9 vendors**, each with its own enable switch / key / manual refresh / progress bars and reset times, plus a per-vendor **display position** (sidebar card / Settings page / both / off, default Settings page; v1.5.26); official domains are used by default; MiniMax supports a [custom trusted HTTPS origin](minimax-quota-endpoint.md#english). The discovery chain is: panel key → DSH credential store → environment variables → CLI login fallback.
 
 | Vendor | Endpoint | Shown as | Verified status |
 |---|---|---|---|
 | Anthropic Claude Pro/Max | `api.anthropic.com/api/oauth/usage` | 5-hour / 7-day window usage % | endpoint alive (401); auto-reads the OAuth token from `~/.claude/.credentials.json` |
 | Z.ai / Zhipu GLM Coding Plan | `api.z.ai` and `open.bigmodel.cn` dual endpoints | per-window usage % | endpoints alive (401); handles both the `plans` array and flat-window responses |
-| MiniMax Token Plan | `minimaxi.com` / `minimax.io` dual domains | remaining token % | endpoints alive (1004 requires Authorization); legacy count-based endpoint fallback |
+| MiniMax Token Plan | `www.minimax.cn` first; configurable HTTPS origin | remaining token % | endpoints alive (1004 requires Authorization); legacy count-based endpoint fallback |
 | Kimi / Moonshot | `api.moonshot.cn/v1/users/me/balance` | CNY balance text | endpoint alive (401); Kimi Code subscription windows alive (401), `api.kimi.com/coding/v1/usages` via `KIMI_CODING_API_KEY` + UA `KimiCLI/1.6` shows weekly/5h quotas (issue #53) |
 | OpenRouter | `openrouter.ai/api/v1/credits` | prepaid credits used % | endpoint alive (401) |
 | SiliconFlow | `api.siliconflow.cn/v1/user/info` | account balance text | endpoint alive (30014) |
