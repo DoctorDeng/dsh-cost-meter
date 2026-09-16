@@ -25,7 +25,7 @@
 - [ ] 新增状态字段:已加入 `stateSchema`(拿不准就 `.optional()`)
 - [ ] 新增 RPC:服务端 `typert.host.js` 与客户端 `CONTRIBUTION.descriptors` 双侧同步(verify.mjs 有对齐断言)
 - [ ] 面向用户的文案:zh/en 双语齐全(客户端 `makeT` + 服务端 `SERVER_MESSAGES`)
-- [ ] 新增第三方端点:域名在官方白名单内,凭据只发往官方端点
+- [ ] 新增默认端点在官方白名单内；MiniMax 自定义 origin 保持 HTTPS 校验、单域名回退及重定向拒绝
 - [ ] 改到 `package.json` `files` 或发布范围:`npm pack --dry-run` 核对过产物
 - [ ] 更新 [CHANGELOG.md](CHANGELOG.md)(`[Unreleased]` 段)
 

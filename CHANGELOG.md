@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.7.28] - 2026-09-16
+
+- **#152 MiniMax 查询域名**：额度卡片新增持久化的 HTTPS 查询域名，留空自动选择官方端点并优先 `www.minimax.cn`；手动模式只查询指定 origin 的新旧额度路径，不跨域回退。网络权限声明补充新国内域名。
+- Host / Client codec、配置补丁与账本读写保留 `codingPlans.minimax.baseUrl`；拒绝包含路径、凭据、参数或片段的地址。切换域名、禁用或关闭显示会取消旧请求，旧缓存和迟到结果不能覆盖新来源；并发查询合并，失败遵守刷新间隔，手动刷新可立即重试。
+- MiniMax 请求拒绝重定向并限制响应体；回归覆盖新默认域名、国际站回退、自定义域名隔离、非法配置、持久化、发布客户端与双语输入框。复用现有客户端校验器以满足 262144 字节上限。详见[配置说明](docs/minimax-quota-endpoint.md)。
+
 ## [1.7.27] - 2026-09-15
 
 - **#149 源码宿主加载失败**：Host 和 Client 的全部 strict codec 同时提供 `schema` 与 `create()`，修复新版 DSH 源码启动时报 `result codec has no create() factory`，保留 npm 旧宿主的 schema 接口及原有参数/结果校验。

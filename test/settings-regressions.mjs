@@ -65,6 +65,26 @@ const roundTrip = config => ui.parseConfig(sanitizeConfig(config), 'config')
 
 for (const locale of ['zh', 'en']) {
   const t = ui.makeT(locale)
+  {
+    let draft = roundTrip({ locale, codingPlans: { minimax: { enabled: true } } })
+    const state = { config: draft, codingPlans: {} }
+    const render = renderer(ui.PlanQuotaCard, () => ({ state, draft, setDraft: v => { draft = v }, api: {}, t, planId: 'minimax', labelKey: 'codingPlanMinimax' }))
+    nodes(render()).find(node => node.props.className === 'cm-collapse-h').props.onClick()
+    const input = () => nodes(render()).find(node => node.props['aria-label'] === t('minimaxOrigin'))
+    assert.equal(input().props.value, '')
+    assert.ok(textOf(render()).includes(t('minimaxOriginNote')))
+    input().props.onChange({ target: { value: 'https://www.minimax.cn/' } })
+    const saved = applyConfigPatch(state.config, { codingPlans: draft.codingPlans })
+    assert.deepEqual(saved.errors, [])
+    draft = state.config = roundTrip(saved.config)
+    assert.equal(input().props.value, 'https://www.minimax.cn')
+    input().props.onChange({ target: { value: 'https://proxy.example:8443' } })
+    draft = state.config = roundTrip(applyConfigPatch(state.config, { codingPlans: draft.codingPlans }).config)
+    assert.equal(input().props.value, 'https://proxy.example:8443')
+    input().props.onChange({ target: { value: '' } })
+    draft = state.config = roundTrip(applyConfigPatch(state.config, { codingPlans: draft.codingPlans }).config)
+    assert.equal(input().props.value, '', '清空并回读后恢复自动选择')
+  }
   let draft = roundTrip({ locale, codingPlans: { qwen: { enabled: true } } })
   const state = { config: draft, codingPlans: {}, customVarStatus: {} }
   const render = renderer(ui.PlanQuotaCard, () => ({ state, draft, setDraft: value => { draft = value }, api: {}, t, planId: 'qwen', labelKey: 'codingPlanQwen' }))

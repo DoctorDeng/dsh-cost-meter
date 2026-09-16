@@ -50,7 +50,7 @@ node test/verify.mjs
 - **codec 两代契约**：两端统一通过 `strictCodec` 构造，保留 `schema` 与 `create()`。设置 `DSH_TEST_NODE_MODULES` 后 `test/verify.mjs` 必须通过已安装宿主的真实 loader；源码宿主另运行 `test/typert-source-host.mjs`，环境与固定提交见 `.github/workflows/install-smoke.yml`。npm alpha 与同版本号的源码检出不一定使用同一契约。
 - **`package.json` 的 `files`**:目前按 `lib` 目录整体发布,新增 `lib/` 模块无需再改;但若改动发布范围,务必用 `npm pack --dry-run` 核对产物,避免装出「半包」。
 - **双语**:所有面向用户的文案都要补 zh/en 两套(客户端 `makeT` 两份字典 + 服务端 `SERVER_MESSAGES` 两份)。
-- **外部端点白名单**:涉及第三方接口时,端点域名要能过 verify.mjs 的白名单断言,凭据只发往官方域名。
+- **外部端点白名单**：默认端点域名须通过 verify.mjs 的官方白名单断言。MiniMax 允许用户显式配置可信 HTTPS origin；须保持地址校验、单 origin 回退和拒绝重定向，并在界面说明 Key 的发送目的地。
 
 ## 代码风格
 
