@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.27] - 2026-09-15
+
+- **#149 源码宿主加载失败**：Host 和 Client 的全部 strict codec 同时提供 `schema` 与 `create()`，修复新版 DSH 源码启动时报 `result codec has no create() factory`，保留 npm 旧宿主的 schema 接口及原有参数/结果校验。
+- CI 新增固定上游提交 `0d1f50007f9bca3f52b06e1c3074fa14d5fb0720` 的真实 loader、registry 和双端 RPC 检查。已发布的 DSH 0.1.6-alpha.1 npm 包仍使用旧契约，不能代替源码版回归；既有安装测试继续覆盖 Windows / Linux，并修正回归脚本忽略 `DSH_TEST_NODE_MODULES` 的问题。
+- **#140 恢复反馈**：补充手工备份应放在 sessions 根目录外、Zstandard 头帧必须独立且保留换行的说明。真实宿主回归确认工具生成的相邻非规范备份不会被扫描，且未修改帧原样保留；再次明确 1.7.22+ 搜索明细写入插件独立文件，`ignorable: true` 仅用于旧日志修复。详见[恢复说明](docs/session-history-recovery.md)。
+
+## [1.7.26] - 2026-09-15
+
+- **#146 千问官方 CLI**：额度来源新增官方 CLI，查询当前订阅 Credits 与可选加量包，保留本地估算及其配置。提供刷新间隔、并发合并、超时、输出限额和登录错误提示；不复制登录凭据、不将账号总量写入账本。CLI 订阅到期时间不当作月度重置，缺少周期边界时不生成每 1% / 满窗 Token 估算。详见[使用说明](docs/qwen-cli-quota.md)。
+- **PR #145 Antigravity 分组**：保留 @Oct1AtJoe 的提交，新增按来源的「只显示 Gemini 额度」。补齐未知组过滤及全过滤后的空状态，保留真正异常数据的报错；配置、缓存指纹及界面回读均覆盖。
+- **PR #147 自定义余额 `CREDITS`**：保留 @Oct1AtJoe 的提交，新增积分单位并支持本机回环 HTTP。补齐小数积分与单位显示，排除美元今日消费和全局货币预算对积分的影响。
+- **自定义余额放行 loopback 明文 HTTP**:端点主机为 `127.0.0.1` / `localhost` / `[::1]` 时允许 `http://`,用于只监听回环、不提供 TLS 的本机只读路由(如 `dsh-workbuddy-connect` 的 `/plugins/dsh-workbuddy-connect/status`,可直接读出 WorkBuddy 聚合积分,无需复制凭据)。**非回环主机仍强制 https**,`ftp://` 等其它协议依旧拒绝;判定复用网关层的 `isLoopbackHost`,与 `gatewayQuotas` 同口径。
+- 回归覆盖 CLI 真实子进程、登录与格式错误、超时、缓存、并发与切源、账本及 strict codec；网关过滤链路、真实回环 HTTP、重定向拒绝、小数积分与双语设置。复用 RPC 描述符构造，完整客户端仍低于 262144 字节上限。未使用真实千问订阅账号验证。
+
 ## [1.7.25] - 2026-09-15
 
 - **#142 侧栏按模型花费**：新增可折叠卡片，默认关闭、首次收起；支持今日 / 近 90 天、Top-N（1–10，默认 5）、其它模型汇总、占比条及可选输入/缓存/输出 Token。复用设置页分模型账本，按现有 API / Plan 展示口径与币种计算。
