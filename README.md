@@ -6,9 +6,9 @@
 
 本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;2026-08-23 起周末全天按谷价,显示「周末时段——全谷价」) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 90+ 模型价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 九家,含 Volcano Ark AK/SK 签名) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
 
-[![version](https://img.shields.io/badge/version-1.7.25-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.7.27-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.7.25**：侧栏新增可折叠的按模型花费卡片，支持今日 / 近 90 天、Top-N 与其它汇总；额度区统一为独立卡片，启用项自动置顶。入口：设置 → 费用 → 显示。详见 [使用说明](docs/model-cost-card.md)。
+**v1.7.27**：修复 DSH 源码版加载插件时的 `codec has no create() factory`，同时兼容旧版 `schema` 接口；根据 #140 的恢复反馈补充备份目录与 Zstandard 头帧说明。详见[会话恢复指南](docs/session-history-recovery.md)。
 
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -65,9 +65,35 @@
 
 千问 / 阿里云资金账户余额可直接点击「添加千问 / 阿里云余额」，使用 RAM AccessKey 签名查询，显示接口返回的可用金与币种；配置步骤、所需权限及口径见[千问余额说明](docs/qianwen-balance.md)。
 
+千问 Token Plan 可在卡片内选择[官方 CLI 订阅额度](docs/qwen-cli-quota.md)，需在 DSH 主机以同一系统账号安装 CLI 并运行 `qianwen auth login`。默认保留本地估算；CLI 模式显示账号当前 Credits，不修改本地账本。
+
 千问 Token Plan 的本地 Credits 仅统计 `qwen`、`qwen-tokenplan`、`qianwen-tokenplan`、`qwen-token-plan`、`qianwen-token-plan` 订阅 provider（大小写不敏感，可带 `llm-` 前缀）；显式归类为 API 的调用不计。`qianwen` 按量 provider 即使使用相同模型名也不会计入订阅额度。自定义渠道名需使用上述订阅名称之一，模型不在抵扣表中时需补充三项费率。
 
+CLIProxyAPI 网关来源卡片可勾选「只显示 Gemini 额度」，仅影响该来源的 Antigravity 分组。默认显示全部分组；过滤后无可见额度时显示空列表，解析错误仍单独报告。
+
 自定义 Provider 余额的 `extract` 规则支持四种形式:数字常量、点路径字符串、`add`/`subtract` 多路径加减、`divide` 按 `by` 除数缩放。**`divide` 适用于 NewApi 等以 quota 整数计量的端点**(1 USD = 500000 quota,与 cc-switch 同款换算)。
+
+- **`unit: "CREDITS"`**：非货币计数端点可选 `CREDITS`，按小数精度设置显示并标明 Credits。美元花费不转换为积分，也不显示由它推算的今日积分消耗；进度条仅使用接口返回的积分上限，全局货币预算不适用。
+- **本机回环端点支持明文 HTTP**:端点主机为 `127.0.0.1` / `localhost` / `[::1]` 时允许 `http://`(流量不出网卡),用于只监听回环、不提供 TLS 的本地只读路由(如 `dsh-workbuddy-connect` 的 `/plugins/dsh-workbuddy-connect/status`)。**非回环主机仍强制 https**,明文请求一律拒绝。
+
+### WorkBuddy 积分示例(本机插件路由)
+
+已安装 `dsh-workbuddy-connect` 时,其 Web 状态路由直接返回聚合积分,无需复制任何凭据:
+
+```json
+{
+  "enabled": true,
+  "display": "sidebar",
+  "refreshMinutes": 15,
+  "label": "WorkBuddy 积分",
+  "labelEn": "WorkBuddy Credits",
+  "unit": "CREDITS",
+  "request": { "url": "http://127.0.0.1:3080/plugins/dsh-workbuddy-connect/status", "method": "GET", "headers": {} },
+  "extract": { "remaining": "credits.total" }
+}
+```
+
+端口和响应字段按实际本机服务调整。该示例要求对应插件已提供此路由；本插件拒绝跟随重定向，现有凭据主机白名单继续生效。
 
 以 NewApi 的 `GET /api/usage/token` 为例(响应 `{ "code": 200, "data": { "total_granted": ..., "total_used": ..., "total_available": ..., "unlimited_quota": false } }`):
 
@@ -264,22 +290,22 @@
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.7.25`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.7.27`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.25/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.27/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.25
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.27
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.25.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.27.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):

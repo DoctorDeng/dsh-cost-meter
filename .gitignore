@@ -13,3 +13,5 @@ HANDOFF.md
 
 .pnpm-store/
 .hoplite/attachments/
+
+.local-backup-*/

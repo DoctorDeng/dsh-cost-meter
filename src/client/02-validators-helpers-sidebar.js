@@ -109,7 +109,7 @@
       label: typeof e.label === 'string' ? e.label : '',
       labelEn: typeof e.labelEn === 'string' ? e.labelEn : '',
       display: oneOf(e.display, ['sidebar', 'settings', 'off'], 'both'),
-      unit: e.unit === 'CNY' || e.unit === 'EUR' ? e.unit : 'USD',
+      unit: ['CNY', 'EUR', 'CREDITS'].includes(e.unit) ? e.unit : 'USD',
       refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
       request: e.request && typeof e.request === 'object' ? e.request : { url: '' },
       extract: e.extract && typeof e.extract === 'object' ? e.extract : {},
@@ -182,6 +182,7 @@
                 display: e.display === 'sidebar' || e.display === 'both' || e.display === 'off' ? e.display : 'settings',
                 refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
                 apiKey: typeof e.apiKey === 'string' ? e.apiKey : '',
+                ...(id === 'qwen' ? { quotaSource: e.quotaSource === 'cli' ? 'cli' : 'local' } : {}),
                 // SCNet / 千问本地计量字段(issue #26/#78):其余厂商无此键,缺省剔除。
                 ...(typeof e.planCredits === 'number' && Number.isFinite(e.planCredits) && e.planCredits > 0 ? { planCredits: e.planCredits } : {}),
                 ...(typeof e.planStart === 'string' ? { planStart: e.planStart } : {}),
@@ -245,6 +246,7 @@
             includeProviders: Array.isArray(x.includeProviders) ? [...new Set(x.includeProviders.filter(p => typeof p === 'string').map(p => p.toLowerCase()).filter(p => GATEWAY_PROVIDERS.includes(p)))] : GATEWAY_PROVIDERS,
             allowedHosts: Array.isArray(x.allowedHosts) ? x.allowedHosts.filter(h => typeof h === 'string').slice(0, 16) : [],
             allowInsecureHttp: x.allowInsecureHttp === true,
+            antigravityOnlyGemini: x.antigravityOnlyGemini === true,
             keyVar: typeof x.keyVar === 'string' ? x.keyVar : '',
           })) : []
           return { sources }
@@ -513,18 +515,20 @@
     })
 
     // ── RPC 贡献(与服务端 ./typert 清单一一对应) ───────────────────────────
+    const strictCodec = (name, schema) => ({ mode: 'strict', typeSymbol: 'dsh-cost-meter#' + name, schema, create: () => schema })
+    const rpcParam = (name, type, schema, optional = false) => ({ name, wire: name, source: 'json', codec: strictCodec(type, schema), ...(optional ? { acceptsUndefined: true } : {}) })
 
     const CONTRIBUTION = {
       package: 'dsh-cost-meter',
       descriptors: [
         {
           method: 'getState',
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CostState', schema: stateCodec },
+          result: strictCodec('CostState', stateCodec),
         },
         {
           method: 'updateConfig',
-          parameters: [{ name: 'patch', wire: 'patch', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#ConfigPatch', schema: patchCodec } }],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CostState', schema: stateCodec },
+          parameters: [rpcParam('patch', 'ConfigPatch', patchCodec)],
+          result: strictCodec('CostState', stateCodec),
         },
         {
           method: 'fetchPrices',
@@ -539,63 +543,63 @@
           method: 'refreshCustomBalance',
           // index(v1.7.1):与宿主侧 manifest 同口径——acceptsUndefined 允许旧调用
           // 不带参数(等价全量刷新);codec 与 providerCodec 同为本地 parse 形态。
-          parameters: [{ name: 'index', wire: 'index', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CustomBalanceIndex', schema: indexCodec } }],
+          parameters: [rpcParam('index', 'CustomBalanceIndex', indexCodec, true)],
           },
         {
           method: 'refreshCodingPlan',
-          parameters: [{ name: 'provider', wire: 'provider', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CodingPlanProvider', schema: providerCodec } }],
+          parameters: [rpcParam('provider', 'CodingPlanProvider', providerCodec)],
           },
         {
           method: 'refreshGatewayQuota',
-          parameters: [{ name: 'sourceId', wire: 'sourceId', source: 'json', acceptsUndefined: true, codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#GatewayQuotaSourceId', schema: codecOf(v => {
+          parameters: [rpcParam('sourceId', 'GatewayQuotaSourceId', codecOf(v => {
             if (v === undefined || v === null) return undefined
             if (typeof v !== 'string' || v.length > 48 || !/^[a-z0-9][a-z0-9_-]*$/.test(v)) fail('sourceId', 'gateway source id')
             return v
-          }) } }],
+          }), true)],
           },
         {
           method: 'resetHistory',
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CostState', schema: stateCodec },
+          result: strictCodec('CostState', stateCodec),
         },
         {
           method: 'importLegacyHistory',
           },
         {
           method: 'getDaySessions',
-          parameters: [{ name: 'date', wire: 'date', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#DayKey', schema: dateCodec } }],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#DayRecord', schema: dayCodec },
+          parameters: [rpcParam('date', 'DayKey', dateCodec)],
+          result: strictCodec('DayRecord', dayCodec),
         },
         {
           method: 'getSessionCost',
-          parameters: [{ name: 'sessionId', wire: 'sessionId', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionId', schema: providerCodec } }],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionCost', schema: codecOf(v => ({ own: parseSession(v.own, 'own'), subagents: parseSession(v.subagents, 'subagents'), found: needBool(v.found, 'found'), subagentCount: needNum(v.subagentCount, 'subagentCount') })) },
+          parameters: [rpcParam('sessionId', 'SessionId', providerCodec)],
+          result: strictCodec('SessionCost', codecOf(v => ({ own: parseSession(v.own, 'own'), subagents: parseSession(v.subagents, 'subagents'), found: needBool(v.found, 'found'), subagentCount: needNum(v.subagentCount, 'subagentCount') }))),
         },
         {
           method: 'getTopSessions',
           parameters: [
-            { name: 'limit', wire: 'limit', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionLimit', schema: limitCodec } },
-            { name: 'sort', wire: 'sort', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionSort', schema: sortCodec }, acceptsUndefined: true },
-            { name: 'dir', wire: 'dir', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#SessionSortDir', schema: sortCodec }, acceptsUndefined: true },
+            rpcParam('limit', 'SessionLimit', limitCodec),
+            rpcParam('sort', 'SessionSort', sortCodec, true),
+            rpcParam('dir', 'SessionSortDir', sortCodec, true),
           ],
-          result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#TopSessions', schema: topSessionsCodec },
+          result: strictCodec('TopSessions', topSessionsCodec),
         },
         {
           // 写入一枚密钥到 DSH 凭据库(v1.6.8):与服务端 typert 清单一一对应。
           method: 'setCredential',
           parameters: [
-            { name: 'target', wire: 'target', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CredentialTarget', schema: credTargetCodec } },
-            { name: 'value', wire: 'value', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CredentialValue', schema: credValueCodec } },
+            rpcParam('target', 'CredentialTarget', credTargetCodec),
+            rpcParam('value', 'CredentialValue', credValueCodec),
           ],
           },
         {
           // 从 DSH 凭据库移除一枚密钥(v1.6.8)。
           method: 'clearCredential',
           parameters: [
-            { name: 'target', wire: 'target', source: 'json', codec: { mode: 'strict', typeSymbol: 'dsh-cost-meter#CredentialTarget', schema: credTargetCodec } },
+            rpcParam('target', 'CredentialTarget', credTargetCodec),
           ],
           },
       ].map(def => ({ id: 'dsh-cost-meter#costMeter/' + def.method, service: 'costMeter', namespace: 'costMeter',
-        invocation: { kind: 'direct' }, parameters: [], result: { mode: 'strict', typeSymbol: 'dsh-cost-meter#FetchPricesResult', schema: fetchCodec }, ...def })),
+        invocation: { kind: 'direct' }, parameters: [], result: strictCodec('FetchPricesResult', fetchCodec), ...def })),
     }
 
     // ── 计费与显示助手(与服务端 pricing.js 一致) ───────────────────────────
@@ -1478,6 +1482,9 @@
       if (mode === 'custom') {
         const unit = customBalanceUnitOf(config, custom, entryCfg)
         if (unit === 'USD') return usd
+        // 积分是不可由美元花费换算的计数(抵扣率因模型而异),按 0 处理,
+        // 绝不把汇率折算结果冒充积分显示在「当日已用」段。
+        if (unit === 'CREDITS') return 0
         const rate = Number(config?.exchangeRate)
         return usd * (Number.isFinite(rate) && rate > 0 ? rate : 1)
       }
@@ -1501,7 +1508,8 @@
 
     function segmentsForCustomBalance(state, config, custom = null, entryCfg = null) {
       const target = custom ?? state.customBalance
-      const cap = resolveBalanceCap(config, target)
+      // 全局 budgetCap 是货币金额，不适用于积分；积分只接受同一响应的上限。
+      const cap = resolveBalanceCap(customBalanceUnitOf(config, target, entryCfg) === 'CREDITS' ? null : config, target)
       const remaining = Number(target?.remaining) || 0
       const spend = Number(target?.spend) || 0
       const todayUsed = todayUsedInBalanceCurrency(state, config, 'custom', target, entryCfg)
@@ -1663,19 +1671,20 @@
     function customBalanceUnitOf(config, custom, entryCfg) {
       if ((entryCfg ?? config?.customBalance)?.adapter === 'aliyun' && ['CNY', 'USD', 'EUR'].includes(custom?.unit)) return custom.unit
       const unit = entryCfg?.unit ?? config?.customBalance?.unit
-      if (unit === 'CNY' || unit === 'EUR' || unit === 'USD') return unit
-      return custom?.unit === 'CNY' || custom?.unit === 'EUR' ? custom.unit : 'USD'
+      if (['CNY', 'EUR', 'USD', 'CREDITS'].includes(unit)) return unit
+      return ['CNY', 'EUR', 'CREDITS'].includes(custom?.unit) ? custom.unit : 'USD'
     }
 
     function formatCustomBalanceMoney(amount, config, custom, entryCfg) {
       const unit = customBalanceUnitOf(config, custom, entryCfg)
+      const credits = unit === 'CREDITS'
       const decimals = Math.max(2, Math.min(6, Math.floor(Number(config?.decimals) || 4)))
-      const symbol = unit === 'CNY' ? '¥' : unit === 'EUR' ? '€' : '$'
+      const symbol = credits ? '' : unit === 'CNY' ? '¥' : unit === 'EUR' ? '€' : '$'
       const value = Number(amount)
       if (!Number.isFinite(value)) return '—'
       let fixed = value.toFixed(decimals)
       if (fixed.includes('.')) fixed = fixed.replace(/0+$/, '').replace(/\.$/, '')
-      return symbol + fixed
+      return symbol + fixed + (credits ? ' Credits' : '')
     }
 
     // 多配置形态(v1.7.0,issue #79):以下四个渲染助手按「单条快照 + 单条配置」
@@ -1692,7 +1701,7 @@
       }
       const spend = custom.spend !== null ? formatCustomBalanceMoney(custom.spend, config, custom, entryCfg) : '—'
       const maxBudget = custom.maxBudget !== null ? formatCustomBalanceMoney(custom.maxBudget, config, custom, entryCfg) : '—'
-      const manualCap = Number(config?.balance?.budgetCap)
+      const manualCap = customBalanceUnitOf(config, custom, entryCfg) === 'CREDITS' ? NaN : Number(config?.balance?.budgetCap)
       const capLine = Number.isFinite(manualCap) && manualCap > 0
         ? t('balanceBudgetCapLabel') + ': ' + formatCustomBalanceMoney(manualCap, config, custom, entryCfg)
         : ''

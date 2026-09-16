@@ -5421,6 +5421,51 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   console.log('[ok] 自定义余额多配置(迁移/多条写入/上限/加载清洗)通过')
 }
 
+// 14-1c) 自定义余额 CREDITS 单位 + loopback 明文端点(v1.7.26)。
+// 场景:WorkBuddy 积分这类「非货币计数」端点,以及只监听回环、不提供 TLS 的
+// 本机只读路由(如 dsh-workbuddy-connect 的插件 status 路由)。
+{
+  // ① CREDITS 通过校验与收敛;未知单位仍被拒绝。
+  const creditsOk = applyConfigPatch(sanitizeConfig({}), {
+    customBalances: [{ enabled: true, display: 'sidebar', refreshMinutes: 15, label: 'WorkBuddy 积分', unit: 'CREDITS', request: { url: 'http://127.0.0.1:3080/plugins/x/status' }, extract: { remaining: 'credits.total' } }],
+  })
+  assert.deepEqual(creditsOk.errors, [], 'CREDITS 单位合法')
+  assert.equal(creditsOk.config.customBalances[0].unit, 'CREDITS', 'CREDITS 单位持久化')
+  const badUnit = applyConfigPatch(sanitizeConfig({}), {
+    customBalances: [{ enabled: true, display: 'sidebar', refreshMinutes: 15, label: 'x', unit: 'POINTS', request: { url: 'https://a.example.com/x' }, extract: {} }],
+  })
+  assert.ok(badUnit.errors.some(e => e.includes('CREDITS')), '未知单位被拒且报错文案列出 CREDITS')
+  // 非法单位在加载边界回落 USD(手改账本防击穿)。
+  assert.equal(sanitizeConfig({ customBalances: [{ enabled: true, display: 'sidebar', refreshMinutes: 15, label: 'x', unit: 'POINTS', request: { url: '', headers: {} }, extract: {} }] }).customBalances[0].unit, 'USD', '非法单位回落 USD')
+
+  // ② loopback 明文 http 放行,非 loopback 明文仍拒绝(安全边界不放宽)。
+  const { queryCustomBalance } = await import('../lib/custom-balance.js')
+  const realFetch = globalThis.fetch
+  const seen = []
+  globalThis.fetch = async (url) => { seen.push(String(url)); return { ok: true, status: 200, json: async () => ({ credits: { total: 1294 } }) } }
+  const mkLocal = url => ({ customBalance: { enabled: true, label: 'WB', unit: 'CREDITS', request: { url, method: 'GET', headers: {} }, extract: { remaining: 'credits.total' } } })
+  const ctxNull = { get: () => undefined }
+  try {
+    for (const url of ['http://127.0.0.1:3080/plugins/dsh-workbuddy-connect/status', 'http://localhost:3080/x', 'http://[::1]:3080/x']) {
+      const out = await queryCustomBalance(ctxNull, mkLocal(url))
+      assert.equal(out.remaining, 1294, `loopback 明文放行: ${url}`)
+      assert.equal(out.unit, 'CREDITS', `单位透传: ${url}`)
+    }
+    // 非 loopback 明文一律拒绝,且不得发出请求。
+    for (const url of ['http://192.168.3.206:8080/v1/x', 'http://evil.example.com/x', 'ftp://127.0.0.1/x']) {
+      const before = seen.length
+      await assert.rejects(() => queryCustomBalance(ctxNull, mkLocal(url)), /must use https/, `非 loopback 明文被拒: ${url}`)
+      assert.equal(seen.length, before, `被拒时不发请求: ${url}`)
+    }
+    // https 照旧放行(未回归)。
+    const secure = await queryCustomBalance(ctxNull, mkLocal('https://relay.example.com/x'))
+    assert.equal(secure.remaining, 1294, 'https 端点不受影响')
+  } finally {
+    globalThis.fetch = realFetch
+  }
+  console.log('[ok] 自定义余额 CREDITS 单位与 loopback 明文端点(v1.7.26)通过')
+}
+
 // 14-2) e2e:多条配置的快照/RPC 索引刷新/strict codec。
 {
   const prevHome79 = process.env.DSH_HOME
@@ -5484,65 +5529,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   console.log('[ok] 自定义余额多配置客户端接线哨兵通过')
 }
 
-// ── v1.7.1:v1.7.0 P0 回归——manifest 必须能通过宿主 typert-loader 真实校验 ──
-// v1.7.0 的 refreshCustomBalance 参数 codec 裸传 zod schema,被 typert-loader 以
-// 「parameter codec must use a strict codec」拒绝注册,dsh 完全无法启动。verify 只测
-// 服务端逻辑测不到 manifest 注册层;本块直接调用宿主(本机 npm global 安装的
-// @deepseek-ai/dsh 携带的)dsh-typert-loader 导出的 validateTypertManifest,对真实
-// TYPERT 清单全量校验——任何参数/result codec 形态错误(含 acceptsUndefined 缺失
-// 引发的网关 arguments-invalid)在测试期即暴露,不再等到用户启动失败。
-{
-  // resolve 宿主 typert-loader:本机未安装 dsh 时跳过(退化为形态自检,CI 环境
-  // pnpm install dsh 后全量生效)。
-  let validate = null
-  try {
-    const { createRequire } = await import('node:module')
-    const req = createRequire(import.meta.url)
-    validate = (await import(req.resolve('@deepseek-ai/dsh-typert-loader', { paths: [process.cwd()] }))).validateTypertManifest
-  } catch {
-    try {
-      validate = (await import('file:///F:/npm-global/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-typert-loader/lib/index.js')).validateTypertManifest
-    } catch { validate = null }
-  }
-  const { TYPERT: manifest171 } = await import('../lib/typert.host.js')
-  assert.ok(Array.isArray(manifest171.invocations) && manifest171.invocations.length > 0, 'TYPERT.invocations 非空')
-  if (typeof validate === 'function') {
-    // 宿主真实校验:失败即抛错(manifest.package/face/schemas/model/invocations
-    // 逐层校验,含全部参数与 result codec 的 strict 形态)。
-    let validated = null
-    assert.doesNotThrow(() => { validated = validate('dsh-cost-meter', manifest171) }, 'TYPERT manifest 通过宿主 typert-loader 真实校验(v1.7.0 曾因裸 zod 参数 codec 被拒)')
-    assert.ok(validated !== null, '校验返回 manifest 本体')
-    // 针对性断言:refreshCustomBalance 的 index 参数必须是 strict codec 对象且
-    // 声明 acceptsUndefined(缺省调用等价全量刷新,网关 arguments-invalid 兜底)。
-    const inv171 = manifest171.invocations.find(i => i.method === 'refreshCustomBalance')
-    assert.ok(inv171 !== undefined, 'refreshCustomBalance invocation 存在')
-    const param171 = inv171.parameters.find(p => p.wire === 'index')
-    assert.ok(param171 !== undefined, 'index 参数声明存在')
-    assert.equal(param171.codec.mode, 'strict', 'index codec 为 strict 对象(非裸 zod schema)')
-    assert.equal(typeof param171.codec.typeSymbol, 'string', 'index codec 携带 typeSymbol')
-    assert.ok(param171.codec.schema !== null && typeof param171.codec.schema === 'object' && typeof param171.codec.schema.parse === 'function', 'index codec 由 zod v4 schema 支撑')
-    assert.equal(param171.acceptsUndefined, true, 'index 声明 acceptsUndefined(无参调用允许)')
-    // 全量扫:所有 invocation 的所有参数与 result codec 都必须是 strict 对象形态。
-    for (const inv of manifest171.invocations) {
-      for (const p of inv.parameters) {
-        assert.equal(p.codec?.mode, 'strict', `参数 codec 均为 strict 对象(${inv.method}/${p.wire})`)
-        assert.equal(typeof p.codec?.typeSymbol, 'string', `参数 codec 均携带 typeSymbol(${inv.method}/${p.wire})`)
-      }
-      assert.equal(inv.result?.mode, 'strict', `result codec 均为 strict 对象(${inv.method})`)
-    }
-  } else {
-    // 退化形态自检(无宿主环境):strict 对象形态逐项断言,防裸 schema 复发。
-    for (const inv of manifest171.invocations) {
-      for (const p of inv.parameters) {
-        assert.equal(p.codec?.mode, 'strict', `参数 codec 均为 strict 对象(${inv.method}/${p.wire})`)
-        assert.equal(typeof p.codec?.typeSymbol, 'string', `参数 codec 均携带 typeSymbol(${inv.method}/${p.wire})`)
-      }
-      assert.equal(inv.result?.mode, 'strict', `result codec 均为 strict 对象(${inv.method})`)
-    }
-    console.log('[注意] 本机未找到宿主 dsh-typert-loader,仅做形态自检(CI 全量生效)')
-  }
-  console.log('[ok] TYPERT manifest 宿主级校验(v1.7.0 启动失败回归修复)通过')
-}
+// Real host manifest and shipped client codec compatibility (issues #79, #149).
+await import('./typert-codecs.mjs')
 
 // ── v1.7.2:对账警告同句币种符号一致(issue #81) ──
 
@@ -6117,6 +6105,16 @@ function m_costOf85(entry, tokens) {
   assert.equal(agNamed.windows[1].label, 'Claude / GPT · Weekly')
   assert.equal(agNamed.windows[1].percent, 1)
 
+  // geminiOnly(来源配置 antigravityOnlyGemini):第三方模型池整组跳过,只留 Gemini 原生组。
+  const agGeminiOnly = parseAntigravityQuota({ groups: [
+    { displayName: 'Gemini Models', buckets: [{ window: '5h', remainingFraction: 0.88 }, { window: 'weekly', remainingFraction: 0.36 }] },
+    { displayName: 'Claude and GPT models', buckets: [{ window: 'weekly', remainingFraction: 0.99 }, { window: '5h', remainingFraction: 0.99 }] },
+  ] }, { geminiOnly: true })
+  assert.equal(agGeminiOnly.windows.length, 2, 'geminiOnly 只保留 Gemini 原生组的两个窗口')
+  assert.deepEqual(agGeminiOnly.windows.map(w => w.id), ['gemini:five-hour', 'gemini:weekly'])
+  assert.equal(agGeminiOnly.windows.some(w => /claude/i.test(w.label)), false, 'geminiOnly 不残留 Claude 窗口')
+  assert.ok(agGeminiOnly.warnings.some(w => w.includes('geminiOnly')), '过滤第三方组时给出告警')
+
   const claude = parseClaudeUsage({
     five_hour: { utilization: 12 }, seven_day: { utilization: 24 },
     seven_day_oauth_apps: { utilization: 30 }, seven_day_opus: { utilization: 40 },
@@ -6296,6 +6294,17 @@ function m_costOf85(entry, tokens) {
   assert.equal(fingerprintA, fingerprintB, 'fingerprint uses normalized source configuration')
   assert.notEqual(fingerprintA, fingerprintKey, 'configured-key bit changes source fingerprint')
   assert.equal(fingerprintA.includes('management'), false, 'fingerprint contains no credential value')
+
+  // antigravityOnlyGemini(只留 Gemini 原生组)必须穿过三层归一化,否则开关形同虚设:
+  // gateway-quotas.normalizeGatewaySource 是 queryGatewayQuota 的第一步白名单,漏字段即静默丢弃。
+  const geminiOnlySource = { ...fingerprintSource, antigravityOnlyGemini: true }
+  assert.equal(normalizeGatewaySource(geminiOnlySource).antigravityOnlyGemini, true, 'normalizeGatewaySource 保留 antigravityOnlyGemini')
+  assert.equal(normalizeGatewaySource(fingerprintSource).antigravityOnlyGemini, false, '缺省 false(向后兼容)')
+  assert.notEqual(
+    gatewaySourceFingerprint(fingerprintSource, false),
+    gatewaySourceFingerprint(geminiOnlySource, false),
+    'antigravityOnlyGemini 变化必须改变来源指纹,否则缓存旧窗口不会重取',
+  )
 
   const piiEmail = 'sentinel.user.87@example.test'
   const piiToken = 'AUTH_TOKEN_SENTINEL_87'
@@ -6558,6 +6567,8 @@ function m_costOf85(entry, tokens) {
 await import('./aliyun-balance.mjs')
 await import('./gateway-retry.mjs')
 await import('./go-credentials.mjs')
+await import('./qwen-cli.mjs')
+await import('./pr145-147.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./settings-regressions.mjs')
 await import('./scoped-billing.mjs')

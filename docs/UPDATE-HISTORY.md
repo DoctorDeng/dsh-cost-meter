@@ -4,6 +4,18 @@
 > [Commits](https://github.com/Han-1413141/dsh-cost-meter/commits/master)。
 
 
+## v1.7.27(2026-09-15)—— 源码宿主兼容与会话恢复说明
+
+- **#149 源码宿主加载失败**：Host 和 Client 的全部 strict codec 同时提供 `schema` 与 `create()`，修复新版 DSH 源码启动时报 `result codec has no create() factory`，保留 npm 旧宿主的 schema 接口及原有参数/结果校验。
+- 安装检查分别覆盖 npm 发布版和固定提交的源码版，防止相同 DSH 版本号下的接口差异漏测。
+- **#140 恢复反馈**：手工备份整个目录时放在 sessions 根目录外；Zstandard 头帧必须独立且保留换行。工具生成的相邻备份使用非规范文件名，可被宿主忽略；1.7.22+ 搜索明细保存在插件独立文件中。详见[恢复说明](session-history-recovery.md)。
+
+## v1.7.26(2026-09-15)—— 千问 CLI 额度与网关、积分配置
+
+- #146：千问额度可选择官方 CLI，查看订阅 Credits、加量包和订阅到期时间；保留本地估算配置。先安装并登录千问 CLI，再在额度卡片中切换来源。见 [使用说明](qwen-cli-quota.md)。
+- PR #145：Antigravity 各来源可独立开启「只显示 Gemini 额度」，全部被过滤时显示空状态。
+- PR #147：自定义余额新增 `CREDITS` 单位，保留小数；支持本机回环 HTTP 端点，其他主机仍需 HTTPS。积分不套用货币预算或美元消费换算。感谢 @Oct1AtJoe 的两项贡献。
+
 ## v1.7.25(2026-09-15)—— 侧栏模型花费与统一额度卡片
 
 - #142：在「设置 → 费用 → 显示」启用按模型花费卡片，就地展开今日或近 90 天的 Top-N、其它汇总、占比与 Token；支持展开记忆和 Top-1 角标。见 [使用说明](model-cost-card.md)。
