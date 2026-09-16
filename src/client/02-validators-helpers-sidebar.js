@@ -4,6 +4,10 @@
     function fail(path, expect) {
       throw new Error('dsh-cost-meter: 服务端数据非法 (' + path + ': ' + expect + ')')
     }
+    function needObject(v, path) {
+      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      return v
+    }
     function needNum(v, path) {
       if (typeof v !== 'number' || !Number.isFinite(v)) fail(path, 'number')
       return v
@@ -37,7 +41,7 @@
       return out
     }
     function parseSession(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       return {
         id: needStr(v.id, path + '.id'),
         provider: typeof v.provider === 'string' ? v.provider : '',
@@ -55,7 +59,7 @@
       }
     }
     function parseDay(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       const out = {
         date: needStr(v.date, path + '.date'),
         input: needNum(v.input, path + '.input'),
@@ -77,7 +81,7 @@
       return out
     }
     function parsePrice(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       const out = {
         cacheHit: needNum(v.cacheHit, path + '.cacheHit'),
         cacheMiss: needNum(v.cacheMiss, path + '.cacheMiss'),
@@ -115,7 +119,7 @@
       extract: e.extract && typeof e.extract === 'object' ? e.extract : {},
       allowedHosts: Array.isArray(e?.allowedHosts) ? e.allowedHosts.filter(h => typeof h === 'string') : [],
     })
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       const models = {}
       if (v.prices !== null && typeof v.prices === 'object' && v.prices.models !== null && typeof v.prices.models === 'object') {
         for (const id of Object.keys(v.prices.models)) models[id] = parsePrice(v.prices.models[id], path + '.prices.models.' + id)
@@ -182,6 +186,7 @@
                 display: e.display === 'sidebar' || e.display === 'both' || e.display === 'off' ? e.display : 'settings',
                 refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
                 apiKey: typeof e.apiKey === 'string' ? e.apiKey : '',
+                ...(id === 'minimax' ? { baseUrl: typeof e.baseUrl === 'string' ? e.baseUrl : '' } : {}),
                 ...(id === 'qwen' ? { quotaSource: e.quotaSource === 'cli' ? 'cli' : 'local' } : {}),
                 // SCNet / 千问本地计量字段(issue #26/#78):其余厂商无此键,缺省剔除。
                 ...(typeof e.planCredits === 'number' && Number.isFinite(e.planCredits) && e.planCredits > 0 ? { planCredits: e.planCredits } : {}),
@@ -313,7 +318,7 @@
     const EMPTY_GO = { status: 'off', message: '', fetchedAt: 0, rolling: null, weekly: null, monthly: null }
     const emptyCustomSnapshot = (index = null) => ({ status: 'off', message: '', fetchedAt: 0, label: '', unit: 'USD', remaining: 0, maxBudget: null, spend: null, index })
     function parseBalance(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       return {
         status: v.status === 'ok' || v.status === 'error' ? v.status : 'off',
         message: typeof v.message === 'string' ? v.message : '',
@@ -333,7 +338,7 @@
       }
     }
     function parseGoQuota(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       return {
         status: v.status === 'ok' || v.status === 'error' ? v.status : 'off',
         message: typeof v.message === 'string' ? v.message : '',
@@ -344,7 +349,7 @@
       }
     }
     function parseCustomBalance(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       return {
         status: v.status === 'ok' || v.status === 'error' ? v.status : 'off',
         message: typeof v.message === 'string' ? v.message : '',
@@ -366,7 +371,7 @@
     const GATEWAY_PROVIDERS = ['antigravity', 'claude', 'codex', 'kimi', 'xai', 'workbuddy']
     const GATEWAY_PROVIDER_LABELS = { antigravity: 'Antigravity', claude: 'Claude', codex: 'Codex', kimi: 'Kimi', xai: 'xAI', workbuddy: 'WorkBuddy' }
     function parseGatewayQuota(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       const s0 = (s, d = '') => (typeof s === 'string' ? s : d)
       const n = x => numOrNull(x)
       const windowOf = x => x !== null && typeof x === 'object' && !Array.isArray(x) ? { id: s0(x.id), label: s0(x.label), ...(n(x.percent) === null ? {} : { percent: n(x.percent) }), resetsAt: s0(x.resetsAt), periodHours: n(x.periodHours), scope: s0(x.scope) } : null
@@ -416,7 +421,7 @@
       return { generatedAt: num0(v.generatedAt), providers }
     }
     function parseState(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       return {
         today: parseDay(v.today, path + '.today'),
         month: parseDay(v.month, path + '.month'),
@@ -457,7 +462,7 @@
       }
     }
     function parseFetchResult(v, path) {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
+      needObject(v, path)
       const out = {
         ok: v.ok === true,
         message: typeof v.message === 'string' ? v.message : '',
@@ -475,8 +480,7 @@
     })
     const fetchCodec = codecOf(parseFetchResult)
     const providerCodec = codecOf(v => {
-      if (typeof v !== 'string') fail('provider', 'string')
-      return v
+      return needStr(v, 'provider')
     })
     // 自定义余额条目索引(v1.7.1):0-7 整数或 undefined(缺省 = 全量刷新)。
     const indexCodec = codecOf(v => {
@@ -485,8 +489,7 @@
       return v
     })
     const dateCodec = codecOf(v => {
-      if (typeof v !== 'string') fail('date', 'string')
-      return v
+      return needStr(v, 'date')
     })
     const dayCodec = codecOf(v => {
       if (v === null || typeof v !== 'object' || Array.isArray(v)) fail('day', 'object')
@@ -497,8 +500,7 @@
       return Number(v)
     })
     const sortCodec = codecOf(v => {
-      if (typeof v !== 'string') fail('sort', 'string')
-      return v
+      return needStr(v, 'sort')
     })
     const topSessionsCodec = codecOf(v => {
       if (v === null || typeof v !== 'object' || Array.isArray(v)) fail('topSessions', 'object')
@@ -506,12 +508,10 @@
     })
     // 密钥目标与明文(v1.6.8):target 为受限枚举,明文仅单向上行,永不回传。
     const credTargetCodec = codecOf(v => {
-      if (typeof v !== 'string') fail('target', 'string')
-      return v
+      return needStr(v, 'target')
     })
     const credValueCodec = codecOf(v => {
-      if (typeof v !== 'string') fail('value', 'string')
-      return v
+      return needStr(v, 'value')
     })
 
     // ── RPC 贡献(与服务端 ./typert 清单一一对应) ───────────────────────────

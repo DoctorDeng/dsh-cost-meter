@@ -1569,6 +1569,11 @@
               ? el('p', { className: 'cm-note' }, live.message)
               : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried'))
       const configNode = el(Fragment, null,
+        planId === 'minimax' ? el('div', { className: 'cm-field' },
+          el('label', null, t('minimaxOrigin')),
+          el('input', { className: 'cm-input', type: 'url', value: cfgEntry.baseUrl ?? '', placeholder: 'https://www.minimax.cn',
+            'aria-label': t('minimaxOrigin'), onChange: e => setPlan('baseUrl', e.target.value) }),
+          el('p', { className: 'cm-note' }, t('minimaxOriginNote'))) : null,
         planId === 'qwen' ? el('div', { className: 'cm-field' },
           el('label', null, t('qwenSource')),
           el('select', { className: 'cm-input', value: cfgEntry.quotaSource ?? 'local', onChange: e => setPlan('quotaSource', e.target.value) },
