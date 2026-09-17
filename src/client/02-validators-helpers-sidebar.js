@@ -474,10 +474,7 @@
       return { parse }
     }
     const stateCodec = codecOf(parseState)
-    const patchCodec = codecOf(v => {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail('patch', 'object')
-      return v
-    })
+    const patchCodec = codecOf(v => needObject(v, 'patch'))
     const fetchCodec = codecOf(parseFetchResult)
     const providerCodec = codecOf(v => {
       return needStr(v, 'provider')
@@ -491,10 +488,7 @@
     const dateCodec = codecOf(v => {
       return needStr(v, 'date')
     })
-    const dayCodec = codecOf(v => {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail('day', 'object')
-      return v
-    })
+    const dayCodec = codecOf(v => needObject(v, 'day'))
     const limitCodec = codecOf(v => {
       if (!Number.isFinite(Number(v))) fail('limit', 'number')
       return Number(v)
@@ -502,10 +496,7 @@
     const sortCodec = codecOf(v => {
       return needStr(v, 'sort')
     })
-    const topSessionsCodec = codecOf(v => {
-      if (v === null || typeof v !== 'object' || Array.isArray(v)) fail('topSessions', 'object')
-      return v
-    })
+    const topSessionsCodec = codecOf(v => needObject(v, 'topSessions'))
     // 密钥目标与明文(v1.6.8):target 为受限枚举,明文仅单向上行,永不回传。
     const credTargetCodec = codecOf(v => {
       return needStr(v, 'target')

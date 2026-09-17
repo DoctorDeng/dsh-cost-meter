@@ -1935,7 +1935,7 @@
       }, [draft, api])
 
       useEffect(() => {
-        if (costStore?.status === 'error' && costStore.error) setMessage({ kind: 'err', text: t('ledgerReadFailed', { message: costStore.error }) })
+        if (state !== null && costStore?.status === 'error' && costStore.error) setMessage({ kind: 'err', text: t('ledgerReadFailed', { message: costStore.error }) })
       }, [costStore?.status, costStore?.error])
 
       // 语言跟随当前草稿(切换语言立即生效),草稿为空时用已保存配置。
@@ -1944,7 +1944,9 @@
 
       if (costStore === undefined || state === null) {
         return el('div', { className: 'cm-section' },
-          el('p', { className: 'cm-empty' }, costStore?.status === 'loading' ? t('readingLedger') : t('ledgerUnavailable')))
+          el('p', { className: 'cm-empty' }, costStore?.status === 'loading' ? t('readingLedger') : t('ledgerUnavailable')),
+          costStore?.error && el('p', { className: 'cm-err', role: 'alert' }, t('ledgerReadFailed', { message: costStore.error })),
+          el('button', { className: 'cm-btn', disabled: costStore?.status === 'loading' || !api?.reload, onClick: api?.reload }, t('refresh')))
       }
       const config = state.config
 
@@ -2625,17 +2627,24 @@
       }
       let lastPoll = Date.now()
       let reloading = false
+      let active = true, retrySeconds = 1
       const reload = async () => {
-        if (reloading) return // 并发防抖:轮询/手动刷新/重连不叠加 getState,避免乱序覆盖
+        if (!active || reloading) return // 并发防抖:轮询/手动刷新/重连不叠加 getState,避免乱序覆盖
         reloading = true
         lastPoll = Date.now()
         const prev = store.getSnapshot()
+        if (prev.state === null) store.set({ ...prev, status: 'loading' })
         try {
           const state = await call('getState')
+          if (!active) return
+          retrySeconds = 1
           store.set({ status: 'ready', error: null, state })
           // locale=auto 始终动态跟随当前浏览器语言,不要把探测结果持久化成 en/zh。
           // 否则用户切换浏览器语言后,旧的固定配置会继续覆盖浏览器语言。
         } catch (error) {
+          if (!active) return
+          if (prev.state === null) lastPoll = Date.now()
+          retrySeconds = Math.min(retrySeconds * 2, 60)
           store.set({ status: 'error', error: error?.message ?? String(error), state: prev.state })
         } finally {
           reloading = false
@@ -2645,11 +2654,12 @@
       // 侧边栏「今日费用/余额」与设置页看板依赖 getState 快照渲染,没有推送通道:
       // 默认 60s 轮询,启用模型卡片时按其 10–60s 设置(页面隐藏时跳过) + visibilitychange 重新可见时立即刷新,避免冻结在加载时刻(#3)。
       const pollTimer = setInterval(() => {
-        const cfg = store.getSnapshot().state?.config.sidebarModels
-        const seconds = cfg?.enabled || cfg?.dock ? cfg.refreshSeconds : 60
+        const state = store.getSnapshot().state, cfg = state?.config.sidebarModels
+        // 热安装首屏可早于 Host RPC 注册；失败后按 2/4/8/.../60 秒恢复，只重试读取。
+        const seconds = !state ? retrySeconds : cfg?.enabled || cfg?.dock ? cfg.refreshSeconds : 60
         if (!document.hidden && Date.now() - lastPoll >= (seconds || 60) * 1000) void reload()
       }, 1000)
-      ctx.effect(() => () => { clearInterval(pollTimer) }, 'cost-meter: poll timer')
+      ctx.effect(() => () => { active = false; clearInterval(pollTimer) }, 'cost-meter: poll timer')
       const onVisible = () => { if (document.visibilityState === 'visible') void reload() }
       document.addEventListener('visibilitychange', onVisible)
       ctx.effect(() => () => { document.removeEventListener('visibilitychange', onVisible) }, 'cost-meter: visibility reload')
