@@ -10,6 +10,23 @@ permissions:
   contents: read
 
 jobs:
+  market-hot-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install reported host and pinned RPC packages
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+          npm install --prefix .tmp-market-host --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.1.5-rc.1 @deepseek-ai/dsh-typert-loader@0.1.5-rc.1 @deepseek-ai/dsh-typert-registry@0.1.5-rc.1 @deepseek-ai/dsh-api-gateway@0.1.5-rc.1
+      - name: Verify hot installation without restarting the host
+        run: |
+          export DSH_TEST_NODE_MODULES="$PWD/.tmp-market-host/node_modules"
+          node test/market-hot-install.mjs
+
   source-host-codecs:
     runs-on: ubuntu-latest
     steps:
@@ -98,6 +115,7 @@ jobs:
         run: |
           export DSH_TEST_NODE_MODULES="$(npm root -g)/@deepseek-ai/dsh/node_modules"
           node test/verify.mjs
+          node test/market-hot-install.mjs
       # 产物漂移门禁(v1.6.8):lib/client.js 是提交进仓库的压缩产物,无 prepare/prepack
       # 钩子,全靠手工构建后提交,此前实测已发生漂移。此处重新构建并比对,任何未提交
       # 的产物差异都会让 CI 变红,杜绝把过期 bundle 发布出去。
