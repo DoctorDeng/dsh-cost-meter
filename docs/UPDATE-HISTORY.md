@@ -4,6 +4,11 @@
 > [Commits](https://github.com/Han-1413141/dsh-cost-meter/commits/master)。
 
 
+## v1.7.30(2026-09-17)—— OpenRouter 透传定价
+
+- OpenRouter 模型不再记 $0：内置 4 模型静态快照（`meta/muse-spark-1.3-contributor`、`google/gemini-3.8-flash`、`qwen/qwen3.8-flash`、`z-ai/glm-5.3-flash`），旧账本按 `pricing-openrouter-v1` 自动回填重算。
+- 启动、价格同步与每小时从 `openrouter.ai/api/v1/models` 刷新全量价目，失败保留本地快照；聚合路由（`prompt: "-1"`）与非法行自动跳过。见[定价说明](openrouter-pricing.md)。
+
 ## v1.7.29(2026-09-17)—— 插件市场热安装修复
 
 - #154：修复市场安装后费用设置显示“账本不可用”，重启 DSH 才恢复的问题；热安装时补齐 RPC 清单并跟随插件生命周期清理。

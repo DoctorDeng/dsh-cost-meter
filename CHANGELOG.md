@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.30] - 2026-09-17
+
+- **OpenRouter 透传定价**：`DEFAULT_PROVIDER_PRICE_TABLE` 新增 `openrouter` vendor（之前缺失导致 OpenRouter 模型一律记 $0）。内置 4 模型静态快照（2026-09-17：`meta/muse-spark-1.3-contributor`、`google/gemini-3.8-flash`、`qwen/qwen3.8-flash`、`z-ai/glm-5.3-flash`，USD/百万 token、flat 口径，6 位小数），`openrouter:<id>` 与账本桶精确对应。
+- **旧账本回填**：新增 `pricing-openrouter-v1` 迁移，启动时把已有账本里 $0 的 `openrouter:*` 桶按新快照重算一次；`PROVIDER_MODEL_FAMILIES` 补齐 OpenRouter 四模型分组展示。
+- **实时刷新**：`parseOpenRouterModels` 解析公开目录 `GET https://openrouter.ai/api/v1/models`（USD/token→USD/M，跳过 `prompt: "-1"` 等无真实单价的聚合路由与负数/非数字行，只收录有限非负可选缓存键），官方价格同步成功失败都附加 OpenRouter 刷新腿（中英双语备注），启动与每小时 `setInterval`（unref）自动刷新，加法合并保留未覆盖旧 id，4MB 响应上限，失败 fail-soft 不翻转官方同步状态。详见[定价说明](docs/openrouter-pricing.md)。
+- 回归：`test/verify.mjs` 新增快照/回填/解析单测；完整验证通过。
+
 ## [1.7.29] - 2026-09-17
 
 - **#154 市场热安装账本不可用**：dshmarket 的独立 Include 使用文件入口，未被宿主的包名 RPC 扫描发现。插件在文件入口下补注册 Host 清单；通过注入上下文支持注册服务晚到、卸载撤销和重新挂载，正常包名启动沿用宿主注册，保留已有清单的所有权。
