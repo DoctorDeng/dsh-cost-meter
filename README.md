@@ -8,7 +8,7 @@
 
 [![version](https://img.shields.io/badge/version-1.7.30-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.7.30**：OpenRouter 模型不再记 $0：内置 4 模型静态快照并自动回填旧账本，启动/价格同步/每小时从 `openrouter.ai/api/v1/models` 刷新全量价目，失败保留本地快照。详见[OpenRouter 定价说明](docs/openrouter-pricing.md)。
+**v1.7.30**：新增 OpenRouter token 价格目录与自动刷新，内置四模型离线快照；定向修复零费用旧账，保留手改价格和已记费用。感谢 @GnaneshKunal 的 PR #156。详见[定价说明](docs/openrouter-pricing.md)。
 
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)

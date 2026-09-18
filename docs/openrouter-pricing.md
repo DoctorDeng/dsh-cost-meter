@@ -1,23 +1,32 @@
-# OpenRouter 透传定价
+# OpenRouter 目录定价
 
-OpenRouter 网关按原样透传上游模型价格。本插件之前 `DEFAULT_PROVIDER_PRICE_TABLE` 缺少 `openrouter` vendor，OpenRouter 模型一律记 `$0`；v1.7.30 起内置快照并自动刷新。
+从 **1.7.30** 起，插件使用 [OpenRouter 公开模型目录](https://openrouter.ai/api/v1/models) 的 token 参考价，补齐 OpenRouter 完整模型 id 的计费。原始实现来自 [@GnaneshKunal 的 PR #156](https://github.com/Han-1413141/dsh-cost-meter/pull/156)。
 
-- **静态快照**：`lib/pricing.js` 内置 4 模型快照（2026-09-17，USD/百万 token，flat 口径）：`meta/muse-spark-1.3-contributor`、`google/gemini-3.8-flash`、`qwen/qwen3.8-flash`、`z-ai/glm-5.3-flash`。键为 OpenRouter 完整模型 id（含厂商前缀），与账本 `openrouter:<id>` 精确对应；离线时用快照计费。
-- **旧账本回填**：`pricing-openrouter-v1` 迁移在启动时把已有账本里 `$0` 的 `openrouter:*` 桶按新快照重算一次，不需要手动导入。
-- **实时刷新**：公开目录 `GET https://openrouter.ai/api/v1/models`（无需认证）返回 USD/token 字符串；`parseOpenRouterModels` 纯函数解析为 USD/百万 token（6 位小数，与快照写法一致），跳过空 id、无 pricing、`prompt`/`completion` 缺失或负数/非数字的行——路由聚合模型（如 `openrouter/auto` 用 `prompt: "-1"` 占位）无真实单价会被跳过；可选缓存键（`input_cache_read`/`input_cache_write`）只在有限非负时收录，`0`（免费模型）收录为 0。
-- **刷新时机与合并语义**：官方价格同步（成功失败都附加该腿，不翻转官方同步的 ok 状态）、插件启动、每小时 `setInterval`（unref，不阻塞退出）自动刷新。逐条 `normalizePrice` 校验后**加法合并**：保留未被覆盖的旧 id（含快照与离线期条目），同 id 用远端值替换。目录载荷约 735KB，响应上限放宽到 4MB；失败 fail-soft，保留本地快照并在同步消息里用中英双语备注说明（`openrouterRefreshed` / `openrouterRefreshFailed`）。
-- **计价口径**：OpenRouter 条目恒为美元（`usdFromCost` 恒等），与账本美元记账一致，不随显示币种折算。
+## 价格来源与刷新
 
-手动触发：在「设置 → 费用」点价格同步即可连带刷新 OpenRouter 价目，消息尾部会注明刷新结果。
+- 内置四模型快照（2026-09-17；2026-09-18 复核一致）：meta/muse-spark-1.3-contributor、google/gemini-3.8-flash、qwen/qwen3.8-flash、z-ai/glm-5.3-flash。
+- 启动导入历史后、每小时，以及「设置 → 费用」的价格同步会请求公开目录，无需 OpenRouter Key。价格按 USD/token 转为 USD/百万 token，计入美元账本，展示时再按配置换算币种。
+- 输入和输出必须是有限非负数；可选缓存读取/写入价格同样校验。免费模型的零价格保留；-1 聚合路由、缺失单价、空白、非法数值和溢出值跳过。完整 id 精确匹配，:free 等变体不会与付费型号混配；目录也不参与其他厂商的模糊匹配。
+- 新模型加入本地价格表；已由目录管理且未被手改的条目自动更新，目录未返回的旧条目保留。上次写入的价格指纹随账本保存，因此重启后仍保护手改价格和已有自定义条目；显式价格映射继续有效。
+- 刷新并发合并，总超时 20 秒（含响应体），最多两次网络尝试，响应体上限 4 MiB，拒绝重定向。失败保留本地价格，卸载取消在途请求并阻止迟到响应写入。
+- DeepSeek 官方同步和 OpenRouter 刷新各自报告结果。DeepSeek 同步失败时也会尝试 OpenRouter，返回的状态包含成功更新的目录价格。
+
+## 旧账回填
+
+只修复 OpenRouter **零费用**桶，包括日汇总和会话汇总；不重算其他厂商、已有非零费用或显式映射的桶。离线时先按内置快照补算，首次成功拉取目录后再补齐其他可识别模型，并记下 pricing-openrouter-v1。后续目录价格变化只用于后续计费，不反复改写历史。
+
+回填使用当前可用的参考价估算，不代表历史账单的实际成交价。此目录接入覆盖 token 费用；供应商路由、长上下文档位、图片、音频、搜索或按次收费可能需要不同口径，不能据此声称与 OpenRouter 账单逐笔一致。模型字段定义见 [OpenRouter 官方 API 文档](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties)。
+
+## 验证
+
+test/openrouter-pricing.mjs 覆盖目录解析、免费与付费变体隔离、零费用定向回填、离线后恢复、自定义价格跨重启保留、并发与设置竞争、HTTP/格式/空目录/超大响应失败、响应体超时、卸载、启动及每小时刷新，以及真实服务的两路同步结果和已构建客户端 codec。
 
 ## English
 
-OpenRouter gateways pass upstream model prices through untouched. Before v1.7.30 this plugin had no `openrouter` vendor in `DEFAULT_PROVIDER_PRICE_TABLE`, so OpenRouter models were always costed at `$0`; v1.7.30 adds a snapshot plus automatic refresh.
+Version **1.7.30** adds token reference pricing from the public OpenRouter model catalog, based on [PR #156](https://github.com/Han-1413141/dsh-cost-meter/pull/156). Four built-in models provide offline coverage. Startup, manual price sync and hourly refresh update the directory without an API key.
 
-- Static snapshot: 4 models in `lib/pricing.js` (2026-09-17, USD per million tokens, flat): `meta/muse-spark-1.3-contributor`, `google/gemini-3.8-flash`, `qwen/qwen3.8-flash`, `z-ai/glm-5.3-flash`. Keys are full OpenRouter model ids (with vendor prefix) matching ledger buckets `openrouter:<id>` exactly; the snapshot covers offline use.
-- Backfill: the `pricing-openrouter-v1` migration re-costs existing `$0` `openrouter:*` buckets once at startup — no manual import needed.
-- Live refresh: the public catalog `GET https://openrouter.ai/api/v1/models` (no auth) returns USD/token strings; the pure function `parseOpenRouterModels` converts them to USD per million tokens (6 decimals, same style as the snapshot). Rows with empty ids, missing pricing, or missing/negative/non-numeric `prompt`/`completion` are skipped — aggregate router models (e.g. `openrouter/auto` with `prompt: "-1"`) have no real unit price. Optional cache keys (`input_cache_read`/`input_cache_write`) are kept only when finite and non-negative; `0` (free models) is kept as 0.
-- Timing and merge: refresh runs as an attached leg of official price sync (never flips its ok status), at plugin startup, and hourly via `setInterval` (unref\u2019d, never blocks exit). Entries are validated with `normalizePrice` and merged additively: old ids not covered by the refresh (including the snapshot and offline entries) are kept; matching ids take the remote value. The catalog payload is ~735KB, so the response cap is raised to 4MB; failures are fail-soft — the local snapshot is kept and a bilingual note (`openrouterRefreshed` / `openrouterRefreshFailed`) is appended to the sync message.
-- Billing basis: OpenRouter entries are always USD (`usdFromCost` is identity), consistent with the USD-denominated ledger, and are never converted with the display currency.
+Prices convert from USD per token to USD per million tokens. Exact full ids keep paid/free variants separate; aggregate routes without real prices remain unpriced. Refreshes add new entries and update only unchanged managed prices. Persisted fingerprints protect custom edits across restarts; missing catalog entries remain available locally.
 
-To trigger manually: run price sync under Settings → Cost; the trailing note reports the OpenRouter refresh result.
+Concurrent refreshes share one request. A 20-second total deadline covers the response body, with at most two network attempts and a 4 MiB body limit. Failures retain local prices; unload cancels requests and blocks late writes. DeepSeek sync and OpenRouter refresh report independent outcomes, including updated state when only OpenRouter succeeds.
+
+Backfill touches only zero-cost OpenRouter buckets, preserving other providers, existing charges and explicit mappings. Offline startup covers snapshot models; the first successful catalog refresh completes the migration. Later price changes do not rewrite recorded history. Historical backfill uses current reference rates, and token estimates do not include all routing, context-tier, media, search or per-request charges.

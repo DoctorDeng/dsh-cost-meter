@@ -384,15 +384,7 @@ console.log('[ok] usdFromCost(CNY 折算/USD 原值/非法兜底/往返抵消)�
     try { parseOpenRouterModels(bad) } catch (error) { caught = error }
     assert.equal(caught?.code, 'ERR_NO_MODELS', `坏载荷抛 ERR_NO_MODELS: ${JSON.stringify(bad)}`)
   }
-  // index.js 接线:fetchPrices 两路都带 OR 腿/4MB 上限/启动+小时刷新/中英文案。
-  const indexSourceOr = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-  assert.equal(indexSourceOr.split('await openRouterRefreshNote(ledger, locale)').length - 1, 2, 'fetchPrices 成功/失败两路都尝试 OpenRouter 腿(ok 不翻转)')
-  assert.ok(indexSourceOr.includes('readJsonBounded(response, 4 * 1024 * 1024)'), '目录载荷放宽到 4MB')
-  assert.ok(indexSourceOr.includes('refreshOpenRouterPrices(ledger).then'), '启动与定时刷新')
-  assert.ok(indexSourceOr.includes('}, 3600_000)'), '每小时刷新')
-  assert.ok(indexSourceOr.includes('clearInterval(openRouterTimer)'), '卸载清定时器')
-  assert.ok(indexSourceOr.includes('openrouterRefreshed') && indexSourceOr.includes('openrouterRefreshFailed'), '中英文案齐备')
-  console.log('[ok] OpenRouter 实时刷新(解析/跳过规则/合并接线/定时器/文案)通过')
+  console.log('[ok] OpenRouter 目录价格解析与单位换算通过')
 }
 
 // 2) 计费数学(内置价格表,离线可跑)。
@@ -6612,6 +6604,7 @@ await import('./gateway-retry.mjs')
 await import('./go-credentials.mjs')
 await import('./qwen-cli.mjs')
 await import('./minimax-endpoint.mjs')
+await import('./openrouter-pricing.mjs')
 await import('./pr145-147.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./settings-regressions.mjs')
