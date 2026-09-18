@@ -6,9 +6,9 @@
 
 Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; from Aug 23, 2026 weekends are billed at off-peak prices all day, shown as “Weekend — all off-peak”) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 90+ model price catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
 
-[![version](https://img.shields.io/badge/version-1.7.29-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.7.30-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.7.29** fixes an unavailable ledger after a marketplace hot install. Initial reads retry automatically; the empty state shows the error and a Refresh button. See the [hot-install guide](docs/market-hot-install.md#english).
+**v1.7.30** adds OpenRouter token reference prices, a four-model offline snapshot and automatic catalog refresh. Scoped backfill preserves existing charges, and automatic updates preserve custom prices. Thanks to @GnaneshKunal for PR #156. See the [pricing guide](docs/openrouter-pricing.md#english).
 
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -56,6 +56,7 @@ English | [中文](README.md)
 | Model & Plan adaptation guide | [adaptation doc](docs/model-and-plan-adaptation.en.md) | Adaptation matrix for per-model billing and the 8 Coding Plan vendors, the auto-matching mechanism and price sources ([中文](docs/model-and-plan-adaptation.md)) |
 | Peak/off-peak alert guide | [alert doc](docs/peak-alert.en.md) | Fully illustrated guide to the pre-switch popup and system notification: effect screenshots (EN/中文), settings reference and usage tips ([中文](docs/peak-alert.md)) |
 | Token Plan usage stats guide | [panel doc](docs/token-plan-stats.md) | Meaning of the four columns in the per-1% & full-window panel, the end-to-end delta estimation method and precision tags, the scope boundary (dsh-made calls only) and usage curves ([中文](docs/token-plan-stats.md#中文)) |
+| OpenRouter passthrough pricing | [pricing doc](docs/openrouter-pricing.md#english) | Token reference prices: offline snapshot, scoped zero-cost backfill, public-catalog refresh, custom-price preservation and failure fallback ([中文](docs/openrouter-pricing.md)) |
 | Multi-provider billing | Settings / ledger | OpenAI, Anthropic, Google Gemini, Mistral and other providers with input/output, cache and reasoning-token pricing isolated by provider + model |
 | Model-name auto-matching | Settings / ledger | Unknown model ids are matched against the price table: case/spaces/hyphens/dots and bracket annotations (e.g. (go)) are ignored — a normalized-equal or containing name hits (e.g. `gpt5.6 luna(go)`); router providers (opencode/zen etc.) search across all vendors; can be restricted to exact match, and unmatched models can be pinned to a specific entry in Settings |
 | Extended price catalog | Settings → Extended price catalog | Built-in reference catalog grouped by vendor and model family (expandable; vendors collapsed by default); mount entries into billing with one click — mounted third-party models live inside the catalog and stay editable; a per-model “Show directly in Cost settings” toggle chooses which models (DeepSeek included) appear directly in the price table |
@@ -288,22 +289,22 @@ Real captures from an actual DSH sidebar of the period strip and collapsed verti
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.7.29`** — review the script before running):
+**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.7.30`** — review the script before running):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.29/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.30/install.ps1 | iex
 ```
 
 **Or a plain command line** (the machine must already have pnpm and git; also pinned to the tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.29
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.30
 ```
 
 Without git, use the GitHub tag archive:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.29.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.30.tar.gz
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):

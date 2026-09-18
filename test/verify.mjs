@@ -34,6 +34,8 @@ import {
   providerPriceEntryFor,
   isWrapperProviderId,
   wrapperUpstreamProvider,
+  parseOpenRouterModels,
+  OPENROUTER_MODELS_URL,
 } from '../lib/pricing.js'
 import { Ledger, applyConfigPatch, localDayKey, sanitizeConfig, reconcileBalanceDelta, pickBalanceInfo, sanitizeDays, officialCostOfDay, splitLedgerApiCost, zeroDay, repairLedgerPricing, dedupeWrapperProviderDays, unpriceLocalOriginModels, stripSecrets, secretRefOf, readSecret, SECRET_TARGETS } from '../lib/store.js'
 import {
@@ -346,6 +348,43 @@ console.log('[ok] usdFromCost(CNY 折算/USD 原值/非法兜底/往返抵消)�
   const hostTypert = readFileSync(new URL('../lib/typert.host.js', import.meta.url), 'utf8')
   assert.ok(hostTypert.includes("pricingCurrency: z.enum(['USD', 'CNY']).optional()"), 'typert 声明 pricingCurrency(网关不剥离)')
   console.log('[ok] 人民币计价接线(选页/回退/币种标记/default 替换/下拉/白名单/回放同口径)通过')
+}
+
+// 1f) OpenRouter 实时刷新(Phase2):目录解析纯函数 + index.js 接线。
+{
+  const today = new Date().toISOString().slice(0, 10)
+  const sample = { data: [
+    { id: 'meta/muse-spark-1.3-contributor', pricing: { prompt: '0.0000001', completion: '0.0000002', input_cache_read: '0.000000002' } },
+    { id: 'google/gemini-3.8-flash', pricing: { prompt: '0.00000075', completion: '0.00000375', input_cache_read: '0.000000075', input_cache_write: '0.000000041667' } },
+    { id: 'openrouter/auto', pricing: { prompt: '-1', completion: '-1' } },
+    { id: 'openrouter/fusion', pricing: { prompt: '-1', completion: '-1' } },
+    { id: '', pricing: { prompt: '1', completion: '1' } },
+    { id: 'free/model', pricing: { prompt: '0', completion: '0' } },
+    { id: 'bad/model', pricing: { prompt: 'abc', completion: '1' } },
+    { id: 'half/model', pricing: { prompt: '0.000001' } },
+    { id: '__proto__', pricing: { prompt: '1', completion: '1' } },
+    { id: 'nocache/model', pricing: { prompt: '0.000001', completion: '0.000002', web_search: '0.1', image: '5' } },
+    null,
+    'x',
+  ] }
+  const { models } = parseOpenRouterModels(sample)
+  assert.deepEqual(models['meta/muse-spark-1.3-contributor'], { input: 0.1, output: 0.2, billingMode: 'flat', sourceUrl: OPENROUTER_MODELS_URL, checkedAt: today, cachedInput: 0.002 })
+  assert.deepEqual(models['google/gemini-3.8-flash'], { input: 0.75, output: 3.75, billingMode: 'flat', sourceUrl: OPENROUTER_MODELS_URL, checkedAt: today, cachedInput: 0.075, cacheWrite: 0.041667 })
+  assert.ok(!('openrouter/auto' in models) && !('openrouter/fusion' in models), '路由聚合占位价(-1)跳过')
+  assert.ok(!('' in models) && !('bad/model' in models) && !('half/model' in models), '空 id/非数字/缺 completion 跳过')
+  assert.deepEqual({ input: models['free/model'].input, output: models['free/model'].output }, { input: 0, output: 0 }, '免费模型收 0')
+  assert.ok(!('web_search' in models['nocache/model']) && !('image' in models['nocache/model']), '非 token 计费键忽略')
+  assert.ok(!({}.hasOwnProperty.call(models, '__proto__')), '原型污染键跳过')
+  // 解析输出直通 normalizePrice(与 refreshOpenRouterPrices 内调用一致)。
+  const orEntry = normalizePrice(models['meta/muse-spark-1.3-contributor'])
+  assert.deepEqual({ cacheMiss: orEntry.cacheMiss, cacheHit: orEntry.cacheHit, output: orEntry.output, billingMode: orEntry.billingMode }, { cacheMiss: 0.1, cacheHit: 0.002, output: 0.2, billingMode: 'flat' })
+  // 坏载荷抛 ERR_NO_MODELS 且带 code(供 index.js 按语言渲染)。
+  for (const bad of [{}, null, undefined, { data: 'x' }, { data: null }]) {
+    let caught = null
+    try { parseOpenRouterModels(bad) } catch (error) { caught = error }
+    assert.equal(caught?.code, 'ERR_NO_MODELS', `坏载荷抛 ERR_NO_MODELS: ${JSON.stringify(bad)}`)
+  }
+  console.log('[ok] OpenRouter 目录价格解析与单位换算通过')
 }
 
 // 2) 计费数学(内置价格表,离线可跑)。
@@ -6565,6 +6604,7 @@ await import('./gateway-retry.mjs')
 await import('./go-credentials.mjs')
 await import('./qwen-cli.mjs')
 await import('./minimax-endpoint.mjs')
+await import('./openrouter-pricing.mjs')
 await import('./pr145-147.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./settings-regressions.mjs')

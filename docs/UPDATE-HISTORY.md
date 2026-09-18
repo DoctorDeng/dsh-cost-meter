@@ -4,6 +4,11 @@
 > [Commits](https://github.com/Han-1413141/dsh-cost-meter/commits/master)。
 
 
+## v1.7.30(2026-09-18)—— OpenRouter 目录定价与刷新
+
+- 合入 @GnaneshKunal 的 PR #156：四模型离线参考价，启动、价格同步与每小时从 OpenRouter 公开目录刷新 token 价格。
+- 定向修复 OpenRouter 零费用旧账；保留已记金额、其他厂商及手改价格。请求并发合并，失败保留本地价格，卸载取消在途请求。见[定价说明](openrouter-pricing.md)。
+
 ## v1.7.29(2026-09-17)—— 插件市场热安装修复
 
 - #154：修复市场安装后费用设置显示“账本不可用”，重启 DSH 才恢复的问题；热安装时补齐 RPC 清单并跟随插件生命周期清理。
