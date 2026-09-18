@@ -9,6 +9,7 @@ import { sanitizeConfig, applyConfigPatch, Ledger } from '../lib/store.js'
 const sourceDir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(sourceDir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, sourceDir), 'utf8')).join('')
 const expose = ['SidebarModelCosts', 'ModelSidebarSettings', 'sidebarModelRows', 'modelStatsRows', 'MODEL_SIDEBAR_DEFAULTS', 'MODEL_OPEN_KEY', 'QuotaCard', 'useQuotaRefresh', 'QuotasSection', 'PlanQuotaCard', 'GatewayQuotaCard', 'GoQuotaCard', 'GoQuotaSettings', 'CustomBalanceEntryPanel', 'SidebarFooter', 'CornerChips', 'parseConfig', 'makeT', 'CODING_PLAN_ROWS']
+expose.push('CostSection')
 const element = (type, props, ...children) => ({ type, props: props ?? {}, children })
 const nodes = value => Array.isArray(value) ? value.flatMap(nodes) : value && typeof value === 'object' ? [value, ...nodes(value.children)] : []
 const textOf = value => Array.isArray(value) ? value.map(textOf).join(' ') : value && typeof value === 'object' ? textOf(value.children) : typeof value === 'string' || typeof value === 'number' ? String(value) : ''
@@ -336,5 +337,78 @@ assert.equal(registered.has('conversation.composer.dock:cost-meter-corner'), fal
 activation.setNow(30000); await activation.tick(1000); assert.equal(getCalls, 3, '关闭后恢复默认 60 秒轮询')
 stop(); for (const cleanup of cleanups.reverse()) cleanup()
 assert.equal(activation.timers.size, 0, '卸载清理轮询')
+// #154: first RPC can race hot installation. Real client apply/store + fake clock.
+const startup = environment(), startupCleanups = [], startupSlots = new Map(), startupEvents = new Map()
+let startupCalls = 0, pending, available = false
+const startupState = { ...live, config: base }
+const startupRemote = { getState: async () => {
+  startupCalls++
+  if (pending) return pending.promise
+  return available ? { ok: true, value: startupState } : { ok: false, error: { message: 'gateway/invocation-unavailable' } }
+} }
+const stopStartup = await startup.apply({ remote: { $mount: async () => () => {} },
+  get: key => key === 'remote.costMeter' ? startupRemote : {
+    inject: (_, fn) => { const cleanup = fn(); if (cleanup) startupCleanups.push(cleanup) },
+    register: (options, component) => { startupSlots.set(options.id, { options, component }); return () => {} },
+  }, effect: fn => { const cleanup = fn(); if (cleanup) startupCleanups.push(cleanup) },
+  on: (event, fn) => { startupEvents.set(event, fn); return () => startupEvents.delete(event) },
+})
+await startup.flush()
+const startupInjected = startupSlots.get('cost-meter').options.inject()
+const startupStore = startupInjected.hooks.cost, startupApi = startupInjected.api
+const panel = startup.mount(startup.ui.CostSection, { useCost: () => startupStore.getSnapshot(), api: startupApi })
+assert.match(textOf(panel.tree), /gateway\/invocation-unavailable/, 'empty panel exposes the RPC error')
+assert.equal(btn(panel.tree, t('refresh')).props.disabled, false)
+let elapsed = 0
+for (const seconds of [2, 4, 8, 16, 32, 60, 60]) {
+  const before = startupCalls
+  startup.setNow(elapsed + seconds * 1000 - 1); await startup.tick(1000)
+  assert.equal(startupCalls, before, 'no early retry or busy loop')
+  elapsed += seconds * 1000
+  startup.setNow(elapsed); await startup.tick(1000)
+  assert.equal(startupCalls, before + 1, 'startup retries back off and cap at 60 seconds')
+}
+pending = deferred()
+const slowFailure = startupApi.reload(), slowCalls = startupCalls
+elapsed += 70000; startup.setNow(elapsed)
+pending.resolve({ ok: false, error: { message: 'gateway/invocation-unavailable' } }); pending = null
+await slowFailure
+startup.setNow(elapsed + 59999); await startup.tick(1000)
+assert.equal(startupCalls, slowCalls, 'backoff starts after a slow request fails, not when it started')
+elapsed += 60000; startup.setNow(elapsed); await startup.tick(1000)
+assert.equal(startupCalls, slowCalls + 1)
+pending = deferred()
+const refresh = btn(panel.tree, t('refresh')).props.onClick()
+panel.render()
+assert.equal(btn(panel.tree, t('refresh')).props.disabled, true, 'manual retry shows loading')
+const inFlightCalls = startupCalls
+startupEvents.get('connection/reset')(); await startupApi.reload()
+assert.equal(startupCalls, inFlightCalls, 'reconnect/manual requests coalesce with in-flight read')
+available = true
+pending.resolve({ ok: true, value: startupState }); pending = null
+await refresh; await startup.flush(); panel.render()
+assert.equal(startupStore.getSnapshot().status, 'ready')
+assert.doesNotMatch(textOf(panel.tree), /gateway\/invocation-unavailable/, 'successful recovery clears initial error')
+startup.setNow(elapsed + 59000); await startup.tick(1000)
+assert.equal(startupCalls, inFlightCalls, 'successful load restores normal 60-second polling')
+startup.doc.hidden = true; startup.setNow(elapsed + 60000); await startup.tick(1000)
+assert.equal(startupCalls, inFlightCalls, 'hidden page skips polling')
+startup.doc.hidden = false; await startup.tick(1000)
+assert.equal(startupCalls, inFlightCalls + 1)
+pending = deferred()
+const lateReload = startupApi.reload(), snapshot = startupStore.getSnapshot()
+stopStartup(); for (const cleanup of startupCleanups.reverse()) cleanup()
+pending.resolve({ ok: true, value: { ...live, today: { cost: 999 } } })
+await lateReload; await startup.flush()
+assert.equal(startupStore.getSnapshot(), snapshot, 'late response cannot update an unmounted store')
+const disposedCalls = startupCalls
+await startupApi.reload()
+assert.equal(startupCalls, disposedCalls)
+assert.equal(startup.timers.size, 0)
+assert.equal(startupEvents.size, 0)
+startup.mount(startup.ui.CostSection, {}) // no store/API: empty state must still render safely
+startup.dispose()
+console.log('[ok] #154 client: startup backoff, error/retry UI, recovery, concurrent reads and teardown')
+
 e.dispose(); activation.dispose()
 console.log('[ok] #142/#143 模型金额/90天/旧账/币种/持久化/展开/Top-N/独立刷新/排序与身份/刷新门控/共享快照通过')
