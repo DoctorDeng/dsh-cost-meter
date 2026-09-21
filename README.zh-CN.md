@@ -8,9 +8,9 @@
 
 本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;2026-08-23 起周末全天按谷价,显示「周末时段——全谷价」) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 90+ 模型价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 九家,含 Volcano Ark AK/SK 签名) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
 
-[![version](https://img.shields.io/badge/version-1.7.30-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.7.31-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.7.30**：新增 OpenRouter token 价格目录与自动刷新，内置四模型离线快照；定向修复零费用旧账，保留手改价格和已记费用。感谢 @GnaneshKunal 的 PR #156。详见[定价说明](docs/openrouter-pricing.md)。
+**v1.7.31**：新增 DeepSeek 人民币对账提示，MiniMax 无周限额显示 ∞，5h 卡片直接显示重置倒计时，输入框下方展示缓存命中率；补齐 macOS/Linux 的 pnpm 与 PATH 安装说明。详见[更新说明](docs/release-notes/v1.7.31.md)和[币种说明](docs/billing-currency.md#中文)。
 
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -29,7 +29,7 @@
 | 功能 | 位置 | 说明 |
 |---|---|---|
 | 按模型花费卡片 | 侧栏 / 右下角 dock（可配） | 默认关闭；就地展开 Top-N、其它汇总、占比和可选 Token；支持今日 / 近 90 天、展开记忆及 Top-1 角标，见[使用说明](docs/model-cost-card.md) |
-| 本会话费用 | 输入区下方 / 会话标题栏 | 实时累计费用 + 输入/缓存/输出 token,位置可配 |
+| 本会话费用 | 输入区下方 / 会话标题栏 | 实时累计费用 + 输入/缓存/输出 token；输入区下方在“输入”前显示缓存命中率（缓存读取 / 含缓存写入的全部输入），位置可配 |
 | 官方余额 | 侧边栏顶部 / 设置页(可配) | 总余额 / 赠送 / 充值,自动刷新 + 手动刷新;可选三段进度条(蓝/橙/灰),当日段只统计官方渠道费用(不含 Coding Plan / 自定义 Provider) |
 | 自定义 Provider 余额 | 侧边栏 / 设置页(可配) | 可配置 HTTP 查询任意 Provider 余额(LiteLLM 等);中/英名称、币种、extract 规则(点路径 / 数字常量 / add / subtract / divide,divide 适配 NewApi 等 quota 端点,见下方[示例](#自定义-provider-余额配置示例newapi-模板));与 Coding Plan 同区可折叠配置 |
 | OpenCode Go 额度 | 侧边栏 / 设置页 / 右下角(dock,可配) | 滚动 5 小时 / 本周 / 本月用量百分比与重置时间,三档可分别开关,可同时显示预算已用%;Key 自动发现(专用引用 / 官方 Go 路由 apiKeyEnv / 环境变量 / opencode 登录态)或手动填写 |
@@ -281,9 +281,18 @@ CLIProxyAPI 网关来源卡片可勾选「只显示 Gemini 额度」，仅影响
 
 ## 安装
 
-> 需求:Node.js ≥ 20 + DeepSeek Harness(带 `dsh plugin` 命令的版本,`npm install -g @deepseek-ai/dsh`)。
+> 需求：Node.js ≥ 20 + DeepSeek Harness（带 `dsh plugin` 命令的版本，`npm install -g @deepseek-ai/dsh`）+ **DSH 进程的 PATH 中可找到 pnpm**；通过 npm 包名或插件市场安装也需要 pnpm。下方固定的 pnpm 11 需要 Node.js ≥ 22.13；Node.js 20 可使用 pnpm 10。
 
 ### 一键安装(推荐)
+
+**macOS / Linux 首次安装准备：**在启动 DSH 的终端安装 pnpm（Windows 也可执行相同命令）：
+
+```sh
+npm install -g pnpm@11.21.0
+pnpm --version
+```
+
+Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安装说明](https://pnpm.io/installation)。
 
 **npm 包名安装**(已发布到 npm registry,始终跟随最新版本;无需 git):
 
@@ -291,22 +300,22 @@ CLIProxyAPI 网关来源卡片可勾选「只显示 Gemini 额度」，仅影响
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.7.30`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.7.31`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.30/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.31/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.30
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.31
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.30.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.31.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):
@@ -314,6 +323,29 @@ dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archi
 ```sh
 dsh web
 ```
+
+### 安装排障：pnpm was not found（macOS / Linux）
+
+报错 `dsh: pnpm was not found; install pnpm and make it available on PATH.` 表示 DSH 无法启动包管理器，此时尚未加载插件。使用 npm 包名安装同样依赖 pnpm。
+
+完成上方准备后，在启动 DSH 的**同一终端、同一系统用户**下检查：
+
+```sh
+command -v node
+command -v pnpm
+command -v dsh
+```
+
+如果 npm 已安装 pnpm，但终端仍找不到命令，将 npm 全局可执行文件目录加入当前终端的 PATH，然后重试：
+
+```sh
+export PATH="$(npm prefix -g)/bin:$PATH"
+pnpm --version
+dsh plugin --profile web add dsh-cost-meter@latest
+dsh web
+```
+
+重启前先停止原 DSH 进程。插件市场运行于 DSH 内，继承的是该进程的 PATH；只刷新浏览器不会更新 PATH。使用 nvm/fnm 时，先选择 DSH 使用的 Node.js 版本，再安装 pnpm。若 npm 报 `EACCES`，按 pnpm 文档使用当前用户可写的 Node.js 安装目录或全局安装前缀，再检查 PATH。需要长期生效时，将可执行文件目录写入相应 shell 配置。重启 DSH 后出现插件，才表示在该机器上安装成功。
 
 ### 安装排障:ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION
 
@@ -407,6 +439,8 @@ dsh-cost-meter
 插件不导入 cordis/dsh 的 Service/Context 运行时类(仅 Node 内建模块、zod、dsh-home-paths、dsh-credentials 的纯函数),与宿主共享同一运行时实例,无重复依赖风险。
 
 ## 官方价格同步原理
+
+**人民币对账：**美元价格乘以显示汇率与官方人民币价可能不同。「设置 → 费用 → 价格」提供说明和 CNY 选择按钮；选择后等待自动保存，再同步价格。详见[币种选择、同步与结算延迟](docs/billing-currency.md#中文)。
 
 `fetchPrices` 抓取官方定价页(Docusaurus 服务端预渲染;英文页为美元价、中文页为人民币价,由「官方价格币种」设置决定,币种按页面金额符号自动检测,高峰时段中文页按北京时间 −8h 折算为 UTC),解析:
 
