@@ -966,7 +966,7 @@ const mmUnlimited = parseMiniMaxRemains({
   current_weekly_total_count: 1000,
   current_weekly_usage_count: 100,
 })
-assert.equal(mmUnlimited['5h'], undefined, 'MiniMax 不限量 5 小时窗不展示')
+assert.deepEqual(mmUnlimited['5h'], { unlimited: true, text: '∞', resetsAt: '' }, 'MiniMax 不限量窗口显式展示且不伪造百分比')
 assert.equal(mmUnlimited['7d'].percent, 10, 'MiniMax 周窗照常展示')
 // 5.4c) 现行 Token Plan:model_remains + remaining_percent,total=0;取 general,跳过 video 无限量行。
 const mmModelRemains = parseMiniMaxRemains({

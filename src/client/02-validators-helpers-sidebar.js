@@ -17,6 +17,10 @@
       return v
     }
     const oneOf = (v, list, fallback) => (typeof v === 'string' && list.includes(v) ? v : fallback)
+    function parseBillingClasses(v, model = false) {
+      if (v === null || typeof v !== 'object' || Array.isArray(v)) return {}
+      return Object.fromEntries(Object.entries(v).filter(([key, value]) => model ? key.length > 0 && ['plan', 'api'].includes(value) : ['auto', 'plan', 'api'].includes(value)))
+    }
     function needBool(v, path) {
       if (typeof v !== 'boolean') fail(path, 'boolean')
       return v
@@ -40,38 +44,29 @@
       }
       return out
     }
-    function parseSession(v, path) {
+    function parseUsageFields(v, path) {
       needObject(v, path)
-      return {
-        id: needStr(v.id, path + '.id'),
-        provider: typeof v.provider === 'string' ? v.provider : '',
-        model: typeof v.model === 'string' ? v.model : '',
-        input: needNum(v.input, path + '.input'),
-        output: needNum(v.output, path + '.output'),
-        cacheRead: needNum(v.cacheRead, path + '.cacheRead'),
-        cacheWrite: needNum(v.cacheWrite, path + '.cacheWrite'),
+      const out = {
         reasoning: v.reasoning === undefined ? 0 : needNum(v.reasoning, path + '.reasoning'),
-        calls: needNum(v.calls, path + '.calls'),
-        cost: needNum(v.cost, path + '.cost'),
         apiCost: v.apiCost === undefined ? undefined : needNum(v.apiCost, path + '.apiCost'),
         byModel: aggregateModelMap(v.byModel, path + '.byModel'),
         byProviderModel: aggregateModelMap(v.byProviderModel, path + '.byProviderModel'),
       }
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'calls', 'cost']) out[key] = needNum(v[key], path + '.' + key)
+      return out
+    }
+    function parseSession(v, path) {
+      return {
+        ...parseUsageFields(v, path),
+        id: needStr(v.id, path + '.id'),
+        provider: typeof v.provider === 'string' ? v.provider : '',
+        model: typeof v.model === 'string' ? v.model : '',
+      }
     }
     function parseDay(v, path) {
-      needObject(v, path)
       const out = {
+        ...parseUsageFields(v, path),
         date: needStr(v.date, path + '.date'),
-        input: needNum(v.input, path + '.input'),
-        output: needNum(v.output, path + '.output'),
-        cacheRead: needNum(v.cacheRead, path + '.cacheRead'),
-        cacheWrite: needNum(v.cacheWrite, path + '.cacheWrite'),
-        reasoning: v.reasoning === undefined ? 0 : needNum(v.reasoning, path + '.reasoning'),
-        calls: needNum(v.calls, path + '.calls'),
-        cost: needNum(v.cost, path + '.cost'),
-        apiCost: v.apiCost === undefined ? undefined : needNum(v.apiCost, path + '.apiCost'),
-        byModel: aggregateModelMap(v.byModel, path + '.byModel'),
-        byProviderModel: aggregateModelMap(v.byProviderModel, path + '.byProviderModel'),
         sessions: [],
       }
       if (v.sessions !== undefined) {
@@ -291,24 +286,8 @@
         })(),
         // Plan/API 双轨计费分类(issue #64):读侧白名单,非法值回落默认。
         planBilling: {
-          providers: (() => {
-            const out = {}
-            if (v.planBilling?.providers !== null && typeof v.planBilling?.providers === 'object' && !Array.isArray(v.planBilling.providers)) {
-              for (const [k, val] of Object.entries(v.planBilling.providers)) {
-                if (typeof k === 'string' && (val === 'auto' || val === 'plan' || val === 'api')) out[k] = val
-              }
-            }
-            return out
-          })(),
-          models: (() => {
-            const out = {}
-            if (v.planBilling?.models !== null && typeof v.planBilling?.models === 'object' && !Array.isArray(v.planBilling.models)) {
-              for (const [k, val] of Object.entries(v.planBilling.models)) {
-                if (typeof k === 'string' && k.length > 0 && (val === 'plan' || val === 'api')) out[k] = val
-              }
-            }
-            return out
-          })(),
+          providers: parseBillingClasses(v.planBilling?.providers),
+          models: parseBillingClasses(v.planBilling?.models, true),
         },
       }
     }
@@ -317,12 +296,17 @@
     const EMPTY_BAL = { status: 'off', message: '', fetchedAt: 0, currency: '', totalBalance: 0, grantedBalance: 0, toppedUpBalance: 0 }
     const EMPTY_GO = { status: 'off', message: '', fetchedAt: 0, rolling: null, weekly: null, monthly: null }
     const emptyCustomSnapshot = (index = null) => ({ status: 'off', message: '', fetchedAt: 0, label: '', unit: 'USD', remaining: 0, maxBudget: null, spend: null, index })
-    function parseBalance(v, path) {
+    function parseSnapshotStatus(v, path) {
       needObject(v, path)
       return {
         status: v.status === 'ok' || v.status === 'error' ? v.status : 'off',
         message: typeof v.message === 'string' ? v.message : '',
         fetchedAt: typeof v.fetchedAt === 'number' ? v.fetchedAt : 0,
+      }
+    }
+    function parseBalance(v, path) {
+      return {
+        ...parseSnapshotStatus(v, path),
         currency: typeof v.currency === 'string' ? v.currency : '',
         totalBalance: num0(v.totalBalance),
         grantedBalance: num0(v.grantedBalance),
@@ -338,22 +322,16 @@
       }
     }
     function parseGoQuota(v, path) {
-      needObject(v, path)
       return {
-        status: v.status === 'ok' || v.status === 'error' ? v.status : 'off',
-        message: typeof v.message === 'string' ? v.message : '',
-        fetchedAt: typeof v.fetchedAt === 'number' ? v.fetchedAt : 0,
-        rolling: v.rolling === undefined || v.rolling === null ? null : parseGoWindow(v.rolling, path + '.rolling'),
-        weekly: v.weekly === undefined || v.weekly === null ? null : parseGoWindow(v.weekly, path + '.weekly'),
-        monthly: v.monthly === undefined || v.monthly === null ? null : parseGoWindow(v.monthly, path + '.monthly'),
+        ...parseSnapshotStatus(v, path),
+        rolling: parseGoWindow(v.rolling, path + '.rolling'),
+        weekly: parseGoWindow(v.weekly, path + '.weekly'),
+        monthly: parseGoWindow(v.monthly, path + '.monthly'),
       }
     }
     function parseCustomBalance(v, path) {
-      needObject(v, path)
       return {
-        status: v.status === 'ok' || v.status === 'error' ? v.status : 'off',
-        message: typeof v.message === 'string' ? v.message : '',
-        fetchedAt: typeof v.fetchedAt === 'number' ? v.fetchedAt : 0,
+        ...parseSnapshotStatus(v, path),
         label: typeof v.label === 'string' ? v.label : '',
         unit: typeof v.unit === 'string' ? v.unit : 'USD',
         remaining: num0(v.remaining),
@@ -1347,14 +1325,11 @@
         const timer = config?.includeSubagentCost === true ? setInterval(refresh, 10000) : null
         return () => { active = false; if (timer !== null) clearInterval(timer) }
       }, [props.sessionId, state?.meta?.now, projection, config?.includeSubagentCost])
-      const saved = snapshot?.id === props.sessionId && snapshot.include === (config?.includeSubagentCost === true) ? snapshot.value : null
+      const saved = snapshot && snapshot.id === props.sessionId && snapshot.include === (config?.includeSubagentCost === true) ? snapshot.value : null
       return { usage: mergeSessionUsage(projection, saved, config?.includeSubagentCost === true, config), config }
     }
 
-    function SessionCost(props) {
-      const { usage, config } = useSessionUsage(props)
-      if (!usage || !config || (billedInput(usage) + (usage?.output ?? 0)) === 0) return null
-      const t = makeT(resolveLocale(config.locale))
+    function sessionCostParts(usage, config) {
       // Plan/API 双轨(issue #64):会话内存在 Plan 类模型时,徽章显示真金白银
       // (API)金额并在悬停明细中单列 Plan 等值;「含 Plan 总额」开启时回到
       // 单一总额口径(v1.6.0);无 Plan 用量时保持宿主精确成本快路径。
@@ -1365,7 +1340,14 @@
         planPart = Math.max(0, split.total - split.api)
         if (planPart > 0) cost = split.api
       }
-      const input = billedInput(usage)
+      return { cost, planPart }
+    }
+
+    function SessionCost(props) {
+      const { usage, config } = useSessionUsage(props)
+      if (!usage || !config || (billedInput(usage) + (usage?.output ?? 0)) === 0) return null
+      const t = makeT(resolveLocale(config.locale))
+      const { cost, planPart } = sessionCostParts(usage, config)
       const detail = [
         t('sessionCostTitle'),
         t('sessionDetailTokens', {
@@ -1394,31 +1376,18 @@
       const output = usage.output ?? 0
       if (input + cache + output === 0) return null
       const t = makeT(resolveLocale(config.locale))
-      // Plan/API 双轨(issue #64):有 Plan 类用量时金额只计 API 部分,
-      // Plan 以「等值」单独展示(同一会话两类并存可区分);「含 Plan 总额」
-      // 开启时回到单一总额口径(v1.6.0)。
-      let planPart = 0
-      let cost = usageCost(usage, config)
-      if (config.showTotalWithPlan !== true && (usage.apiCost !== undefined || usageHasPlanClass(usage, config))) {
-        const split = { total: usageCost(usage, config), api: recordedApiCost(usage, config) }
-        planPart = Math.max(0, split.total - split.api)
-        if (planPart > 0) cost = split.api
-      }
+      const { cost, planPart } = sessionCostParts(usage, config)
+      // 缓存写入属于输入分母，但不是缓存命中；无输入时显示未知。
+      const hitRate = billedInput(usage) > 0 ? ((usage.cacheRead ?? 0) / billedInput(usage) * 100).toFixed(1) + '%' : '—'
       return el('div', { className: 'cm-root' },
-        planPart > 0
-          ? t('sessionLineSplit', {
-              amount: formatMoneyUsd(cost, config),
-              planAmount: formatMoneyUsd(planPart, config),
-              input: formatTokens(input),
-              cache: formatTokens(cache),
-              output: formatTokens(output),
-            })
-          : t('sessionLine', {
-              amount: formatMoneyUsd(cost, config),
-              input: formatTokens(input),
-              cache: formatTokens(cache),
-              output: formatTokens(output),
-            }))
+        t(planPart > 0 ? 'sessionLineSplit' : 'sessionLine', {
+          amount: formatMoneyUsd(cost, config),
+          planAmount: formatMoneyUsd(planPart, config),
+          hitRate,
+          input: formatTokens(input),
+          cache: formatTokens(cache),
+          output: formatTokens(output),
+        }))
     }
 
     // ── 侧边栏:余额行 + 预算图框/今日徽章(纵向堆叠,位于设置按钮上方) ──────
@@ -2248,7 +2217,7 @@
 
     /** MiniMax Token Plan 窗口的已用百分比(与其它厂商同口径:windows.percent 即已用)。 */
     function planWindowUsedPct(win) {
-      if (win === null || typeof win !== 'object' || typeof win.percent !== 'number') return null
+      if (win === null || typeof win !== 'object' || win.unlimited || typeof win.percent !== 'number') return null
       return Math.max(0, Math.min(100, Math.round(Number(win.percent) || 0)))
     }
 
@@ -2285,10 +2254,15 @@
       return value === null ? '—' : t(direction === 'remaining' ? 'quotaRemaining' : 'quotaUsed', { pct: value })
     }
 
-    // 悬停或键盘聚焦时重算倒计时,无需为每个窗口建立定时器或发起网络刷新。
-    function useQuotaHoverRefresh() {
+    // 悬停/聚焦刷新提示；显示常驻倒计时的卡片每分钟更新一次，不请求网络。
+    function useQuotaHoverRefresh(resetsAt) {
       const [, setNow] = useState(0)
       const refresh = () => setNow(Date.now())
+      useEffect(() => {
+        if (!resetsAt) return
+        const timer = setInterval(refresh, 60000)
+        return () => clearInterval(timer)
+      }, [resetsAt])
       return { onMouseEnter: refresh, onFocus: refresh }
     }
 
@@ -2301,27 +2275,30 @@
       const pct = planWindowUsedPct(win)
       const level = pct === null ? 'ok' : pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
       const barView = simpleBarByDirection(pct, direction)
+      const text = win?.unlimited ? '∞' : barView.label === null ? '—' : barView.label + '%'
       return {
         level,
         pct,
+        text,
         label: barView.label,
         row: el('div', { className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level) },
           el('span', { className: 'cm-bbox-label' }, label),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
-          el('span', { className: 'cm-bbox-pct cm-num' }, barView.label === null ? '—' : barView.label + '%')),
+          el('span', { className: 'cm-bbox-pct cm-num' }, text)),
       }
     }
 
     function MiniMaxPlanCard(props) {
-      const hoverProps = useQuotaHoverRefresh()
       const { five, seven, fetchedAt, t, wide, refresh, direction = 'used' } = props
+      const hoverProps = useQuotaHoverRefresh(five?.resetsAt)
+      const countdown = formatResetCountdown(five?.resetsAt, t)
       const fiveView = miniMaxRow(t('codingPlanRemain5h'), five, direction, t)
       const sevenView = miniMaxRow(t('codingPlanRemain7d'), seven, direction, t)
       const level = fiveView.level === 'over' || sevenView.level === 'over' ? 'over'
         : fiveView.level === 'warn' || sevenView.level === 'warn' ? 'warn' : 'ok'
       const lineOf = (label, win, view) => {
-        const pct = quotaValueText(view.label, direction, t)
+        const pct = win?.unlimited ? t('quotaUnlimited') : quotaValueText(view.label, direction, t)
         const reset = miniMaxResetText(win, t)
         return label + ' ' + pct + (reset ? ' · ' + reset : '')
       }
@@ -2335,10 +2312,11 @@
       const body = el(Fragment, null,
         el('div', { className: 'cm-mm-title' }, t('codingPlanMinimaxTitle')),
         fiveView.row,
-        sevenView.row)
+        sevenView.row,
+        countdown ? el('div', { className: 'cm-mm-reset' }, '5h · ' + countdown) : null)
       const rail = el(Fragment, null,
-        el('div', { className: 'cm-bbox-rail cm-num' }, fiveView.label === null ? '—' : fiveView.label + '%'),
-        el('div', { className: 'cm-bbox-rail cm-num' }, sevenView.label === null ? '—' : sevenView.label + '%'))
+        el('div', { className: 'cm-bbox-rail cm-num' }, fiveView.text),
+        el('div', { className: 'cm-bbox-rail cm-num' }, sevenView.text))
       return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
           ...hoverProps, className: 'cm-bbox cm-mm' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '')
