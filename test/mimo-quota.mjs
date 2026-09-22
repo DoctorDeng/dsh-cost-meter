@@ -21,7 +21,7 @@ import {
   queryCodingPlan,
 } from '../lib/coding-plans.js'
 import { SECRET_TARGETS, secretRefOf, sanitizeConfig, applyConfigPatch } from '../lib/store.js'
-import { planProviderIdOf, PLAN_PROVIDER_IDS, DEFAULT_PLAN_PROVIDER_CLASS } from '../lib/plan-billing.js'
+import { planProviderIdOf, PLAN_PROVIDER_IDS, DEFAULT_PLAN_PROVIDER_CLASS, recordSamples, buildPlanStats, billingClassOf } from '../lib/plan-billing.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -110,6 +110,18 @@ assert.equal(DEFAULT_PLAN_PROVIDER_CLASS.mimo, 'auto')
 assert.equal(planProviderIdOf('mimo'), 'mimo')
 assert.equal(planProviderIdOf('xiaomi-token-plan-cn'), 'mimo')
 assert.equal(planProviderIdOf('LLM-Xiaomi-Token-Plan-SGP'), 'mimo') // llm- 前缀 + 大小写容忍
+assert.equal(billingClassOf('xiaomi-token-plan-cn', 'mimo-v2.5', { providers: { mimo: 'api' } }, new Set(['mimo'])), 'api')
+const statWindows = { plan: { percent: 20, resetsAt: '' }, compensation: { percent: 10, resetsAt: '' }, balance: { text: '$1.00' } }
+const nowMs = new Date(2026, 8, 22, 12).getTime()
+const samples = recordSamples({}, 'mimo', statWindows, { forWindow: () => ({ tokens: 100, cost: 1 }) }, nowMs)
+assert.deepEqual(Object.keys(samples.mimo), ['monthly'], 'compensation cannot be estimated from undivided local usage')
+const stats = buildPlanStats({
+  days: { '2026-09-10': { byProviderModel: { 'xiaomi-token-plan-cn:mimo-v2.5': { input: 100, output: 20, cost: 1 } } } },
+  hourBuckets: {}, samples, codingPlans: { mimo: { status: 'ok', windows: statWindows } },
+  config: { codingPlans: { mimo: { enabled: true } } }, nowMs,
+})
+assert.equal(stats.providers.mimo.windows.monthly.localTokens, 120, 'monthly usage includes calls older than the unknown-window 48h fallback')
+assert.deepEqual(Object.keys(stats.providers.mimo.windows), ['monthly'])
 
 // ── 配置清洗:mimo 条目保留,未知 id 剔除 ─────────────────────────────
 const defaults = sanitizeConfig({})

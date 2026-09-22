@@ -8,6 +8,7 @@
 - 凭据为小米开放平台控制台 Cookie（整段 cookie 请求头粘贴，必需 serviceToken 与 userId，DSH 凭据库以 `MIMO_COOKIE` 托管，过期后重新复制）；tp-\*/ttp-\* 专用 Key 无用量端点，不支持 Key 鉴权。查询走 platform.xiaomimimo.com/api/v1 的 tokenPlan/usage、tokenPlan/detail、balance 三端点：用量为主，详情重置时刻与余额为尽力而为的增强行，失败不阻塞主窗口。
 - 缺凭据 / Cookie 缺字段 / 登录态过期三类情况各有双语专属文案；plan/API 双轨分类新增 mimo 别名归并（`xiaomi-token-plan-*` 等 provider id 计入 MiMo 订阅轨）。回归见 test/mimo-quota.mjs（Cookie 归一化、三端点解析、配置清洗、双端接线），网络权限补 platform.xiaomimimo.com。
 - 为守住 DSH STORE 256 KiB 单文件上限，等价压缩了既有双语长说明（volcengineNote / syncScopeNote / modelStatsNote / priceTableNote / cardsFootnote / unmatchedHint / planStatsNote，保留全部事实与 #85 消歧措辞），MiMo 的 Cookie 获取提示以内联 label 呈现、详细步骤走报错文案。
+- 整合 #166 时补齐重定向拒绝、取消请求、有界响应读取、空数字/Cookie 校验与凭据隔离回归。MiMo 主套餐统计按自然月汇总，补偿积分与余额仅展示查询结果，不参与本地估算。
 
 ## [1.7.32] - 2026-09-22
 
