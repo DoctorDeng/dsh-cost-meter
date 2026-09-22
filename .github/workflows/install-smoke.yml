@@ -21,7 +21,9 @@ jobs:
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
-          npm install --prefix .tmp-market-host --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.1.5-rc.1 @deepseek-ai/dsh-typert-loader@0.1.5-rc.1 @deepseek-ai/dsh-typert-registry@0.1.5-rc.1 @deepseek-ai/dsh-api-gateway@0.1.5-rc.1
+          mkdir -p .tmp-market-host
+          cp test/fixtures/install-host/package.json .tmp-market-host/package.json
+          npm install --prefix .tmp-market-host --ignore-scripts --no-audit --no-fund
       - name: Verify hot installation without restarting the host
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-market-host/node_modules"
@@ -76,7 +78,14 @@ jobs:
           node-version: 22
       - name: Install DeepSeek Harness
         shell: bash
-        run: npm install -g @deepseek-ai/dsh
+        # Pin the tested host graph: upstream ^0.1.5-rc.1 ranges currently select
+        # rc.3 packages requiring an unpublished sidebar-documentpreview@rc.3.
+        # Exercise the real host and install.ps1 without skipping any assertions.
+        run: |
+          mkdir -p .tmp-install-host
+          cp test/fixtures/install-host/package.json .tmp-install-host/package.json
+          npm install --prefix .tmp-install-host --no-audit --no-fund
+          node -e 'require("fs").appendFileSync(process.env.GITHUB_PATH, require("path").resolve(".tmp-install-host/node_modules/.bin") + "\n")'
       - name: Install pnpm (Linux leg only)
         if: runner.os == 'Linux'
         shell: bash
@@ -113,7 +122,7 @@ jobs:
       - name: Run regression suite
         shell: bash
         run: |
-          export DSH_TEST_NODE_MODULES="$(npm root -g)/@deepseek-ai/dsh/node_modules"
+          export DSH_TEST_NODE_MODULES="$PWD/.tmp-install-host/node_modules"
           node test/verify.mjs
           node test/market-hot-install.mjs
       # 产物漂移门禁(v1.6.8):lib/client.js 是提交进仓库的压缩产物,无 prepare/prepack

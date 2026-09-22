@@ -968,8 +968,9 @@
       go: ['go', 'zen', 'opencode', 'opencode-go'],
       qwen: ['qwen', 'qwen-tokenplan', 'qianwen-tokenplan', 'qwen-token-plan', 'qianwen-token-plan'],
       scnet: ['scnet', 'scnet-tokenplan', 'scnet-token-plan'],
+      mimo: ['mimo', 'xiaomimimo', 'mimo-token-plan', 'xiaomi-token-plan', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-ams'],
     }
-    const PLAN_PROVIDER_IDS_LOCAL = ['anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'go']
+    const PLAN_PROVIDER_IDS_LOCAL = ['anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'mimo', 'go']
     function planProviderIdOfLocal(provider) {
       const name = String(provider ?? '').trim().toLowerCase().replace(/^llm-/, '')
       if (name.length === 0) return null
@@ -2491,6 +2492,9 @@
       if (name === 'weekly' || name === 'week' || name === '7d') return name === '7d' ? '7d' : t('goShortWeekly')
       if (name === 'monthly' || name === 'month') return t('goShortMonthly')
       if (name === 'daily' || name === 'day') return t('goShortDaily')
+      if (name === 'plan') return t('mimoWindowPlan')
+      if (name === 'compensation') return t('mimoWindowCompensation')
+      if (name === 'balance') return t('codingPlanWindowBalance')
       return String(name).replace(/_/g, ' ')
     }
 
@@ -2668,6 +2672,7 @@
       scnet: 'SCNet',
       volcengine: 'Ark',
       qwen: 'Qwen',
+      mimo: 'MiMo',
     }
 
     function QuotaStrip(props) {

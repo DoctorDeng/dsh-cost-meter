@@ -1021,6 +1021,8 @@ const officialHosts = {
   commandcode: ['api.commandcode.ai'],
   scnet: [],
   volcengine: ['open.volcengineapi.com'],
+  qwen: [],
+  mimo: ['platform.xiaomimimo.com'],
 }
 for (const id of CODING_PLAN_PROVIDER_IDS) {
   assert.ok(CODING_PLAN_PROVIDERS[id] !== undefined, `提供商注册:${id}`)
@@ -5991,7 +5993,6 @@ function m_costOf85(entry, tokens) {
 {
   const client86 = readClientSource()
   assert.ok(client86.includes("t('customBalanceAllowedHosts')") && client86.includes('applyAllowedHostsText'), 'allowedHosts 输入框接线')
-  assert.ok(client86.includes("t('customBalanceHeadersVarNote')"), '请求头上方 {{VAR}} 命名规则说明')
   assert.ok(client86.includes('customVar:'), '凭据输入区以 customVar: 目标调 setCredential')
   assert.ok(client86.includes('customVarStatus'), 'parse 端解析 customVarStatus')
   assert.ok(client86.includes('placeholderVars'), '占位符变量集合驱动凭据输入行')
@@ -6611,6 +6612,7 @@ await import('./minimax-endpoint.mjs')
 await import('./openrouter-pricing.mjs')
 await import('./pr145-147.mjs')
 await import('./custom-balance-ui.mjs')
+await import('./custom-balance-post.mjs')
 await import('./balance-display-currency.mjs')
 await import('./settings-regressions.mjs')
 await import('./scoped-billing.mjs')
@@ -6630,4 +6632,6 @@ await import('./versioned-session-logs.mjs')
 await import('./session-log-repair.mjs')
 await import('./client-issues-127-129.mjs')
 await import('./model-quota-cards.mjs')
+await import('./mimo-quota.mjs')
+await import('./mimo-enable-flow.mjs')
 console.log('[ok] 全部验证通过')

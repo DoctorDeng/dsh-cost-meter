@@ -6,11 +6,11 @@
 
 **DeepSeek Harness 会话费用统计插件(界面中英双语)**
 
-本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;2026-08-23 起周末全天按谷价,显示「周末时段——全谷价」) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 90+ 模型价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 九家,含 Volcano Ark AK/SK 签名) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
+本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;2026-08-23 起周末全天按谷价,显示「周末时段——全谷价」) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 90+ 模型价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 / 千问 / 小米 MiMo 十一家,含 Volcano Ark AK/SK 签名与 MiMo 控制台 Cookie 查询) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
 
-[![version](https://img.shields.io/badge/version-1.7.32-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.7.33-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.7.32**：每条自定义美元余额新增默认关闭的“按显示币种折算”开关；余额、已用金额和上限统一使用显示汇率与精度，原始数据和进度比例保持不变。详见[更新说明](docs/release-notes/v1.7.32.md)。
+**v1.7.33**：新增小米 MiMo Token Plan 额度查询；自定义 Provider 余额新增 POST JSON 请求体编辑，支持格式校验、每条配置独立保存和清空请求体。详见[更新说明](docs/release-notes/v1.7.33.md)。
 
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -33,7 +33,7 @@
 | 官方余额 | 侧边栏顶部 / 设置页(可配) | 总余额 / 赠送 / 充值,自动刷新 + 手动刷新;可选三段进度条(蓝/橙/灰),当日段只统计官方渠道费用(不含 Coding Plan / 自定义 Provider) |
 | 自定义 Provider 余额 | 侧边栏 / 设置页(可配) | 可配置 HTTP 查询任意 Provider 余额(LiteLLM 等);中/英名称、币种、extract 规则(点路径 / 数字常量 / add / subtract / divide,divide 适配 NewApi 等 quota 端点,见下方[示例](#自定义-provider-余额配置示例newapi-模板));与 Coding Plan 同区可折叠配置 |
 | OpenCode Go 额度 | 侧边栏 / 设置页 / 右下角(dock,可配) | 滚动 5 小时 / 本周 / 本月用量百分比与重置时间,三档可分别开关,可同时显示预算已用%;Key 自动发现(专用引用 / 官方 Go 路由 apiKeyEnv / 环境变量 / opencode 登录态)或手动填写 |
-| Coding Plan 额度 | 侧边栏 / 设置页(每家可配) | 多厂商 coding plan 订阅额度查询(Anthropic Claude Pro/Max、Z.ai/智谱 GLM、MiniMax Token Plan、Kimi Code 本周/5 小时配额(无订阅 Key 时回落 PAYG 余额)、OpenRouter credits、SiliconFlow 余额、CommandCode 5h/周窗口与月度 Credits 余额、火山方舟 Volcano Ark 5h/周/月三档(需 AK/SK 管控面 HMAC 签名,需 ArkReadOnlyAccess + BillingCenterReadOnlyAccess)),各家独立启用开关、凭据、显示位置与刷新间隔(侧边栏卡片与 Go 额度同款,收起窄栏显示百分比),默认使用官方端点，MiniMax 可[配置可信查询域名](docs/minimax-quota-endpoint.md);无凭据/无订阅为中性提示;SCNet 超算互联网 Token Plan 支持[外部控制台额度快照](docs/scnet-official-snapshot.md)，无有效快照时按官方 Credits 抵扣表由本地账本估算月度用量(无需凭据) |
+| Coding Plan 额度 | 侧边栏 / 设置页(每家可配) | 多厂商 coding plan 订阅额度查询(Anthropic Claude Pro/Max、Z.ai/智谱 GLM、MiniMax Token Plan、Kimi Code 本周/5 小时配额(无订阅 Key 时回落 PAYG 余额)、OpenRouter credits、SiliconFlow 余额、CommandCode 5h/周窗口与月度 Credits 余额、小米 MiMo Token Plan 套餐/补偿积分窗口与周期截止重置、余额(控制台 Cookie 凭据)、火山方舟 Volcano Ark 5h/周/月三档(需 AK/SK 管控面 HMAC 签名,需 ArkReadOnlyAccess + BillingCenterReadOnlyAccess)),各家独立启用开关、凭据、显示位置与刷新间隔(侧边栏卡片与 Go 额度同款,收起窄栏显示百分比),默认使用官方端点，MiniMax 可[配置可信查询域名](docs/minimax-quota-endpoint.md);无凭据/无订阅为中性提示;SCNet 超算互联网 Token Plan 支持[外部控制台额度快照](docs/scnet-official-snapshot.md)，无有效快照时按官方 Credits 抵扣表由本地账本估算月度用量(无需凭据) |
 | 额度横条 | 输入框上方(显示设置可开关) | 一条横排 chips 实时显示预算已用% / Go 主窗口 / 各已启用 Coding Plan 用量窗口(短标签+迷你进度条,≥80% 预警、≥100% 超支,悬停见重置时刻);点击任意 chip 即刷新对应数据源(budget→状态、Go→Go 额度、厂商→该家全部窗口),同一厂商多窗口融合为一条 chip 分段显示;首次更新弹引导卡由用户自主决定开关;无可用数据自动隐藏 |
 | 点击立即刷新 | 侧边栏余额/额度图框 | 官方余额 / 自定义余额 / Coding Plan 图框(含窄栏收起态)点击即触发一次查询,刷新中呼吸闪烁,失败保持原值并在悬停提示说明;键盘 Enter/Space 可触发;更新后首次进入有引导提示 |
 | 简化侧栏显示 | 设置 → 费用 → 显示 | 可选开启；更新首次提示选择，压缩卡片和明细，面板高度限制为视口的 38% 且不超过 320 像素；保留金额、额度、点击刷新与悬停详情，关闭后恢复原布局。[使用说明](docs/sidebar-simple.md) |
@@ -54,7 +54,7 @@
 | 界面语言 | 设置页 → 显示设置 | 简体中文 / English / 跟随浏览器(自动);切换即时生效并自动保存 |
 | 隐藏官方余额 / 隐藏今日消耗 | 设置页 → 显示设置 | 两个独立开关:开启后对应 UI 区块(侧边栏余额行与面板 / 今日费用行、预算明细、概览今日卡片等)**整体不再渲染**,token 与调用次数统计不受影响,共享屏幕/截图防泄露 |
 | AI 价格同步 | [提示词](docs/AI-PRICE-SYNC-PROMPT.md) | DeepSeek 官方同步;其他 provider 使用已核对的官方价格目录与手动配置 |
-| 模型与 Plan 适配说明 | [适配文档](docs/model-and-plan-adaptation.md) | 各厂商模型计费与 8 家 Coding Plan 的适配矩阵、自动匹配机制与价格来源([English](docs/model-and-plan-adaptation.en.md)) |
+| 模型与 Plan 适配说明 | [适配文档](docs/model-and-plan-adaptation.md) | 各厂商模型计费与各 Coding Plan 的适配矩阵、自动匹配机制与价格来源([English](docs/model-and-plan-adaptation.en.md)) |
 | 峰/谷切换提醒图解 | [提醒文档](docs/peak-alert.md) | 峰谷切换前弹窗与系统通知的完整图解:效果截图(中/英)、设置项说明与使用建议([English](docs/peak-alert.en.md)) |
 | Token Plan 用量统计图解 | [面板文档](docs/token-plan-stats.md) | 每 1% 与满窗估算的四列含义、首尾差分估算方法与精度标注、口径边界(只统计 dsh 内调用)与用量曲线说明([English](docs/token-plan-stats.md#english)) |
 | OpenRouter 透传定价 | [定价说明](docs/openrouter-pricing.md) | OpenRouter 原样透传上游价格：内置快照、旧账本自动回填、公开目录(无需认证)定时刷新合并，失败保留本地快照([English](docs/openrouter-pricing.md#english)) |
@@ -63,6 +63,16 @@
 | 拓展价格表 | 设置页 → 拓展价格表 | 内置各厂商、按模型家族分类的参考价格目录(点开展开,厂商默认折叠);一键挂载参与计费,挂载的第三方模型默认收入表内可编辑;逐模型「在费用设置直接显示」开关自选哪些模型(含 DeepSeek)在「价格表」区直接显示 |
 
 ## 自定义 Provider 余额配置示例(NewApi 模板)
+
+**POST 携带 JSON 请求体：**进入**设置 → 费用 → 额度**，展开自定义余额，选择 **POST**，在**请求体 (JSON)** 中填写接口要求的内容。例如接口需要账号参数，并返回 `{"data":{"balance":12.5}}`：
+
+```json
+{"account_id":"example-account","include_credit":true}
+```
+
+把**解析规则 (JSON)** 设为 `{"remaining":"data.balance"}`。有效 JSON 按原文独立保存并发送，保留嵌套值和大整数 ID；格式错误会显示提示，保留上一次有效配置。清空编辑框后不再发送请求体；切换 GET/HEAD 不发送请求体，切回 POST 时保留原内容。未配置 Content-Type 时自动使用 `application/json`，手动请求头不区分大小写。
+
+兼容已有 `request.body` 对象和原始字符串。请求体属于普通持久化配置，`{{VAR}}` 凭据替换只用于请求头；使用请求头认证时，可填写 `{"Authorization":"Bearer {{MY_API_KEY}}"}`，并通过下方凭据输入框设置密钥。
 
 **按显示币种折算：**进入**设置 → 费用 → 额度**，展开一条自定义余额配置，开启**按显示币种折算（USD 余额）**。每条配置默认关闭；“余额原币种”仍应填写端点实际返回的币种。例如原余额为 USD 54.3792，显示币种为 CNY、汇率为 7.2、精度为两位小数时，显示 **¥391.53**。侧栏、设置页与悬停明细中的已用金额、接口上限和手动上限一起折算；进度比例和原始余额不变。手动上限按原币种输入。对应持久化字段为该 `customBalances[]` 条目的 `convertToDisplayCurrency: true`，也兼容旧 `customBalance` 配置。
 
@@ -73,6 +83,8 @@
 千问 Token Plan 可在卡片内选择[官方 CLI 订阅额度](docs/qwen-cli-quota.md)，需在 DSH 主机以同一系统账号安装 CLI 并运行 `qianwen auth login`。默认保留本地估算；CLI 模式显示账号当前 Credits，不修改本地账本。
 
 千问 Token Plan 的本地 Credits 仅统计 `qwen`、`qwen-tokenplan`、`qianwen-tokenplan`、`qwen-token-plan`、`qianwen-token-plan` 订阅 provider（大小写不敏感，可带 `llm-` 前缀）；显式归类为 API 的调用不计。`qianwen` 按量 provider 即使使用相同模型名也不会计入订阅额度。自定义渠道名需使用上述订阅名称之一，模型不在抵扣表中时需补充三项费率。
+
+小米 MiMo Token Plan 的额度查询使用**控制台 Cookie**(而非 API Key):登录 `platform.xiaomimimo.com` 后按 F12 →「网络」→ 找到 `balanceAlertConfig` 请求,把请求头 `cookie` 整段粘贴进「设置 → 费用 → 额度」的 MiMo 卡片(需含 `serviceToken` 与 `userId`,DSH 凭据库以 `MIMO_COOKIE` 托管)。卡片显示套餐/补偿积分窗口与周期截止重置(北京时间)及余额行。控制台 Cookie 过期后，按卡片提示重新复制。此控制台查询不接受 Token Plan 推理专用 Key(`tp-*` / `ttp-*`)。本地套餐统计按自然月汇总；补偿积分和余额只展示查询结果，不用无法区分归属的本地调用估算。
 
 CLIProxyAPI 网关来源卡片可勾选「只显示 Gemini 额度」，仅影响该来源的 Antigravity 分组。默认显示全部分组；过滤后无可见额度时显示空列表，解析错误仍单独报告。
 
@@ -304,22 +316,22 @@ Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安�
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.7.32`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.7.33`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.32/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.33/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.32
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.33
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.32.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.33.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):
