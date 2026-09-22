@@ -1,8 +1,8 @@
 /**
  * 小米 MiMo Token Plan 额度适配回归:Cookie 归一化、三端点解析器(用量/详情/余额)、
  * 注册表与密钥目标登记、plan 轨分类别名、配置清洗与双端接线的存在性。
- * 夹具形态参照 CodexBar MiMoProviderTests(官方 data.monthUsage.items)与
- * cc-switch 社区脚本(兼容 data.usage.items)。
+ * 夹具形态参照 CodexBar MiMoProviderTests(官方 data.monthUsage.items);
+ * 解析器另兼容 data.usage.items 结构变体。
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
