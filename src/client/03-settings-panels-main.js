@@ -1265,21 +1265,20 @@
           : el('div', { className: 'cm-bal-line' }, custom?.message || t('balanceNotQueried'))
       const configFields = el(Fragment, null,
           el('p', { className: 'cm-note' }, t(aliyun ? 'aliyunBalanceNote' : 'customBalanceConfigNote')),
+          el('label', { className: 'cm-check' },
+            el('input', { type: 'checkbox', checked: entry.convertToDisplayCurrency === true,
+              disabled: customBalanceUnitOf(config, custom, entry) !== 'USD',
+              onChange: event => setField('convertToDisplayCurrency', event.target.checked) }),
+            t('customBalanceConvert')),
+          el('p', { className: 'cm-note' }, t('customBalanceConvertNote')),
           el('div', { className: 'cm-grid' },
-            el('div', { className: 'cm-field' },
-              el('label', null, t('customBalanceLabelZh')),
+            [['label', 'customBalanceLabelZh'], ['labelEn', 'customBalanceLabelEn']].map(([field, label]) => el('div', { key: field, className: 'cm-field' },
+              el('label', null, t(label)),
               el('input', {
                 className: 'cm-input',
-                value: entry.label ?? '',
-                onChange: event => setField('label', event.target.value),
-              })),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('customBalanceLabelEn')),
-              el('input', {
-                className: 'cm-input',
-                value: entry.labelEn ?? '',
-                onChange: event => setField('labelEn', event.target.value),
-              })),
+                value: entry[field] ?? '',
+                onChange: event => setField(field, event.target.value),
+              }))),
             !aliyun && el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceUnitLabel')),
               el('select', {
@@ -2575,6 +2574,11 @@
         // 官方价格同步(与价格表同组;自动保存状态已移至标签栏常驻)
         el('div', null,
           el('h3', { className: 'cm-h' }, t('dataSync')),
+          (draft ?? config).currency === 'CNY' && (draft ?? config).prices?.currency !== 'CNY'
+            ? el('div', { className: 'cm-note', role: 'status' },
+              t('pricingCnyHint', { rate: (draft ?? config).exchangeRate }),
+              (draft ?? config).pricingCurrency !== 'CNY' ? el('button', { className: 'cm-btn small', disabled: busy, onClick: () => setField('pricingCurrency', 'CNY') }, t('pricingCurrencyCny')) : null)
+            : null,
           // 官方价格币种(issue #47):决定同步抓取英文(美元)还是中文(人民币)官方页。
           el('div', { className: 'cm-field' },
             el('label', null, t('pricingCurrencyLabel')),

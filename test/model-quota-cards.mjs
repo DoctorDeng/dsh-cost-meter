@@ -9,7 +9,7 @@ import { sanitizeConfig, applyConfigPatch, Ledger } from '../lib/store.js'
 const sourceDir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(sourceDir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, sourceDir), 'utf8')).join('')
 const expose = ['SidebarModelCosts', 'ModelSidebarSettings', 'sidebarModelRows', 'modelStatsRows', 'MODEL_SIDEBAR_DEFAULTS', 'MODEL_OPEN_KEY', 'QuotaCard', 'useQuotaRefresh', 'QuotasSection', 'PlanQuotaCard', 'GatewayQuotaCard', 'GoQuotaCard', 'GoQuotaSettings', 'CustomBalanceEntryPanel', 'SidebarFooter', 'CornerChips', 'parseConfig', 'makeT', 'CODING_PLAN_ROWS']
-expose.push('CostSection')
+expose.push('CostSection', 'MiniMaxPlanCard')
 const element = (type, props, ...children) => ({ type, props: props ?? {}, children })
 const nodes = value => Array.isArray(value) ? value.flatMap(nodes) : value && typeof value === 'object' ? [value, ...nodes(value.children)] : []
 const textOf = value => Array.isArray(value) ? value.map(textOf).join(' ') : value && typeof value === 'object' ? textOf(value.children) : typeof value === 'string' || typeof value === 'number' ? String(value) : ''
@@ -99,6 +99,36 @@ const base = sanitizeConfig({ locale: 'en', currency: 'USD', symbol: '$', exchan
   position: 'off', sidebar: false, hideTodayCost: true, hideOfficialBalance: true, goQuota: { enabled: false },
   budget: { enabled: false }, peakEnabled: false, corner: { enabled: false } })
 const e = environment(), t = e.ui.makeT('en')
+
+// #159: sidebar/reset countdown, rail infinity, minute updates and cleanup.
+{
+  const timerEnv = environment(), start = Date.parse('2026-09-22T00:00:00Z')
+  timerEnv.setNow(start)
+  const five = { percent: 25, resetsAt: new Date(start + 90 * 60000).toISOString() }
+  const seven = { unlimited: true, text: '∞', resetsAt: '' }
+  for (const locale of ['en', 'zh']) {
+    timerEnv.setNow(start)
+    const translate = timerEnv.ui.makeT(locale)
+    const props = { five, seven, t: translate, wide: true }
+    const card = timerEnv.mount(timerEnv.ui.MiniMaxPlanCard, props)
+    assert.match(textOf(card.tree), /∞/)
+    assert.ok(textOf(card.tree).includes(translate('resetHours', { h: 1, m: 30 })))
+    assert.ok(textOf(card.tree.props.label).includes(translate('quotaUnlimited')))
+    timerEnv.setNow(start + 31 * 60000)
+    await timerEnv.tick(60000)
+    assert.ok(textOf(card.tree).includes(translate('resetMinutes', { m: 59 })))
+    card.render({ ...props, wide: false })
+    assert.match(textOf(card.tree), /∞/)
+    card.render({ ...props, five: { percent: 25, resetsAt: '' }, seven: null })
+    assert.equal(withClass(card.tree, 'cm-mm-reset').length, 0)
+    assert.ok(!textOf(card.tree).includes('∞'), '未知周窗不能标为无限量')
+    assert.equal(timerEnv.timers.size, 0, '缺少重置时间时取消刷新')
+    card.render(props)
+    card.dispose()
+    assert.equal(timerEnv.timers.size, 0, '卸载清理倒计时')
+  }
+  assert.equal(timerEnv.requests.length, 0, '倒计时不触发网络刷新')
+}
 
 // 持久化、RPC strict schema、旧配置补默认值：UI 与服务端采用同一契约。
 assert.deepEqual(plain(e.ui.MODEL_SIDEBAR_DEFAULTS), base.sidebarModels)
