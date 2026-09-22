@@ -1017,6 +1017,8 @@ const officialHosts = {
   commandcode: ['api.commandcode.ai'],
   scnet: [],
   volcengine: ['open.volcengineapi.com'],
+  qwen: [],
+  mimo: ['platform.xiaomimimo.com'],
 }
 for (const id of CODING_PLAN_PROVIDER_IDS) {
   assert.ok(CODING_PLAN_PROVIDERS[id] !== undefined, `提供商注册:${id}`)
@@ -6626,4 +6628,6 @@ await import('./versioned-session-logs.mjs')
 await import('./session-log-repair.mjs')
 await import('./client-issues-127-129.mjs')
 await import('./model-quota-cards.mjs')
+await import('./mimo-quota.mjs')
+await import('./mimo-enable-flow.mjs')
 console.log('[ok] 全部验证通过')
