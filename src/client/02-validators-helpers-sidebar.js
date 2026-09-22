@@ -25,6 +25,7 @@
       if (typeof v !== 'boolean') fail(path, 'boolean')
       return v
     }
+    const mapFields = (value, keys, parse) => Object.fromEntries(keys.map(key => [key, parse(value[key])]))
     function aggregateModelMap(v, path) {
       // 宽容解析模型聚合 map(旧账本条目可能缺字段/带 null/非对象):数值归一为有限非负数。
       const out = {}
@@ -34,9 +35,7 @@
           if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) continue
           const num = x => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : 0)
           out[key] = {
-            input: num(raw.input), output: num(raw.output),
-            cacheRead: num(raw.cacheRead), cacheWrite: num(raw.cacheWrite),
-            reasoning: num(raw.reasoning), cost: num(raw.cost),
+            ...mapFields(raw, ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'cost'], num),
             // API 渠道金额(issue #64):缺席 = 旧数据按 cost 全额 API 口径。
             apiCost: raw.apiCost === undefined ? num(raw.cost) : num(raw.apiCost),
           }
@@ -75,20 +74,18 @@
       }
       return out
     }
+    function parsePriceTier(v, path, optional = ['cacheWrite', 'reasoning']) {
+      const out = {}
+      for (const key of ['cacheHit', 'cacheMiss', 'output']) out[key] = needNum(v[key], path + '.' + key)
+      for (const key of optional) if (v[key] !== undefined) out[key] = needNum(v[key], path + '.' + key)
+      return out
+    }
     function parsePrice(v, path) {
       needObject(v, path)
-      const out = {
-        cacheHit: needNum(v.cacheHit, path + '.cacheHit'),
-        cacheMiss: needNum(v.cacheMiss, path + '.cacheMiss'),
-        output: needNum(v.output, path + '.output'),
-      }
-      for (const key of ['cacheWrite', 'reasoning']) if (v[key] !== undefined) out[key] = needNum(v[key], path + '.' + key)
+      const out = parsePriceTier(v, path)
       for (const key of ['offPeak', 'peak', 'legacyBase', 'longContext']) {
         if (v[key] === undefined) continue
-        const tier = v[key], part = {}
-        for (const field of ['cacheHit', 'cacheMiss', 'output']) part[field] = needNum(tier[field], path + '.' + key + '.' + field)
-        for (const field of ['cacheWrite', 'reasoning', 'aboveInputTokens']) if (tier[field] !== undefined) part[field] = needNum(tier[field], path + '.' + key + '.' + field)
-        out[key] = part
+        out[key] = parsePriceTier(v[key], path + '.' + key, ['cacheWrite', 'reasoning', 'aboveInputTokens'])
       }
       if (v.legacy !== undefined) out.legacy = needBool(v.legacy, path + '.legacy')
       if (v.rateHistory !== undefined) {
@@ -109,6 +106,7 @@
       labelEn: typeof e.labelEn === 'string' ? e.labelEn : '',
       display: oneOf(e.display, ['sidebar', 'settings', 'off'], 'both'),
       unit: ['CNY', 'EUR', 'CREDITS'].includes(e.unit) ? e.unit : 'USD',
+      convertToDisplayCurrency: e.convertToDisplayCurrency === true,
       refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
       request: e.request && typeof e.request === 'object' ? e.request : { url: '' },
       extract: e.extract && typeof e.extract === 'object' ? e.extract : {},
@@ -368,29 +366,19 @@
             for (const [wk, w] of Object.entries(raw.windows)) {
               if (w === null || typeof w !== 'object' || Array.isArray(w)) continue
               windows[wk] = {
-                percent: num0(w.percent),
+                ...mapFields(w, ['percent', 'localTokens', 'localCost', 'sampleCount'], num0),
+                ...mapFields(w, ['sampleAt', 'per1Tokens', 'per1Cost', 'fullTokens', 'fullCost'], numOrNull),
                 resetsAt: typeof w.resetsAt === 'string' ? w.resetsAt : '',
-                localTokens: num0(w.localTokens),
-                localCost: num0(w.localCost),
                 method: w.method === 'sample' || w.method === 'live' ? w.method : 'none',
-                sampleAt: numOrNull(w.sampleAt),
                 confidence: w.confidence === 'high' || w.confidence === 'low' ? w.confidence : null,
-                per1Tokens: numOrNull(w.per1Tokens),
-                per1Cost: numOrNull(w.per1Cost),
-                fullTokens: numOrNull(w.fullTokens),
-                fullCost: numOrNull(w.fullCost),
-                sampleCount: num0(w.sampleCount),
               }
             }
           }
           if (raw.intervals !== null && typeof raw.intervals === 'object' && !Array.isArray(raw.intervals)) {
             for (const [wk, list] of Object.entries(raw.intervals)) {
               if (!Array.isArray(list)) continue
-              intervals[wk] = list.filter(x => x !== null && typeof x === 'object' && !Array.isArray(x)).map(x => ({
-                t0: num0(x.t0), t1: num0(x.t1),
-                tokens: num0(x.tokens), cost: num0(x.cost), pct: num0(x.pct),
-                per1Tokens: num0(x.per1Tokens), per1Cost: num0(x.per1Cost),
-              }))
+              intervals[wk] = list.filter(x => x !== null && typeof x === 'object' && !Array.isArray(x))
+                .map(x => mapFields(x, ['t0', 't1', 'tokens', 'cost', 'pct', 'per1Tokens', 'per1Cost'], num0))
             }
           }
           providers[id] = { windows, intervals }
@@ -714,6 +702,7 @@
       return { width: value, label: value }
     }
     /** 已换算币种金额 → 显示字符串(符号 + 可调小数位)。 */
+    const fixedAmount = (value, decimals) => value.toFixed(decimals).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1')
     function formatMoneyValue(value, config) {
       const symbol = typeof config?.symbol === 'string' && config.symbol.length > 0 ? config.symbol : '$'
       // 合法配置的 decimals:0 须保留(`Number(x) || 2` 会把 0 误抬成 2,
@@ -722,9 +711,7 @@
       const decimals = Math.max(0, Math.min(10, Number.isFinite(req) ? Math.floor(req) : 2))
       let effective = decimals
       if (value > 0 && value < Math.pow(10, -decimals)) effective = decimals + 2
-      const fixed = value.toFixed(effective)
-      const trimmed = fixed.includes('.') ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed
-      return symbol + trimmed
+      return symbol + fixedAmount(value, effective)
     }
     function formatMoneyUsd(usd, config) {
       const rate = Number(config?.exchangeRate)
@@ -1637,14 +1624,18 @@
 
     function formatCustomBalanceMoney(amount, config, custom, entryCfg) {
       const unit = customBalanceUnitOf(config, custom, entryCfg)
+      const value = Number(amount)
+      if (!Number.isFinite(value)) return '—'
+      // 仅在显示层换算，快照、预算单位和进度比例始终保留源币种。
+      const rate = config?.currency === 'USD' ? 1 : Number(config?.exchangeRate)
+      if ((entryCfg ?? config?.customBalance)?.convertToDisplayCurrency === true && unit === 'USD' && Number.isFinite(rate) && rate > 0) {
+        const converted = value * rate
+        return Number.isFinite(converted) ? formatMoneyValue(converted, config) : '—'
+      }
       const credits = unit === 'CREDITS'
       const decimals = Math.max(2, Math.min(6, Math.floor(Number(config?.decimals) || 4)))
       const symbol = credits ? '' : unit === 'CNY' ? '¥' : unit === 'EUR' ? '€' : '$'
-      const value = Number(amount)
-      if (!Number.isFinite(value)) return '—'
-      let fixed = value.toFixed(decimals)
-      if (fixed.includes('.')) fixed = fixed.replace(/0+$/, '').replace(/\.$/, '')
-      return symbol + fixed + (credits ? ' Credits' : '')
+      return symbol + fixedAmount(value, decimals) + (credits ? ' Credits' : '')
     }
 
     // 多配置形态(v1.7.0,issue #79):以下四个渲染助手按「单条快照 + 单条配置」
@@ -1659,11 +1650,11 @@
           t('updatedAt', { time: custom.fetchedAt > 0 ? new Date(custom.fetchedAt).toLocaleTimeString() : '—' }),
         ].join(' · ')
       }
-      const spend = custom.spend !== null ? formatCustomBalanceMoney(custom.spend, config, custom, entryCfg) : '—'
-      const maxBudget = custom.maxBudget !== null ? formatCustomBalanceMoney(custom.maxBudget, config, custom, entryCfg) : '—'
+      const spend = custom.spend !== null ? formatAmt(custom.spend) : '—'
+      const maxBudget = custom.maxBudget !== null ? formatAmt(custom.maxBudget) : '—'
       const manualCap = customBalanceUnitOf(config, custom, entryCfg) === 'CREDITS' ? NaN : Number(config?.balance?.budgetCap)
       const capLine = Number.isFinite(manualCap) && manualCap > 0
-        ? t('balanceBudgetCapLabel') + ': ' + formatCustomBalanceMoney(manualCap, config, custom, entryCfg)
+        ? t('balanceBudgetCapLabel') + ': ' + formatAmt(manualCap)
         : ''
       const base = custom.maxBudget !== null && custom.spend !== null
         ? t('customBalanceLine', {
