@@ -6,11 +6,11 @@
 
 **Session cost tracking plugin for the DeepSeek Harness web GUI (bilingual UI)**
 
-Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; from Aug 23, 2026 weekends are billed at off-peak prices all day, shown as “Weekend — all off-peak”) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 90+ model price catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
+Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; from Aug 23, 2026 weekends are billed at off-peak prices all day, shown as “Weekend — all off-peak”) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 90+ model price catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / Volcano Ark / Qwen / Xiaomi MiMo) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
 
-[![version](https://img.shields.io/badge/version-1.7.32-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.7.33-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.7.32** adds an optional, per-entry switch to convert custom USD balances into the display currency. Balances, spend and limits use the display rate and precision together; source data and progress percentages stay unchanged. See the [release notes](docs/release-notes/v1.7.32.md).
+**v1.7.33** adds Xiaomi MiMo Token Plan quota support and a JSON request-body editor for custom provider POST balance queries, with format validation, per-entry persistence and support for clearing the body. See the [release notes](docs/release-notes/v1.7.33.md).
 
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -33,7 +33,7 @@ Per-conversation cost · daily totals · OpenCode Go subscription quota display 
 | Official balance | Sidebar top / Settings page (configurable) | Total / granted / topped-up balance, auto-refresh + manual refresh; optional three-segment progress bar (blue/orange/gray), whose today segment only counts official-channel spend (coding plans / custom providers excluded) |
 | Custom provider balance | Sidebar / Settings page (configurable) | Configurable HTTP balance lookup (e.g. LiteLLM); bilingual labels, currency, extract rules (dot path / number / add / subtract / divide — use divide for NewApi-style quota endpoints, see [example](#custom-provider-balance-example-newapi-template)); collapsible panel alongside Coding Plan quotas |
 | OpenCode Go quota | Sidebar / Settings / bottom-right dock (configurable) | Rolling-5h / weekly / monthly usage percent and reset times, each window toggleable independently, budget used % can show alongside; key auto-discovered (dedicated ref / official Go route apiKeyEnv / env / opencode login) or entered manually |
-| Coding plan quotas | Sidebar / Settings page (per vendor) | Multi-vendor coding-plan quota queries (Anthropic Claude Pro/Max, Z.ai / Zhipu GLM Coding Plan, MiniMax Token Plan, Kimi Code weekly + 5-hour quotas with PAYG balance fallback when no subscription key, OpenRouter credits, SiliconFlow balance, CommandCode 5h/weekly windows + monthly credits balance); per-vendor enable switch, key, display position and refresh interval (sidebar card in the same box style as the Go quota; the collapsed rail shows percentages), official endpoints by default, with a [configurable trusted MiniMax origin](docs/minimax-quota-endpoint.md#english); neutral hints when no credentials/subscription; SCNet Token Plan supports [external console snapshots](docs/scnet-official-snapshot.md#english); without a valid snapshot, monthly usage is estimated from the local ledger via the official credits deduction table (no credentials needed) |
+| Coding plan quotas | Sidebar / Settings page (per vendor) | Multi-vendor coding-plan quota queries (Anthropic Claude Pro/Max, Z.ai / Zhipu GLM Coding Plan, MiniMax Token Plan, Kimi Code weekly + 5-hour quotas with PAYG balance fallback when no subscription key, OpenRouter credits, SiliconFlow balance, CommandCode 5h/weekly windows + monthly credits balance, Xiaomi MiMo Token Plan plan/compensation credit windows + period-end reset + balance via console cookie); per-vendor enable switch, key, display position and refresh interval (sidebar card in the same box style as the Go quota; the collapsed rail shows percentages), official endpoints by default, with a [configurable trusted MiniMax origin](docs/minimax-quota-endpoint.md#english); neutral hints when no credentials/subscription; SCNet Token Plan supports [external console snapshots](docs/scnet-official-snapshot.md#english); without a valid snapshot, monthly usage is estimated from the local ledger via the official credits deduction table (no credentials needed) |
 | Quota strip | Above the input box (toggle in Display settings) | One compact chip row for budget used % / the Go main window / each enabled coding-plan usage window (short label + mini progress bar, ≥80% warn, ≥100% over, hover for reset times); click any chip to refresh its data source (budget → state, Go → Go quota, vendor → all its windows); multiple windows of one vendor merge into a single segmented chip; a first-run guide card lets you decide whether to enable it; hides itself when there is no quota data |
 | Click to refresh | Sidebar balance/quota boxes | Click the official balance / custom balance / coding-plan box (collapsed rail included) to fetch the latest data immediately; the box pulses while refreshing, failures keep the previous value and surface the reason in the hover tooltip; keyboard Enter/Space also triggers; a one-time guide card appears after the update |
 | Simple sidebar display | Settings → Cost → Display | Optional, with a one-time choice after updating. Condenses cards and caps panel height at 38% of the viewport and 320 px, while preserving amounts, quotas, refresh actions and hover details. Turn off to restore your layout. [Guide](docs/sidebar-simple.md#english) |
@@ -53,7 +53,7 @@ Per-conversation cost · daily totals · OpenCode Go subscription quota display 
 | UI language | Settings → Display settings | Simplified Chinese / English / Follow browser (auto); switches instantly and auto-saves |
 | Hide official balance / hide today's cost | Settings → Display settings | Two independent toggles: when on, the matching UI blocks (sidebar balance row & panels / today's cost row, budget details, overview today card) **are not rendered at all**; token and call-count stats stay visible — safe for screen sharing and screenshots |
 | AI price sync | [prompt](docs/AI-PRICE-SYNC-PROMPT.en.md) | DeepSeek official sync; other providers use the verified official price catalog and manual configuration |
-| Model & Plan adaptation guide | [adaptation doc](docs/model-and-plan-adaptation.en.md) | Adaptation matrix for per-model billing and the 8 Coding Plan vendors, the auto-matching mechanism and price sources ([中文](docs/model-and-plan-adaptation.md)) |
+| Model & Plan adaptation guide | [adaptation doc](docs/model-and-plan-adaptation.en.md) | Adaptation matrix for per-model billing and the Coding Plan vendors, the auto-matching mechanism and price sources ([中文](docs/model-and-plan-adaptation.md)) |
 | Peak/off-peak alert guide | [alert doc](docs/peak-alert.en.md) | Fully illustrated guide to the pre-switch popup and system notification: effect screenshots (EN/中文), settings reference and usage tips ([中文](docs/peak-alert.md)) |
 | Token Plan usage stats guide | [panel doc](docs/token-plan-stats.md) | Meaning of the four columns in the per-1% & full-window panel, the end-to-end delta estimation method and precision tags, the scope boundary (dsh-made calls only) and usage curves ([中文](docs/token-plan-stats.md#中文)) |
 | OpenRouter passthrough pricing | [pricing doc](docs/openrouter-pricing.md#english) | Token reference prices: offline snapshot, scoped zero-cost backfill, public-catalog refresh, custom-price preservation and failure fallback ([中文](docs/openrouter-pricing.md)) |
@@ -62,6 +62,16 @@ Per-conversation cost · daily totals · OpenCode Go subscription quota display 
 | Extended price catalog | Settings → Extended price catalog | Built-in reference catalog grouped by vendor and model family (expandable; vendors collapsed by default); mount entries into billing with one click — mounted third-party models live inside the catalog and stay editable; a per-model “Show directly in Cost settings” toggle chooses which models (DeepSeek included) appear directly in the price table |
 
 ## Custom provider balance example (NewApi template)
+
+**POST with a JSON body:** in **Settings → Cost → Quota**, expand a custom balance entry, select **POST**, then fill in **Request body (JSON)**. For example, if the endpoint expects an account and returns `{"data":{"balance":12.5}}`:
+
+```json
+{"account_id":"example-account","include_credit":true}
+```
+
+Set **Extract rules (JSON)** to `{"remaining":"data.balance"}`. Valid JSON is saved per entry and sent exactly as entered, including nested values and large integer IDs. Invalid JSON shows an error and keeps the last valid configuration; clearing the editor removes the body. GET/HEAD send no body while retaining it for a later switch back to POST. `Content-Type: application/json` is added automatically unless you supply a Content-Type header (any capitalization).
+
+Existing `request.body` objects and raw strings remain supported. The body is ordinary saved configuration; `{{VAR}}` credential substitution applies only to request headers. For header authentication, use a reference such as `{"Authorization":"Bearer {{MY_API_KEY}}"}` and the credential input below it.
 
 **Display currency conversion:** open **Settings → Cost → Quota**, expand a custom balance entry, and enable **Convert USD balance to display currency**. It defaults to off for each entry. Keep **Source currency** set to the endpoint's actual currency. With a USD balance of 54.3792, a CNY display rate of 7.2 and two decimal places, the balance displays as **¥391.53**. Spend and API/manual limits convert together in the sidebar, settings and tooltips; progress percentages and stored balances do not change. Enter a manual limit in the source currency. The setting persists as `convertToDisplayCurrency: true` inside that `customBalances[]` entry (legacy `customBalance` is also supported).
 
@@ -74,6 +84,8 @@ For Qianwen / Alibaba Cloud fund accounts, use **Add Qianwen / Alibaba Cloud bal
 Qwen Token Plan can use the [official CLI subscription quota](docs/qwen-cli-quota.md#english). Install the CLI on the DSH host and run `qianwen auth login` as the same OS user. Local estimates remain the default; CLI mode shows current account credits without changing the local ledger.
 
 Local Qwen Token Plan credits include only the subscription providers `qwen`, `qwen-tokenplan`, `qianwen-tokenplan`, `qwen-token-plan` and `qianwen-token-plan` (case-insensitive, optional `llm-` prefix). Explicit API classifications are excluded. The `qianwen` pay-as-you-go provider does not consume estimated plan credits even when its model ID is identical. Use one of the supported subscription provider names; models outside the credits table need all three rates configured.
+
+Xiaomi MiMo Token Plan quotas are queried with the **MiMo console cookie**, not an API key: log in at `platform.xiaomimimo.com`, press F12 → Network → find the `balanceAlertConfig` request and paste the full `cookie` request header into the MiMo card in Settings → Cost → Quotas (it must include `serviceToken` and `userId`; the DSH credential store keeps it as `MIMO_COOKIE`). The card shows the plan/compensation credit windows with the period-end reset (Beijing time) plus a balance row. Copy a fresh console cookie when the card reports an expired login. Token Plan inference keys (`tp-*` / `ttp-*`) are not accepted by this console adapter. Local plan statistics use the calendar month; compensation and balance are displayed without estimates because local calls cannot be attributed to those pools.
 
 Each CLIProxyAPI source has a **Gemini quota only** option for its Antigravity groups. It defaults to off. Intentional filtering to no visible quota shows an empty list; malformed quota data still reports an error.
 
@@ -304,22 +316,22 @@ On Node.js 20, use `npm install -g pnpm@10` instead. See [pnpm installation and 
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.7.32`** — review the script before running):
+**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.7.33`** — review the script before running):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.32/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.33/install.ps1 | iex
 ```
 
 **Or a plain command line** (the machine must already have pnpm and git; also pinned to the tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.32
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.33
 ```
 
 Without git, use the GitHub tag archive:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.32.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.33.tar.gz
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):

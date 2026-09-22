@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.33] - 2026-09-22
+
+- **#165 POST 余额请求体**：自定义 Provider 余额设置新增“请求体 (JSON)”编辑框。有效 JSON 按原文保存并发送，格式错误保留上次有效配置；清空后移除请求体，GET/HEAD 不发送，切回 POST 保留配置。
+- 兼容已有对象与原始字符串请求体，支持多条独立配置、RPC 与重启保存；Content-Type 按 HTTP 规则忽略大小写，尊重自定义值。补充双语操作示例及真实 HTTP 请求回归。
+- **小米 MiMo Token Plan 额度**：Quotas 面板新增「小米 MiMo Token Plan」厂商卡片（第 11 家）：套餐积分 / 补偿积分用量窗口、周期截止（北京时间）重置时刻与余额文本行，与其余 Coding Plan 同款启用开关、显示位置与刷新间隔，侧边栏卡片 / 额度横条 / Token Plan 用量统计一并接入。
+- 凭据为小米开放平台控制台 Cookie（整段 cookie 请求头粘贴，必需 serviceToken 与 userId，DSH 凭据库以 `MIMO_COOKIE` 托管，过期后重新复制）；tp-\*/ttp-\* 专用 Key 无用量端点，不支持 Key 鉴权。查询走 platform.xiaomimimo.com/api/v1 的 tokenPlan/usage、tokenPlan/detail、balance 三端点：用量为主，详情重置时刻与余额为尽力而为的增强行，失败不阻塞主窗口。
+- 缺凭据 / Cookie 缺字段 / 登录态过期三类情况各有双语专属文案；plan/API 双轨分类新增 mimo 别名归并（`xiaomi-token-plan-*` 等 provider id 计入 MiMo 订阅轨）。回归见 test/mimo-quota.mjs（Cookie 归一化、三端点解析、配置清洗、双端接线），网络权限补 platform.xiaomimimo.com。
+- 为守住 DSH STORE 256 KiB 单文件上限，等价压缩了既有双语长说明（volcengineNote / syncScopeNote / modelStatsNote / priceTableNote / cardsFootnote / unmatchedHint / planStatsNote，保留全部事实与 #85 消歧措辞），MiMo 的 Cookie 获取提示以内联 label 呈现、详细步骤走报错文案。
+- 整合 #166 时补齐重定向拒绝、取消请求、有界响应读取、空数字/Cookie 校验与凭据隔离回归。MiMo 主套餐统计按自然月汇总，补偿积分与余额仅展示查询结果，不参与本地估算。
+
 ## [1.7.32] - 2026-09-22
 
 - **#162 自定义余额显示币种**：每条自定义 Provider 余额新增 `convertToDisplayCurrency` 开关，默认关闭；开启后，USD 余额、已用金额及额度上限按全局显示汇率和精度一起折算，覆盖侧栏余额行、图框、设置页预览及悬停明细。
