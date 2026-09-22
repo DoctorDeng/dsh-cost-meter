@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
 import {
   CODING_PLAN_PROVIDERS,
   CODING_PLAN_PROVIDER_IDS,
@@ -173,6 +174,17 @@ try {
   }
   assert.equal((await queryCodingPlan('mimo', cookie, 'en', stubT)).windows.plan.percent, 10)
   assert.equal(calls.length, 3, 'optional failures preserve the primary usage window')
+  // 裸 gzip 正文(无 Content-Encoding/Content-Type)也可解出(issue #172):覆盖
+  // CDN 边缘间歇性返回的无编码头压缩响应,主窗口与可选端点同一解码路径。
+  calls = []
+  globalThis.fetch = async (url, init) => {
+    calls.push(url)
+    assert.equal(init.redirect, 'manual')
+    const envelope = url === MIMO_ENDPOINTS.usage ? usage : { code: 0 }
+    return new Response(gzipSync(Buffer.from(JSON.stringify(envelope))), { status: 200 })
+  }
+  assert.equal((await queryCodingPlan('mimo', cookie, 'en', stubT)).windows.plan.percent, 10)
+  assert.equal(calls.length, 3, 'raw gzip responses parse the same as plain JSON')
   for (const during of [MIMO_ENDPOINTS.usage, MIMO_ENDPOINTS.detail]) {
     const controller = new AbortController(), reason = new Error('fixture cancellation')
     calls = []

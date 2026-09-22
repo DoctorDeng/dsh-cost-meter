@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- **#172 裸 gzip 响应体**：个别 CDN 边缘会返回 gzip 压缩字节却不带 `Content-Encoding`/`Content-Type`，额度查询把乱码交给 JSON 解析，报「response body is not valid JSON」。`readJsonBounded` 现按 gzip 魔数识别并解压后解析，覆盖所有经该读取器读取正文的真实查询流量（标准 Node Response 均走有界流读取分支）；解压输出同样受各调用方读取上限约束（额度查询路径 256KiB），压缩体膨胀超限仍报 `RESPONSE_TOO_LARGE`。回归见 test/project-audit.mjs 与 test/mimo-quota.mjs。
+
 ## [1.7.34] - 2026-09-22
 
 - **#168 多进程账本覆盖**：保存时以跨进程锁串行执行读取、合并和原子替换；每次模型调用按新增用量合并，修复 web/headless 并发或常驻进程旧快照覆盖其他会话的问题。
