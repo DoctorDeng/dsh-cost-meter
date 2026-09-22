@@ -82,6 +82,73 @@ for (const locale of ['zh', 'en']) {
 }
 verifyCreditsUI()
 
+// #165: edit the actual POST payload without rewriting JSON numbers or strings.
+for (const locale of ['zh', 'en']) {
+  slots = []
+  const config = sanitizeConfig({ locale, customBalances: [{ request: { url: 'https://balance.example/query', method: 'GET' } }] })
+  let entry = structuredClone(config.customBalances[0]), patches = 0
+  const t = ui.makeT(locale), state = { config, customBalances: [], customVarStatus: {} }
+  const props = () => ({ state, api: {}, t, entry, index: 0, onPatch: patch => { entry = { ...entry, ...patch }; patches++ } })
+  const field = (tree, label, type = 'textarea') => nodes(tree).find(node =>
+    node.type === 'div' && node.children.some(child => child?.type === 'label' && textOf(child) === t(label)))?.children.find(child => child?.type === type)
+  let tree = render(ui.CustomBalanceEntryPanel, props())
+  nodes(tree).find(node => node.props.className === 'cm-collapse-h').props.onClick()
+  tree = render(ui.CustomBalanceEntryPanel, props())
+  assert.ok(textOf(tree).includes(t('customBalanceHeadersVarNote')), 'header credential guidance is rendered in both languages')
+  assert.equal(field(tree, 'customBalanceBody'), undefined, 'GET has no body editor')
+  field(tree, 'customBalanceMethod', 'select').props.onChange({ target: { value: 'POST' } })
+  const update = (label, value) => {
+    tree = render(ui.CustomBalanceEntryPanel, props())
+    field(tree, label).props.onChange({ target: { value } })
+    tree = render(ui.CustomBalanceEntryPanel, props())
+  }
+  const raw = '{\n  "account": "测试", "id": 9007199254740993, "filter": {"active":true}\n}'
+  for (const value of [raw, '[]', 'null', 'false', '0', '"a JSON string"']) {
+    update('customBalanceBody', value)
+    assert.equal(entry.request.body, value, 'JSON is sent as entered, including top-level strings')
+    const saved = applyConfigPatch(config, JSON.parse(JSON.stringify({ customBalances: [entry] })))
+    assert.deepEqual(saved.errors, [])
+    assert.equal(ui.parseConfig(saved.config, 'config').customBalances[0].request.body, value)
+  }
+  const beforeInvalid = patches, previousBody = entry.request.body
+  update('customBalanceBody', '{"account":')
+  assert.equal(patches, beforeInvalid, 'invalid JSON never enters the saved configuration')
+  assert.equal(entry.request.body, previousBody)
+  assert.equal(field(tree, 'customBalanceBody').props.value, '{"account":')
+  assert.ok(textOf(tree).includes(t('customBalanceInvalidJson')))
+  update('customBalanceBody', raw)
+  assert.ok(!textOf(tree).includes(t('customBalanceInvalidJson')))
+  field(tree, 'customBalanceMethod', 'select').props.onChange({ target: { value: 'GET' } })
+  tree = render(ui.CustomBalanceEntryPanel, props())
+  assert.equal(field(tree, 'customBalanceBody'), undefined)
+  assert.equal(entry.request.body, raw, 'GET hides but retains the configured POST body')
+  field(tree, 'customBalanceMethod', 'select').props.onChange({ target: { value: 'POST' } })
+  tree = render(ui.CustomBalanceEntryPanel, props())
+  assert.equal(field(tree, 'customBalanceBody').props.value, raw)
+  update('customBalanceBody', ' \n ')
+  const cleared = applyConfigPatch(config, JSON.parse(JSON.stringify({ customBalances: [entry] }))).config
+  assert.equal(cleared.customBalances[0].request.body, undefined)
+  update('customBalanceHeaders', '{"X-Account":"{{ACCOUNT_ID}}","X-Other":"{{ACCOUNT_ID}} {{OTHER_ID}}"}')
+  assert.deepEqual(nodes(tree).filter(n => n.props.target?.startsWith('customVar:')).map(n => n.props.target), ['customVar:ACCOUNT_ID', 'customVar:OTHER_ID'])
+  const beforeBadHeaders = patches
+  update('customBalanceHeaders', '{"X-Account":42}')
+  assert.equal(patches, beforeBadHeaders, 'headers still require string values')
+  update('customBalanceExtract', '{"remaining":"data.balance"}')
+  assert.equal(entry.extract.remaining, 'data.balance')
+  const beforeBadExtract = patches
+  update('customBalanceExtract', '[]')
+  assert.equal(patches, beforeBadExtract, 'extract still requires an object')
+  for (const savedBody of [{ nested: [1, false, null] }, 'legacy=raw-text']) {
+    slots = []
+    entry = { ...entry, request: { ...entry.request, body: savedBody } }
+    tree = render(ui.CustomBalanceEntryPanel, props())
+    nodes(tree).find(node => node.props.className === 'cm-collapse-h').props.onClick()
+    tree = render(ui.CustomBalanceEntryPanel, props())
+    assert.equal(field(tree, 'customBalanceBody').props.value, typeof savedBody === 'string' ? savedBody : JSON.stringify(savedBody, null, 2))
+    assert.deepEqual(entry.request.body, savedBody, 'opening the editor preserves existing request bodies')
+  }
+}
+
 // #162: convert only USD at presentation time; never rewrite the source balance.
 {
   const raw = { status: 'ok', unit: 'USD', remaining: 54.3792, spend: 45.6208, maxBudget: 100, fetchedAt: 0, index: 0 }

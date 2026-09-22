@@ -8,9 +8,9 @@
 
 Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; from Aug 23, 2026 weekends are billed at off-peak prices all day, shown as “Weekend — all off-peak”) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 90+ model price catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
 
-[![version](https://img.shields.io/badge/version-1.7.32-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.7.33-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.7.32** adds an optional, per-entry switch to convert custom USD balances into the display currency. Balances, spend and limits use the display rate and precision together; source data and progress percentages stay unchanged. See the [release notes](docs/release-notes/v1.7.32.md).
+**v1.7.33** adds a JSON request-body editor for custom provider POST balance queries, with format validation, per-entry persistence and support for clearing the body. See the [release notes](docs/release-notes/v1.7.33.md).
 
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -62,6 +62,16 @@ Per-conversation cost · daily totals · OpenCode Go subscription quota display 
 | Extended price catalog | Settings → Extended price catalog | Built-in reference catalog grouped by vendor and model family (expandable; vendors collapsed by default); mount entries into billing with one click — mounted third-party models live inside the catalog and stay editable; a per-model “Show directly in Cost settings” toggle chooses which models (DeepSeek included) appear directly in the price table |
 
 ## Custom provider balance example (NewApi template)
+
+**POST with a JSON body:** in **Settings → Cost → Quota**, expand a custom balance entry, select **POST**, then fill in **Request body (JSON)**. For example, if the endpoint expects an account and returns `{"data":{"balance":12.5}}`:
+
+```json
+{"account_id":"example-account","include_credit":true}
+```
+
+Set **Extract rules (JSON)** to `{"remaining":"data.balance"}`. Valid JSON is saved per entry and sent exactly as entered, including nested values and large integer IDs. Invalid JSON shows an error and keeps the last valid configuration; clearing the editor removes the body. GET/HEAD send no body while retaining it for a later switch back to POST. `Content-Type: application/json` is added automatically unless you supply a Content-Type header (any capitalization).
+
+Existing `request.body` objects and raw strings remain supported. The body is ordinary saved configuration; `{{VAR}}` credential substitution applies only to request headers. For header authentication, use a reference such as `{"Authorization":"Bearer {{MY_API_KEY}}"}` and the credential input below it.
 
 **Display currency conversion:** open **Settings → Cost → Quota**, expand a custom balance entry, and enable **Convert USD balance to display currency**. It defaults to off for each entry. Keep **Source currency** set to the endpoint's actual currency. With a USD balance of 54.3792, a CNY display rate of 7.2 and two decimal places, the balance displays as **¥391.53**. Spend and API/manual limits convert together in the sidebar, settings and tooltips; progress percentages and stored balances do not change. Enter a manual limit in the source currency. The setting persists as `convertToDisplayCurrency: true` inside that `customBalances[]` entry (legacy `customBalance` is also supported).
 
@@ -304,22 +314,22 @@ On Node.js 20, use `npm install -g pnpm@10` instead. See [pnpm installation and 
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.7.32`** — review the script before running):
+**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.7.33`** — review the script before running):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.32/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.7.33/install.ps1 | iex
 ```
 
 **Or a plain command line** (the machine must already have pnpm and git; also pinned to the tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.32
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.7.33
 ```
 
 Without git, use the GitHub tag archive:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.32.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.7.33.tar.gz
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):
