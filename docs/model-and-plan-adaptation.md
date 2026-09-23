@@ -98,7 +98,7 @@
 
 | 厂商 / 产品 | 原因 |
 |---|---|
-| 阿里云百炼 Coding Plan | 暂无 API-Key 化的公开用量端点(仅控制台) |
+| 阿里云百炼 Coding Plan | 无 API-Key 化端点；已经官方百炼 CLI（`bl usage coding-plan`）作为千问卡片第三档额度来源接入，见 docs/qwen-cli-quota.md |
 | OpenAI Codex | 用量仅随 ChatGPT 会话,无独立 API-Key 端点 |
 | Gemini Code Assist | 仅组织级 Cloud API,无个人 Key 端点 |
 | GitHub Copilot 个人版 | 用量端点需 OAuth 设备流,暂不支持 |

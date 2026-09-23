@@ -98,7 +98,7 @@ Without credentials/subscription the panel shows a **neutral soft-failure hint**
 
 | Vendor / product | Reason |
 |---|---|
-| Alibaba Bailian Coding Plan | no public API-key usage endpoint yet (console only) |
+| Alibaba Bailian Coding Plan | no public API-key endpoint; integrated via the official Bailian CLI (`bl usage coding-plan`) as the third Qwen quota source — see docs/qwen-cli-quota.md |
 | OpenAI Codex | usage is only tied to ChatGPT sessions; no standalone API-key endpoint |
 | Gemini Code Assist | organization-level Cloud API only; no personal-key endpoint |
 | GitHub Copilot (individual) | usage endpoints require the OAuth device flow, not supported yet |

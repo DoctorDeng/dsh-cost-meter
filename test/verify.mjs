@@ -3,6 +3,7 @@
  * 计费数学部分基于内置价格表,离线可跑;官方页面解析失败时仅告警不中断。
  */
 import assert from 'node:assert/strict'
+import './zai-candidates.mjs'
 import './ledger-concurrency.mjs'
 import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -6609,6 +6610,7 @@ await import('./aliyun-balance.mjs')
 await import('./gateway-retry.mjs')
 await import('./go-credentials.mjs')
 await import('./qwen-cli.mjs')
+await import('./bailian-cli.mjs')
 await import('./minimax-endpoint.mjs')
 await import('./openrouter-pricing.mjs')
 await import('./pr145-147.mjs')

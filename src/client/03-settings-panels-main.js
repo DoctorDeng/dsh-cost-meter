@@ -786,7 +786,7 @@
         ? el('span', { className: 'cm-plan-tag', title: t('billingClassLabel') }, t('billingClassPlan'))
         : null
       const barRow = (name, frac, barClass, valueText, tagNode) => el('div', { className: 'cm-mstats-row' },
-        el('span', { className: 'cm-mstats-name' }, name, tagNode ?? null),
+        el('span', { className: 'cm-mstats-name', title: name }, name, tagNode ?? null),
         el('div', { className: 'cm-mstats-barbg' },
           el('div', { className: 'cm-mstats-bar ' + barClass, style: { width: pct(frac) } })),
         el('span', { className: 'cm-mstats-val' }, valueText))
@@ -814,7 +814,7 @@
               el('span', null, el('span', { className: 'cm-mstats-dot', style: { background: '#ff9800' } }), t('modelStatsCache')),
               el('span', null, el('span', { className: 'cm-mstats-dot', style: { background: '#34a853' } }), t('modelStatsOutput'))),
             [...rows].sort((a, b) => b.tokens - a.tokens).map(r => el('div', { className: 'cm-mstats-row', key: 't:' + r.label },
-              el('span', { className: 'cm-mstats-name' }, r.label),
+              el('span', { className: 'cm-mstats-name', title: r.label }, r.label),
               el('div', { className: 'cm-mstats-barbg' },
                 el('div', { className: 'cm-mstats-seg in', style: { width: pct(maxTokens > 0 ? r.input / maxTokens : 0) } }),
                 el('div', { className: 'cm-mstats-seg cache', style: { width: pct(maxTokens > 0 ? (r.cacheRead + r.cacheWrite) / maxTokens : 0) } }),
@@ -1553,8 +1553,9 @@
           el('label', null, t('qwenSource')),
           el('select', { className: 'cm-input', value: cfgEntry.quotaSource ?? 'local', onChange: e => setPlan('quotaSource', e.target.value) },
             el('option', { value: 'local' }, t('qwenSourceLocal')),
-            el('option', { value: 'cli' }, t('qwenSourceCli'))),
-          el('p', { className: 'cm-note' }, t('qwenCliNote'))) : null,
+            el('option', { value: 'cli' }, t('qwenSourceCli')),
+            el('option', { value: 'bailian' }, t('qwenSourceBailian'))),
+          el('p', { className: 'cm-note' }, t(cfgEntry.quotaSource === 'bailian' ? 'qwenBailianNote' : 'qwenCliNote'))) : null,
         el('div', { className: 'cm-field' },
           el('label', null, t('codingPlanDisplayLabel')),
           el('select', {
@@ -1569,12 +1570,12 @@
           el('span', { className: 'cm-hint' }, t('codingPlanDisplayNote'))),
         // 刷新间隔(issue #33):进程内缓存过期分钟数,1-1440,保存后生效;
         // 本地估算无缓存间隔；千问 CLI 使用可配置的查询间隔。
-        planId !== 'scnet' && (planId !== 'qwen' || cfgEntry.quotaSource === 'cli') ? el('div', { className: 'cm-field' },
+        planId !== 'scnet' && (planId !== 'qwen' || (cfgEntry.quotaSource ?? 'local') !== 'local') ? el('div', { className: 'cm-field' },
           el('label', null, t('codingPlanRefreshIntervalLabel')),
           numInput({ value: typeof cfgEntry.refreshMinutes === 'number' && Number.isFinite(cfgEntry.refreshMinutes) && cfgEntry.refreshMinutes > 0 ? cfgEntry.refreshMinutes : 15 }, v => {
             setPlan('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v))))
           })) : null,
-        planId === 'scnet' || (planId === 'qwen' && cfgEntry.quotaSource !== 'cli')
+        planId === 'scnet' || (planId === 'qwen' && (cfgEntry.quotaSource ?? 'local') === 'local')
           ? el(Fragment, null,
             el('div', { className: 'cm-field' },
               el('label', null, t(planId === 'qwen' ? 'qwenPlanCreditsLabel' : 'scnetPlanCreditsLabel')),
