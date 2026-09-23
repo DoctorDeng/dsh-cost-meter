@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, chmodSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
   parseBailianUsage, queryBailianCli,
@@ -15,7 +16,7 @@ import { apply } from '../lib/index.js'
 // ── 解析器:真实形态(本机实测 bl usage coding-plan 2.0.1)与合并规则 ──
 const codingPayload = {
   per5Hour: { usedQuota: 0, totalQuota: 6000, resetTime: 1790094288000, percentage: 0 },
-  perWeek: { usedQuota: 900, totalQuota: 45000, resetTime: 1790524800000, percentage: 2 },
+  perWeek: { usedQuota: 900, totalQuota: 45000, resetTime: 1790524800000, percentage: 0.02 },
   perBillMonth: { usedQuota: 77, totalQuota: 90000, resetTime: 1792252800000, percentage: 0.0008555555555555556 },
   instanceType: 'pro',
 }
@@ -23,19 +24,19 @@ const windows = parseBailianUsage({ token: {}, coding: codingPayload }, 'en').wi
 assert.equal(windows.fiveHour.percent, 0)
 assert.equal(windows.fiveHour.resetsAt, new Date(1790094288000).toISOString(), 'epoch ms resetTime becomes ISO')
 assert.equal(windows.weekly.percent, 2)
-assert.equal(windows.monthly.percent, 0, 'sub-0.1% rounds to one decimal place')
+assert.equal(windows.monthly.percent, 0.1, 'CLI ratios become percent with one decimal place')
 assert.equal(windows.monthly.resetsAt, new Date(1792252800000).toISOString())
 assert.equal(windows.source.text, 'Coding Plan (pro) (CLI)')
 
 // Token Plan 优先同名 5h/周窗;Coding Plan 独占月窗;来源行合并。
 const merged = parseBailianUsage({
-  token: { per5Hour: { usedQuota: 55, totalQuota: 100, resetTime: 0, percentage: 55 } },
+  token: { per5HourPercentage: 0.55, per5HourResetTime: 0 },
   coding: codingPayload,
 }).windows
 assert.equal(merged.fiveHour.percent, 55, 'Token Plan wins the shared 5h window')
 assert.equal(merged.fiveHour.resetsAt, '', 'zero resetTime renders no boundary')
 assert.equal(merged.weekly.percent, 2, 'Coding Plan fills the unshared window')
-assert.equal(merged.monthly.percent, 0)
+assert.equal(merged.monthly.percent, 0.1)
 assert.equal(merged.source.text, 'Token Plan + Coding Plan (pro) (CLI)')
 
 // percentage 缺失按 used/total 推算;上限为 0/缺失的窗口跳过;无 instanceType 时来源降级。
@@ -51,9 +52,16 @@ assert.equal(derived.source.text, 'Coding Plan (CLI)')
 for (const bad of [
   { token: [], coding: null },
   { token: 'x', coding: null },
-  { token: { per5Hour: 'no' }, coding: null },
+  { token: { per5HourPercentage: 'no' }, coding: null },
   { token: null, coding: { perWeek: [1] } },
 ]) assert.throws(() => parseBailianUsage(bad, 'en'), { code: 'invalid' })
+for (const bad of [null, '', true, -1, Infinity, '0.5']) {
+  assert.throws(() => parseBailianUsage({ token: { per5HourPercentage: bad } }), { code: 'invalid' })
+}
+assert.equal(parseBailianUsage({ token: { per1WeekPercentage: 0 }, coding: [] }).windows.weekly.percent, 0)
+assert.equal(parseBailianUsage({ token: 'bad', coding: codingPayload }).windows.weekly.percent, 2, 'Invalid source cannot hide a valid subscription')
+assert.throws(() => parseBailianUsage({ token: { per5HourPercentage: 0.5, per5HourResetTime: 1e30 } }), { code: 'invalid' })
+assert.equal(parseBailianUsage({ token: { per5HourPercentage: 0.5, per1WeekPercentage: 1 } }).windows.fiveHour.percent, 50)
 for (const empty of [{ token: {}, coding: {} }, { token: null, coding: null }, { token: {}, coding: { instanceType: 'pro' } }]) {
   assert.throws(() => parseBailianUsage(empty, 'en'), e => e.code === 'unavailable' && e.soft === true)
 }
@@ -100,7 +108,7 @@ if (spec.exit) process.exit(spec.exit);
 process.stdout.write(spec.raw ?? JSON.stringify(spec.payload ?? {}));
 `
   writeFileSync(entry, program)
-  writeFileSync(join(bin, 'bl'), '#!/bin/sh\nexit 0\n') // Unix 裸可执行解析
+  writeFileSync(join(bin, 'bl'), `#!${process.execPath}\nimport(${JSON.stringify(pathToFileURL(entry).href)});\n`)
   chmodSync(join(bin, 'bl'), 0o755)
 
   // resolve:npm 布局 → Node 直跑入口;相对/空 PATH 拒绝;Unix 走裸 bl。
