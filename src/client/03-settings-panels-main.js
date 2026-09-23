@@ -1552,8 +1552,9 @@
           el('label', null, t('qwenSource')),
           el('select', { className: 'cm-input', value: cfgEntry.quotaSource ?? 'local', onChange: e => setPlan('quotaSource', e.target.value) },
             el('option', { value: 'local' }, t('qwenSourceLocal')),
-            el('option', { value: 'cli' }, t('qwenSourceCli'))),
-          el('p', { className: 'cm-note' }, t('qwenCliNote'))) : null,
+            el('option', { value: 'cli' }, t('qwenSourceCli')),
+            el('option', { value: 'bailian' }, t('qwenSourceBailian'))),
+          el('p', { className: 'cm-note' }, t(cfgEntry.quotaSource === 'bailian' ? 'qwenBailianNote' : 'qwenCliNote'))) : null,
         el('div', { className: 'cm-field' },
           el('label', null, t('codingPlanDisplayLabel')),
           el('select', {
@@ -1568,12 +1569,12 @@
           el('span', { className: 'cm-hint' }, t('codingPlanDisplayNote'))),
         // 刷新间隔(issue #33):进程内缓存过期分钟数,1-1440,保存后生效;
         // 本地估算无缓存间隔；千问 CLI 使用可配置的查询间隔。
-        planId !== 'scnet' && (planId !== 'qwen' || cfgEntry.quotaSource === 'cli') ? el('div', { className: 'cm-field' },
+        planId !== 'scnet' && (planId !== 'qwen' || cfgEntry.quotaSource !== 'local') ? el('div', { className: 'cm-field' },
           el('label', null, t('codingPlanRefreshIntervalLabel')),
           numInput({ value: typeof cfgEntry.refreshMinutes === 'number' && Number.isFinite(cfgEntry.refreshMinutes) && cfgEntry.refreshMinutes > 0 ? cfgEntry.refreshMinutes : 15 }, v => {
             setPlan('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v))))
           })) : null,
-        planId === 'scnet' || (planId === 'qwen' && cfgEntry.quotaSource !== 'cli')
+        planId === 'scnet' || (planId === 'qwen' && cfgEntry.quotaSource === 'local')
           ? el(Fragment, null,
             el('div', { className: 'cm-field' },
               el('label', null, t(planId === 'qwen' ? 'qwenPlanCreditsLabel' : 'scnetPlanCreditsLabel')),

@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- **千问额度来源第三档（百炼 CLI）**：「千问 Qwen Token Plan」卡片的「额度来源」从两档扩为三档，新增「百炼 CLI」——经官方 [modelstudioai/cli](https://github.com/modelstudioai/cli)（npm `bailian-cli`，命令 `bl`）并行执行 `bl usage token-plan` / `bl usage coding-plan`（`--output json --quiet`）查询百炼订阅额度：Token Plan 优先提供 5 小时/周窗口，Coding Plan 提供 5 小时/周/账单月三窗（`per5Hour`/`perWeek`/`perBillMonth`，epoch `resetTime` 转 ISO），「source」行标注应答订阅与实例类型；单命令失败由另一命令作答，双失败/无订阅给分类提示（软硬口径与千问档一致），无周期边界故不生成本地每 1% 估算、账号总量不入账本。
+- 抽出共享 CLI 子进程桥 `lib/cli-bridge.js`（PATH 解析 / Windows 下 Node 直跑 npm 包 ESM 入口 / 固定参数执行 / 脱敏错误分类），`qwen-cli.js` 改用之且外部行为与错误码逐位不变；`quotaSource` 三态（`local`/`cli`/`bailian`）贯通服务端清洗、strict codec、调度分支与设置页下拉（note 随档切换，CLI 档显示查询间隔、本地档显示估算配置）。为守住客户端 256 KiB 上限，等价压缩既有双语长文案（qwenCliNote/qwenLocalNote/unmatchedHint/cardsFootnote/priceTableNote/syncScopeNote/timezoneHint/modelStatsHitUnreportedTip，保留全部事实）。回归见 test/bailian-cli.mjs（解析合并、真实子进程、单边失败容错、脱敏、超时、缓存/并发/切源、账本三态读写与 codec；合成输出，未用真实百炼订阅验证）。
+
 ## [1.7.34] - 2026-09-22
 
 - **#168 多进程账本覆盖**：保存时以跨进程锁串行执行读取、合并和原子替换；每次模型调用按新增用量合并，修复 web/headless 并发或常驻进程旧快照覆盖其他会话的问题。
