@@ -5617,15 +5617,13 @@ await import('./typert-codecs.mjs')
     const provided81 = {}
     // 拦截官方余额查询:注入 CNY 账户(总额 58 → 当日变动 ¥42,与 $3.99 偏差巨大)。
     const origFetch81 = globalThis.fetch
-    globalThis.fetch = async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        is_available: true,
-        balance_infos: [{ currency: 'CNY', total_balance: '58', granted_balance: '1', topped_up_balance: '57' }],
-      }),
-      text: async () => '',
-    })
+    // 真实 Response:readJsonBounded 对标准响应优先按 text() 读取正文,替身必须给出可解析
+    // 的正文。旧替身 json() 返回数据却同时声明 text: '',二者自相矛盾,只在裸 response.json()
+    // 的调用点侥幸通过(随宿主压缩响应修复一并修正)。
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      is_available: true,
+      balance_infos: [{ currency: 'CNY', total_balance: '58', granted_balance: '1', topped_up_balance: '57' }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
     try {
       const { apply: apply81 } = await import('../lib/index.js')
       apply81({

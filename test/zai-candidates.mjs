@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
-import { gzipSync } from 'node:zlib'
+import { brotliCompressSync, gzipSync } from 'node:zlib'
 import { queryCodingPlan, CODING_PLAN_ENDPOINTS } from '../lib/coding-plans.js'
 
 const originalFetch = globalThis.fetch
@@ -21,6 +21,9 @@ const use = fn => {
   globalThis.fetch = async (url, init) => {
     calls.push(url)
     assert.equal(init.headers.authorization, `Bearer ${key}`)
+    // 宿主把 undici 全局 dispatcher 换成另一大版本后压缩响应会丢头落地,
+    // 额度请求一律索取明文正文,从源头规避。
+    assert.equal(init.headers['accept-encoding'], 'identity', '额度请求携带 accept-encoding: identity')
     assert.equal(init.redirect, 'manual')
     return fn(url, init)
   }
@@ -39,6 +42,19 @@ try {
     assert.deepEqual(calls, [urls[0]])
     assert.equal(events[0].code, 'OK')
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
+
+  // Brotli bytes with no Content-Encoding header — what api.commandcode.ai returns once the
+  // DSH host's foreign undici dispatcher drops response headers. Brotli carries
+  // no magic number, so the bounded reader must fall back on "parse failed, try inflating".
+  const brotliServer = createServer((_req, res) => res.end(brotliCompressSync(JSON.stringify(usage))))
+  brotliServer.listen(0, '127.0.0.1')
+  await once(brotliServer, 'listening')
+  try {
+    use((_url, init) => originalFetch(`http://127.0.0.1:${brotliServer.address().port}`, init))
+    const result = await query()
+    assert.equal(result.windows.fiveHour.percent, 19, '无响应头的 Brotli 正文仍解析为额度窗口')
+    assert.equal(result.windows.weekly.percent, 81)
+  } finally { brotliServer.closeAllConnections(); await new Promise(resolve => brotliServer.close(resolve)) }
 
   // A malformed monitor response used to be silently converted to null, then
   // replaced by a legacy endpoint's HTTP 404. Preserve every candidate instead.
@@ -93,4 +109,4 @@ try {
   await assert.rejects(query({ signal: controller.signal }), error => error === reason)
   assert.equal(calls.length, 1, 'Cancellation stops retries and fallback')
 } finally { globalThis.fetch = originalFetch }
-console.log('[ok] GLM: real HTTP bare gzip, bounded reads, per-candidate diagnostics, fallback, cancellation and redaction')
+console.log('[ok] GLM: real HTTP bare gzip/brotli, identity encoding, bounded reads, per-candidate diagnostics, fallback, cancellation and redaction')
