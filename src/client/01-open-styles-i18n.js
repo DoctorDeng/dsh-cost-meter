@@ -47,6 +47,21 @@ window.__ModuleLoader__.load({
       // 与峰时(橙 #ff9800)区分。自定义属性可继承,故段/芯片/游标/徽标等后代元素一并生效。
       // .cm-peak-alert 必须单列:提醒弹窗挂在宿主侧边栏插槽,不在峰谷条容器的 DOM 子树内。
       '.cm-peak-strip,.cm-peak-classic,.cm-peak-rail,.cm-peak-rail-classic,.cm-peak-dot-circle,.cm-peak-alert{--cm-offpeak:#34a853}',
+      // 0.1.7-rc.1 起宿主把 ambient 行(composer.dock 插槽的父容器)做成「不换行的单行 flex」,插槽锚点
+      // 又是 display:contents——插槽子元素直接成为该行的 flex 项,插件行因此被并进宿主信息那一行,还把
+      // 宿主统计压出省略号(此前该行是块级/纵向,插件行自然落在下一行)。
+      // 宿主类名是 CSS Module 哈希(随版本变),只能按渲染器固定输出的 data-slot 锚点定位;选择器带
+      // div 元素名(0,1,1)压过宿主 .dock 的(0,1,0),不依赖两侧 <style> 的注入顺序。
+      // 只做两件事,宿主自己的 StatsPills 与上下文圆点一律不动——它们的对齐方式、外边距、尺寸保持宿主
+      // 原样,圆点继续紧挨宿主信息项居中(给统计加 flex-grow 或给圆点加 auto 外边距都会把圆点推到最右,
+      // 等于篡改宿主原本的信息布局)。
+      // row-gap 归零:宿主 gap:12px 同时作用于行间距,留着会在两行之间多出一道空行;插件缺席时该行只有
+      // 一行,这条规则不产生任何影响。
+      'div:has(> [data-slot="conversation.composer.dock"]){flex-wrap:wrap;width:100%;row-gap:0}',
+      // 插件行必须显式 order 靠后:换行按 order 修改后的文档顺序填行,插件行若排在圆点前面,100% 的基准
+      // 会先把整行占满,圆点就被顶到下一行去了。max-width 放开是要紧的——100% 基准会被 .cm-root 原有的
+      // 720px 上限夹住而不触发换行。独占一行后两行间距只剩 .cm-root 自己的 4px 上内边距。
+      'div:has(> [data-slot="conversation.composer.dock"]) .cm-root,div:has(> [data-slot="conversation.composer.dock"]) .cm-corner{order:1;flex:1 1 100%;max-width:100%}',
       '.cm-root{display:block;text-align:center;max-width:var(--dsh-chat-content-width,720px);width:100%;margin:0 auto;box-sizing:border-box;padding:4px calc(var(--dsh-composer-side-clearance,0px) + 16px) 0;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-chip{display:inline-flex;align-items:center;gap:4px;max-width:180px;padding:0 8px;height:22px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-size:12px;line-height:22px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-foot{display:flex;align-items:center;gap:6px;height:32px;padding:0 8px;border-radius:8px;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden}',
