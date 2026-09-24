@@ -1604,6 +1604,22 @@ console.log('[ok] coding plan adapter/解析器/软失败/配置清洗/清单断
   assert.equal(new Set(signals).size, 3, '每次尝试新建信号(不复用已中止信号)')
   assert.ok(signals.every(s => s !== null && s.aborted === false), '调用时刻信号均未中止')
 
+  // 默认 accept-encoding: identity:未显式指定时注入(防 CDN 裸压缩响应体,
+  // 实测 api.commandcode.ai),显式指定时保留调用方原值。
+  const headerPrevFetch = globalThis.fetch
+  const seenHeaders = []
+  globalThis.fetch = async (_url, init = {}) => {
+    seenHeaders.push(init.headers)
+    return { ok: true, status: 200 }
+  }
+  await fetchWithRetry('https://example.test/a', { headers: { a: 'b' } }, { attempts: 1 })
+  await fetchWithRetry('https://example.test/b', { headers: { a: 'c', 'accept-encoding': 'gzip' } }, { attempts: 1 })
+  globalThis.fetch = headerPrevFetch
+  const defaulted = new Headers(seenHeaders[0])
+  assert.equal(defaulted.get('accept-encoding'), 'identity', '未指定时默认注入 accept-encoding: identity')
+  assert.equal(defaulted.get('a'), 'b', '默认注入保留调用方其余请求头')
+  assert.equal(new Headers(seenHeaders[1]).get('accept-encoding'), 'gzip', '调用方显式 accept-encoding 优先,不被覆盖')
+
   // 非瞬时错误立即抛出,不重试。
   calls = 0
   globalThis.fetch = async () => {
@@ -1625,6 +1641,7 @@ console.log('[ok] coding plan adapter/解析器/软失败/配置清洗/清单断
   assert.equal(calls, 2, '尝试次数不超过 attempts 上限')
   globalThis.fetch = prevFetch
   console.log('[ok] fetchWithRetry/isTransientFetchError(分类/重试/退避信号/不重试业务错误)通过')
+  console.log('[ok] fetchWithRetry 默认 accept-encoding=identity(可被调用方覆盖)通过')
 }
 
 console.log('[ok] 金额格式:', formatMoney(0.012345, { exchangeRate: 7.2, symbol: '¥', decimals: 4 }), formatMoney(0.0000012, { exchangeRate: 1, symbol: '$', decimals: 6 }), formatMoney(123.456, { exchangeRate: 7.2, symbol: '¥', decimals: 4 }))

@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.7.36] - 2026-09-24
+
+- **CommandCode 裸压缩响应体**：`fetchWithRetry` 在调用方未显式指定时统一默认 `accept-encoding: identity`（显式指定值不覆盖）。实测 api.commandcode.ai 的 CDN 在客户端协商内容编码（br/gzip）时返回压缩响应体却缺失 `Content-Encoding` 响应头——违反 HTTP 语义，fetch 不做自动解压，`response.json()` 对压缩字节报「额度响应无法读取为有效 JSON」；DSH 0.1.7 宿主的全局 undici 8 dispatcher 默认协商 brotli，正好触发。brotli 流无可靠魔数，事后嗅探无法稳健补救（#172/#173 的裸 gzip 场景同族但更难防），而这些额度/余额接口的响应都很小、压缩本无收益，关闭内容协商从请求侧根除。补充默认注入与调用方覆盖回归。
+
 ## [1.7.35] - 2026-09-23
 
 - **#170 模型全名提示**：用量设置中的费用排行、Token 消耗、缓存命中率和性价比图为模型标签补充原生悬停提示，完整显示被省略的 provider/model 名称。
