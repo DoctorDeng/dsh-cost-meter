@@ -4,6 +4,11 @@
 > [Commits](https://github.com/Han-1413141/dsh-cost-meter/commits/master)。
 
 
+## v1.7.36(2026-09-24)—— CommandCode 额度响应兼容
+
+- PR #176：修复 DSH 0.1.7 环境下，CommandCode 的 CDN 返回压缩字节却不带 `Content-Encoding` 时出现的 JSON 解析错误。额度和余额请求默认发送 `Accept-Encoding: identity`；调用方明确设置的编码保持原样。
+- #174：报告者已确认 v1.7.35 在宿主内恢复 GLM 额度查询，Issue 已关闭。
+
 ## v1.7.35(2026-09-23)—— 百炼额度、压缩响应与模型名称
 
 - 千问额度来源新增“百炼 CLI”，查询 Token Plan 与 Coding Plan；按官方 CLI 字段与比例展示，保留千问 CLI 和本地估算两种来源。
