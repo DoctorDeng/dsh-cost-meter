@@ -145,6 +145,7 @@
         peakWindows: Array.isArray(v.peakWindows)
           ? v.peakWindows.map((w, i) => ({ start: needNum(w.start, path + '.peakWindows[' + i + '].start'), end: needNum(w.end, path + '.peakWindows[' + i + '].end') }))
           : [],
+        peakHolidays: Array.isArray(v.peakHolidays) ? v.peakHolidays.filter(date => typeof date === 'string') : [],
         peakNotice: v.peakNotice !== false,
         peakAlertEnabled: v.peakAlertEnabled !== false,
         peakAlertAhead: Number.isFinite(v.peakAlertAhead) && v.peakAlertAhead >= 1 && v.peakAlertAhead <= 30 ? v.peakAlertAhead : 2,
@@ -626,9 +627,16 @@
       const start = Math.max(satDay * 86400000 - 8 * 3600000, WEEKEND_OFFPEAK_EFFECTIVE_MS)
       return { start, end: (satDay + 2) * 86400000 - 8 * 3600000 }
     }
-    function isPeakHour(atMs, effectiveAtMs, windows) {
+    function holidayZoneAt(atMs, holidays) {
+      if (!Number.isFinite(atMs) || atMs < WEEKEND_OFFPEAK_EFFECTIVE_MS || !Array.isArray(holidays)) return null
+      const day = Math.floor((atMs + 8 * 3600000) / 86400000)
+      if (!holidays.includes(new Date(day * 86400000).toISOString().slice(0, 10))) return null
+      return { start: day * 86400000 - 8 * 3600000, end: (day + 1) * 86400000 - 8 * 3600000 }
+    }
+    const offPeakZoneAt = (atMs, holidays) => holidayZoneAt(atMs, holidays) ?? weekendZoneAt(atMs)
+    function isPeakHour(atMs, effectiveAtMs, windows, holidays) {
       if (!Array.isArray(windows) || windows.length === 0) return false
-      if (weekendZoneAt(atMs) !== null) return false
+      if (offPeakZoneAt(atMs, holidays) !== null) return false
       if (Number.isFinite(effectiveAtMs) && atMs < effectiveAtMs) return false
       const hour = new Date(atMs).getUTCHours()
       return windows.some(w => {
@@ -653,7 +661,7 @@
       if (peak?.enabled !== true) return asTier(base)
       // 非有限(如 Date.parse('') 的 NaN)视同「未知生效时刻」,与服务端 tierFor 同口径。
       const effectiveAtMs = typeof peak.effectiveAtMs === 'number' && Number.isFinite(peak.effectiveAtMs) ? peak.effectiveAtMs : undefined
-      if (isPeakHour(atMs, effectiveAtMs, peak.windows)) {
+      if (isPeakHour(atMs, effectiveAtMs, peak.windows, peak.holidays)) {
         const p = base.peak
         return p === undefined ? asTier(base) : asTier(p)
       }
@@ -1034,6 +1042,7 @@
         enabled: config.peakEnabled === true,
         effectiveAtMs: Date.parse(config.peakEffectiveAt || ''),
         windows: config.peakWindows,
+        holidays: config.peakHolidays,
       }
       const now = Date.now()
       const byModel = usage.byProviderModel ?? usage.byModel ?? {}
@@ -1833,10 +1842,9 @@
     /**
      * 峰谷相位与相邻切换点(与 lib/pricing.js 的 peakPhaseAt 同逻辑;bundle 无法导入,
      * 修改时两处需同步)。窗口半开区间 [start, end),兼容跨午夜窗口。
-     * 周末全谷价:处于周末区间时返回 weekend: true(当前谷),下一切换点为下一工作日
-     * 首个峰窗口起点;工作日侧扫描 ±4 天并剔除落在周末区间内的切换点。
+     * 周末/公众假期全天谷价；返回 weekend 或 holiday 标记，跳过期间的峰窗。
      */
-    function peakPhaseAt(atMs, windows) {
+    function peakPhaseAt(atMs, windows, holidays) {
       if (!Array.isArray(windows) || windows.length === 0 || !Number.isFinite(atMs)) return null
       const hourAt = (dayOffset, hour) => {
         const date = new Date(atMs)
@@ -1844,31 +1852,37 @@
         date.setUTCHours(hour, 0, 0, 0)
         return date.getTime()
       }
-      const points = []
-      for (let day = -4; day <= 4; day += 1) {
+      const candidates = new Set()
+      const span = Math.max(12, Math.min(380, (Array.isArray(holidays) ? holidays.length : 0) + 7))
+      for (let day = -span; day <= span; day += 1) {
+        candidates.add(hourAt(day, 16))
         for (const w of windows) {
           const start = Number(w?.start)
           const end = Number(w?.end)
           if (!Number.isFinite(start) || !Number.isFinite(end)) continue
-          const pStart = { at: hourAt(day, start), intoPeak: true }
-          const pEnd = { at: hourAt(end <= start ? day + 1 : day, end), intoPeak: false }
-          if (weekendZoneAt(pStart.at) === null) points.push(pStart)
-          if (weekendZoneAt(pEnd.at) === null) points.push(pEnd)
+          candidates.add(hourAt(day, start))
+          candidates.add(hourAt(end <= start ? day + 1 : day, end))
         }
       }
+      const points = [...candidates].sort((a, b) => a - b).flatMap(at => {
+        const before = isPeakHour(at - 1, undefined, windows, holidays)
+        const after = isPeakHour(at, undefined, windows, holidays)
+        return before === after ? [] : [{ at, intoPeak: after }]
+      })
       let prev = null
       let next = null
       for (const p of points) {
         if (p.at <= atMs && (prev === null || p.at > prev.at)) prev = p
         if (p.at > atMs && (next === null || p.at < next.at)) next = p
       }
-      const wk = weekendZoneAt(atMs)
+      const holiday = holidayZoneAt(atMs, holidays)
+      const wk = holiday ?? weekendZoneAt(atMs)
       if (wk !== null) {
         if (next === null) return null
-        return { inPeak: false, weekend: true, prevAtMs: wk.start, nextAtMs: next.at, nextIntoPeak: next.intoPeak }
+        return { inPeak: false, weekend: holiday === null, ...(holiday ? { holiday: true } : {}), prevAtMs: wk.start, nextAtMs: next.at, nextIntoPeak: next.intoPeak }
       }
       if (prev === null || next === null) return null
-      const inPeak = isPeakHour(atMs, undefined, windows)
+      const inPeak = isPeakHour(atMs, undefined, windows, holidays)
       return { inPeak, weekend: false, prevAtMs: prev.at, nextAtMs: next.at, nextIntoPeak: next.intoPeak }
     }
     /** 峰谷显示门控:peakNotice 开关 + peakEnabled + peakEffectiveAt + 非空窗口;不满足返回 null。 */
@@ -1877,11 +1891,12 @@
       const effectiveAtMs = Date.parse(config.peakEffectiveAt || '')
       if (Number.isFinite(effectiveAtMs) && now < effectiveAtMs) return null
       const windows = Array.isArray(config.peakWindows) ? config.peakWindows : []
-      return peakPhaseAt(now, windows)
+      return peakPhaseAt(now, windows, config.peakHolidays)
     }
 
     /** 相位标签键:周末全谷价 / 峰时 / 谷时(chip = 展开态文案,short = 收起态短词,notice = 悬停说明)。 */
     function phaseLabelKeys(view) {
+      if (view.holiday === true) return { short: 'holidayShort', chip: 'holidayChip', notice: 'holidayAllOffPeak' }
       if (view.weekend === true) return { short: 'weekendShort', chip: 'weekendChip', notice: 'weekendAllOffPeak' }
       return view.inPeak
         ? { short: 'peakShort', chip: 'peakShort', notice: 'peakNotice' }
@@ -1953,7 +1968,7 @@
         // 同一切换点只发一次(旧实现比较 tick 时间戳,每 10 秒都"未通知过",会连发)。
         if (!config || config.peakAlertEnabled !== true || config.peakEnabled !== true) return
         if (config.peakAlertWebNotify !== true || !window.Notification || Notification.permission !== 'granted') return
-        const wv = peakPhaseAt(now, Array.isArray(config.peakWindows) ? config.peakWindows : [])
+        const wv = peakPhaseAt(now, Array.isArray(config.peakWindows) ? config.peakWindows : [], config.peakHolidays)
         if (wv === null) return
         const tgt = config.peakAlertTarget === 'peak' || config.peakAlertTarget === 'offpeak' ? config.peakAlertTarget : 'both'
         const intoPeak = wv.nextIntoPeak === true
@@ -1976,7 +1991,7 @@
       if (config.peakAlertEnabled === true) {
         const effectiveAtMs = Date.parse(config.peakEffectiveAt || '')
         if (!(Number.isFinite(effectiveAtMs) && now < effectiveAtMs)) {
-          const view = peakPhaseAt(now, Array.isArray(config.peakWindows) ? config.peakWindows : [])
+          const view = peakPhaseAt(now, Array.isArray(config.peakWindows) ? config.peakWindows : [], config.peakHolidays)
           if (view !== null) {
             const target = config.peakAlertTarget === 'peak' || config.peakAlertTarget === 'offpeak' ? config.peakAlertTarget : 'both'
             const aheadMinutes = Number(config.peakAlertAhead)
@@ -2025,11 +2040,11 @@
         ? t('nextPeakIn', { time: countdownText(view, now, t) })
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       return el(Tooltip, { label: t(keys.notice), side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-peak-strip ' + (view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off') },
+        el('div', { className: 'cm-peak-strip ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off') },
           el('div', { className: 'cm-peak-track' },
             el('div', { className: 'cm-peak-segment cm-peak-high' }),
             el('div', { className: 'cm-peak-segment cm-peak-low' }),
-            el('div', { className: 'cm-peak-marker', style: { left: view.weekend ? '50%' : view.inPeak ? '25%' : '75%' } })),
+            el('div', { className: 'cm-peak-marker', style: { left: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } })),
           el('span', { className: 'cm-peak-chip' }, t(keys.chip) + ' · ' + chipText)))
     }
 
@@ -2048,8 +2063,8 @@
         ? t('nextPeakIn', { time: countdownText(view, now, t) })
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       return el(Tooltip, { label: t(keys.notice), side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-peak-classic ' + (view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off') },
-          el('div', { className: 'cm-peak-classic-marker', style: { left: view.weekend ? '50%' : view.inPeak ? '25%' : '75%' } }),
+        el('div', { className: 'cm-peak-classic ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off') },
+          el('div', { className: 'cm-peak-classic-marker', style: { left: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } }),
           el('div', { className: 'cm-peak-track' },
             el('div', { className: 'cm-peak-segment cm-peak-high' }),
             el('div', { className: 'cm-peak-segment cm-peak-low' })),
@@ -2075,11 +2090,11 @@
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       const detail = [t(keys.notice), chipText]
       return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-peak-rail ' + (view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
+        el('div', { className: 'cm-peak-rail ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
           el('div', { className: 'cm-peak-rail-track' },
             el('div', { className: 'cm-peak-rail-segment cm-peak-rail-high' }),
             el('div', { className: 'cm-peak-rail-segment cm-peak-rail-low' }),
-            el('div', { className: 'cm-peak-rail-marker', style: { top: view.weekend ? '50%' : view.inPeak ? '25%' : '75%' } })),
+            el('div', { className: 'cm-peak-rail-marker', style: { top: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } })),
           el('span', { className: 'cm-peak-rail-label' }, t(keys.short))))
     }
 
@@ -2099,11 +2114,11 @@
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       const detail = [t(keys.notice), chipText]
       return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-peak-rail-classic ' + (view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
+        el('div', { className: 'cm-peak-rail-classic ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
           el('div', { className: 'cm-peak-rail-classic-track' },
             el('div', { className: 'cm-peak-rail-classic-segment peak' }),
             el('div', { className: 'cm-peak-rail-classic-segment off' }),
-            el('div', { className: 'cm-peak-rail-classic-marker', style: { top: view.weekend ? '50%' : view.inPeak ? '25%' : '75%' } })),
+            el('div', { className: 'cm-peak-rail-classic-marker', style: { top: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } })),
           el('span', { className: 'cm-peak-rail-classic-label' }, t(keys.short))))
     }
     function peakNoticeRailEl(state, config, t) {
