@@ -325,8 +325,9 @@
         }
         const windows = previewConfig.peakWindows ?? []
         // 周末全谷价新规:处于周末区间时状态行显示「周末时段——全谷价」(与时段条一致)。
-        const view = peakPhaseAt(now, windows)
+        const view = peakPhaseAt(now, windows, previewConfig.peakHolidays)
         if (view === null) return t('offPeakActive')
+        if (view.holiday === true) return t('holidayAllOffPeak')
         if (view.weekend === true) return t('weekendAllOffPeak')
         return view.inPeak ? t('peakActive') : t('offPeakActive')
       })()
@@ -430,6 +431,10 @@
             ? peakNoticeEl(state, previewConfig, t)
             : el('p', { className: 'cm-hint' }, t('peakNoticeHiddenHint'))),
         el('p', { className: 'cm-hint' }, peakText),
+        el('div', { className: 'cm-field' },
+          el('label', null, t('peakHolidaysLabel')),
+          el('input', { className: 'cm-input', defaultValue: (previewConfig.peakHolidays ?? []).join(', '),
+            onBlur: event => setField('peakHolidays', event.target.value.split(/[,，\s]+/).filter(Boolean)) })),
         el('p', { className: 'cm-hint' }, t('weekendRuleNote')))
     }
 

@@ -18,6 +18,7 @@ import {
   isPeakHour,
   peakPhaseAt,
   weekendZoneAt,
+  holidayZoneAt,
   WEEKEND_OFFPEAK_EFFECTIVE_AT,
   matchModelId,
   canonModelId,
@@ -29,6 +30,7 @@ import {
   PROVIDER_MODEL_FAMILIES,
   DEFAULT_PEAK_EFFECTIVE_AT,
   DEFAULT_PEAK_WINDOWS,
+  DEFAULT_PEAK_HOLIDAYS,
   LEGACY_BASE_BOUNDARY,
   LEGACY_BASE_PRICES,
   LEGACY_BASE_PRICES_CNY,
@@ -514,6 +516,59 @@ const friNightPhase = peakPhaseAt(Date.parse('2026-08-28T13:00:00Z'), DEFAULT_PE
 assert.equal(friNightPhase.weekend, false, '周五晚尚未进入周末区间')
 assert.equal(friNightPhase.nextAtMs, Date.parse('2026-08-31T01:00:00Z'), '周五晚下一切换直达周一入峰(跳过周末全部窗口)')
 console.log('[ok] 周末全谷价新规(区间/窗口/档位/相位)通过')
+
+// 2.3.2a) 中国公众假期全天谷价；调休上班的周末仍是谷价（官方定价页脚注）。
+{
+  const midAutumn = Date.parse('2026-09-25T03:06:00Z')
+  const start = Date.parse('2026-09-24T16:00:00Z')
+  assert.deepEqual(holidayZoneAt(midAutumn), { start, end: Date.parse('2026-09-25T16:00:00Z') })
+  assert.equal(holidayZoneAt(start - 1), null, '北京假日零点前仍是普通工作日')
+  assert.equal(isPeakHour(midAutumn, peakCfg.effectiveAtMs, DEFAULT_PEAK_WINDOWS), false, '中秋节不进入峰价')
+  assert.equal(isPeakHour(Date.parse('2026-09-24T03:06:00Z'), peakCfg.effectiveAtMs, DEFAULT_PEAK_WINDOWS), true, '前一工作日仍进入峰价')
+  assert.equal(isPeakHour(Date.parse('2026-09-20T03:06:00Z'), peakCfg.effectiveAtMs, DEFAULT_PEAK_WINDOWS), false, '调休上班周日仍按全天谷价')
+  assert.equal(isPeakHour(Date.parse('2026-10-10T03:06:00Z'), peakCfg.effectiveAtMs, DEFAULT_PEAK_WINDOWS), false, '调休上班周六仍按全天谷价')
+  assert.equal(isPeakHour(midAutumn, peakCfg.effectiveAtMs, DEFAULT_PEAK_WINDOWS, []), true, '用户清空假日表可覆盖默认值')
+  assert.equal(isPeakHour(Date.parse('2026-11-02T03:06:00Z'), peakCfg.effectiveAtMs, DEFAULT_PEAK_WINDOWS, ['2026-11-02']), false, '自定义假日生效')
+  assert.ok(DEFAULT_PEAK_HOLIDAYS.includes('2026-10-07'), '国庆全部日期预置')
+  assert.deepEqual(tierFor(pro, midAutumn, peakCfg), tierFor(pro, midAutumn, { enabled: false }), '假日取谷价档')
+  const phase = peakPhaseAt(midAutumn, DEFAULT_PEAK_WINDOWS)
+  assert.equal(phase.holiday, true, '假日展示标签')
+  assert.equal(phase.nextAtMs, Date.parse('2026-09-28T01:00:00Z'), '跨中秋三日直达下个峰窗')
+  assert.equal(peakPhaseAt(Date.parse('2026-10-03T03:06:00Z'), DEFAULT_PEAK_WINDOWS).nextAtMs, Date.parse('2026-10-08T01:00:00Z'), '国庆七日倒计时无虚假切换')
+  const midnightWindow = [{ start: 15, end: 18 }]
+  const beforeHoliday = Date.parse('2026-09-24T15:30:00Z')
+  assert.equal(isPeakHour(beforeHoliday, peakCfg.effectiveAtMs, midnightWindow), true, '假日前夜自定义窗口仍可进入峰价')
+  assert.equal(peakPhaseAt(beforeHoliday, midnightWindow).nextAtMs, start, '跨北京时间假日零点的峰窗口即时切换为谷价')
+  const cfg = sanitizeConfig({})
+  assert.deepEqual(cfg.peakHolidays, DEFAULT_PEAK_HOLIDAYS)
+  assert.deepEqual(applyConfigPatch(cfg, { peakHolidays: ['2026-11-02'] }).config.peakHolidays, ['2026-11-02'])
+  assert.ok(applyConfigPatch(cfg, { peakHolidays: ['2026-02-30'] }).errors.length > 0, '无效日期被拒绝')
+  const root = mkdtempSync(join(osTmpdir(), 'cm-holiday-history-'))
+  const id = 'holiday-session'
+  const logDir = join(root, '--proj--', id)
+  mkdirSync(logDir, { recursive: true })
+  const tokens = { input: 1_000_000, output: 100_000, cacheRead: 0, cacheWrite: 0 }
+  const records = [
+    { type: 'session', version: 0, id, createdAt: midAutumn - 60000, delegationDepth: 0 },
+    { type: 'request/header', seq: 0, time: midAutumn - 60000, data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-flash' } } } },
+    { type: 'assistant/message', seq: 0, time: midAutumn, data: { turn: 1, step: 1, usage: { inputTokens: tokens.input, outputTokens: tokens.output, cacheReadTokens: 0, cacheWriteTokens: 0 } } },
+  ]
+  writeFileSync(join(logDir, 'session.jsonl'), records.map(record => JSON.stringify(record)).join('\n') + '\n')
+  const ledger = new Ledger(sanitizeConfig({ peakHolidays: [] }), {}, join(root, 'ledger.json'))
+  ledger.scheduleWrite = () => {}
+  ledger.account(tokens, 'deepseek-v4-flash', id, midAutumn)
+  const date = localDayKey(midAutumn)
+  const oldCost = ledger.days[date].cost
+  ledger.config.peakHolidays = [...DEFAULT_PEAK_HOLIDAYS]
+  const stats = await recomputeLedgerPricingBasis(ledger, root, (_, keyDate) => keyDate === date, new Set([id]))
+  assert.equal(stats.recostedSessions, 1, '完整日志的假日会话得到重算')
+  assert.ok(Math.abs(ledger.days[date].cost * 2 - oldCost) < 1e-9, '假日峰时历史金额修正为半价')
+  assert.ok(Math.abs(ledger.days[date].sessions[0].cost - ledger.days[date].cost) < 1e-9, '会话与每日金额一致')
+  await recomputeLedgerPricingBasis(ledger, root, (_, keyDate) => keyDate === date, new Set([id]))
+  assert.ok(Math.abs(ledger.days[date].cost * 2 - oldCost) < 1e-9, '重复重算不再次折扣')
+  rmSync(root, { recursive: true, force: true })
+  console.log('[ok] 法定假日峰谷价与配置通过')
+}
 
 // 2.3.3) 周末规则一致性回归夹具(issue #54):15 条档位向量 + 3 条下一切换向量,
 // CC0-1.0(来源 github.com/xyzs996/deepseek-peak-hours 的 deepseek-peak-offpeak-vectors.json)。
