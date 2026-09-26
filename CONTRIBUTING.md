@@ -33,11 +33,14 @@ English summary follows the Chinese text below.
 ### 提交前自检(必过)
 
 ```sh
-# 1) 语法检查(改动到的文件都要过)
+# 1) 修改 src/client/ 后重新构建已提交的客户端产物
+npm run build
+
+# 2) 语法检查(改动到的文件都要过)
 node --check lib/index.js && node --check lib/client.js && node --check lib/store.js \
   && node --check lib/pricing.js && node --check lib/coding-plans.js && node --check lib/backfill.js
 
-# 2) 全量回归(含旧账本 strict codec 哨兵、descriptor 对齐、端点白名单等)
+# 3) 全量回归(含旧账本 strict codec 哨兵、descriptor 对齐、端点白名单等)
 node test/verify.mjs
 ```
 
@@ -54,7 +57,7 @@ node test/verify.mjs
 
 ## 代码风格
 
-- 纯 ESM、无构建步骤;客户端是单文件 bundle(`lib/client.js`),遵循其现有手写 React(`el(...)`)+ CSS 变量(`--dsw-alias-*`)风格;
+- 服务端使用纯 ESM；客户端源文件位于 `src/client/`，运行 `npm run build` 后生成单文件 `lib/client.js`，提交时须包含更新的产物，不直接编辑生成文件。客户端遵循现有手写 React(`el(...)`)+ CSS 变量(`--dsw-alias-*`)风格；
 - 注释跟随现有密度与语气,解释「为什么」而非复述代码;
 - 金额恒以美元存储,币种/汇率只在展示层换算。
 
@@ -73,6 +76,6 @@ README / README.en 与 `docs/` 下的说明(适配文档、更新历史、releas
 Thanks for contributing to **dsh-cost-meter**!
 
 - **Bug reports**: open an issue with environment (plugin/dsh/Node version, OS), minimal repro steps, expected vs actual, and logs/screenshots.
-- **PRs**: discuss big changes in an issue first; branch off latest `master`; run `node --check` on touched files and the full regression `node test/verify.mjs` before submitting.
+- **PRs**: discuss big changes in an issue first; branch off latest `master`; after editing `src/client/`, run `npm run build` and include the generated `lib/client.js`. Run `node --check` on touched files and the full regression `node test/verify.mjs` before submitting.
 - **Gotchas**: keep the strict codec consistent (new config keys must pass `applyConfigPatch` + `sanitizeConfig` + `typert.host.js` schema; new state fields go into `stateSchema`); keep server RPC and client `CONTRIBUTION.descriptors` in sync; verify `npm pack` output if you change `files`; add both zh/en strings; keep third-party endpoints within the whitelist assertions.
 - By submitting, you agree your contribution is licensed under the project's [MIT License](LICENSE).

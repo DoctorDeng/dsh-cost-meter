@@ -1825,7 +1825,7 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
   assert.ok(retryIndexSource.includes('err.soft = true'), 'queryBalance 守卫错误(未配置 Key/非官方端点)标记 soft')
   assert.ok(retryIndexSource.includes("...balanceCache, value: { ...emptyBalance(), status: 'error'"), '余额硬失败写 error 状态并保留旧 fetchedAt')
   assert.ok(retryIndexSource.includes("...goQuotaCache, value: { ...emptyGoQuota(), status: 'error'"), 'Go 额度硬失败写 error 状态并保留旧 fetchedAt')
-  assert.ok(retryIndexSource.includes("...cache,\n          value: {\n            ...emptyCustomBalance(),\n            label: typeof config?.label === 'string' ? config.label : '',\n            status: 'error',"), '自定义余额硬失败写 error 状态并保留旧 fetchedAt(多配置按条缓存)')
+  // 自定义余额的失败与恢复通过 cache-lifecycle.mjs 实际调用服务验证。
   assert.ok(retryIndexSource.includes("...(codingPlanCaches[id] ?? { fetchedAt: 0, value: emptyCodingPlan() }),\n          value: { ...emptyCodingPlan(), status: 'error'"), 'Coding Plan 硬失败写 error 状态并保留旧 fetchedAt')
   assert.ok(retryIndexSource.includes("error && error.soft === true"), '软失败判定读取 error.soft 标记')
   console.log('[ok] 外部查询软/硬失败缓存策略断言通过')
@@ -6677,6 +6677,8 @@ function m_costOf85(entry, tokens) {
 
 await import('./aliyun-balance.mjs')
 await import('./gateway-retry.mjs')
+await import('./cache-lifecycle.mjs')
+await import('./core-boundaries.mjs')
 await import('./go-credentials.mjs')
 await import('./qwen-cli.mjs')
 await import('./bailian-cli.mjs')
