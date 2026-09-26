@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import './zai-candidates.mjs'
 import './ledger-concurrency.mjs'
+import './external-usage.mjs'
 import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, dirname, resolve } from 'node:path'
@@ -5782,7 +5783,7 @@ await import('./typert-codecs.mjs')
   // 17-2) 同步范围消歧文案(双语)接线。
   const client85 = readClientSource()
   assert.ok(client85.includes("t('syncScopeNote')"), '设置页同步区挂「同步范围说明」')
-  assert.ok(client85.includes('仅更新 DeepSeek 官方模型价') && client85.includes('only updates DeepSeek official prices'), '消歧文案双语(说明按钮仅更新 DeepSeek 官方价)')
+  assert.ok(client85.includes('官方同步只更新 DeepSeek 价格') && client85.includes('Official sync updates DeepSeek prices'), '消歧文案双语(说明按钮仅更新 DeepSeek 官方价)')
   console.log('[ok] GLM-5.3/5.3-Flash 定价与同步范围消歧(issue #85)通过')
 }
 

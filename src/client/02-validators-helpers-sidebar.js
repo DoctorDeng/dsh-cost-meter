@@ -415,6 +415,12 @@
         // Token Plan 统计(issue #64):宽容解析,缺失/畸形回落 null(UI 隐藏面板)。
         planStats: parsePlanStats(v.planStats),
         history: Array.isArray(v.history) ? v.history.map((d, i) => parseDay(d, path + '.history[' + i + ']')) : [],
+        externalUsage: v.externalUsage && Array.isArray(v.externalUsage.sources) ? {
+          fetchedAt: Number(v.externalUsage.fetchedAt) || 0,
+          stale: v.externalUsage.stale === true,
+          sources: v.externalUsage.sources.map(s => ({ source: String(s.source), today: parseDay(s.today, path + '.external.today'), month: parseDay(s.month, path + '.external.month'), total: parseDay(s.total, path + '.external.total'), history: (s.history ?? []).map(d => parseDay(d, path + '.external.history')) })),
+          combined: Object.fromEntries(['today', 'month', 'total', 'history'].map(k => [k, k === 'history' ? (v.externalUsage.combined.history ?? []).map(d => parseDay(d, path + '.external.history')) : parseDay(v.externalUsage.combined[k], path + '.external.' + k)])),
+        } : null,
         config: parseConfig(v.config, path + '.config'),
         reconcile: v.reconcile === null || v.reconcile === undefined ? undefined : { ok: v.reconcile.ok === true, message: typeof v.reconcile.message === 'string' ? v.reconcile.message : '' },
         // 扩展价格表目录(宿主只读下发;缺失时 UI 自动隐藏目录面板)。
