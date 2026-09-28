@@ -36,6 +36,10 @@ const tiersOf = (provider, model) => {
   const ultra = tiersOf('xiaomi', 'mimo-v2.6-pro-ultraspeed')
   const pro = tiersOf('xiaomi', 'mimo-v2.6-pro')
   near(ultra.cacheMiss, pro.cacheMiss * 10, 'ultraspeed 未命中价为 pro 的 10 倍')
+  // 官方人民币价随 notes 记录:第三方 flat 条目恒按美元入账,人民币账单精度靠展示汇率对齐。
+  for (const [id, cny] of [['mimo-v2.6-pro', '¥3/¥6/命中 ¥0.025'], ['mimo-v2.6-flash', '¥1/¥2/命中 ¥0.02'], ['mimo-v2.6-pro-ultraspeed', '¥30/¥60/命中 ¥0.25']]) {
+    assert.ok(String(DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models[id].notes).includes(cny), `${id} notes 含官方人民币价 ${cny}`)
+  }
   assert.notEqual(ultra.cacheMiss, DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models['mimo-v2.5'].input, '未误套 mimo-v2.5 价')
   assert.notEqual(pro.cacheMiss, DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models['mimo-v2.5'].input, 'pro 未误套 mimo-v2.5 价')
   // 变体形态(大小写 / 日期快照后缀)同样精确命中 2.6 条目。

@@ -615,7 +615,7 @@
           "billingMode": "flat",
           "sourceUrl": "https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go",
           "checkedAt": "2026-09-28",
-          "notes": "批量推理按半价(命中 $0.0018 / 未命中 $0.2175 / 输出 $0.435)"
+          "notes": "批量推理按半价(命中 $0.0018 / 未命中 $0.2175 / 输出 $0.435);官方人民币价 ¥3/¥6/命中 ¥0.025"
         },
         "mimo-v2.6-flash": {
           "input": 0.14,
@@ -624,7 +624,7 @@
           "billingMode": "flat",
           "sourceUrl": "https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go",
           "checkedAt": "2026-09-28",
-          "notes": "批量推理按半价(命中 $0.0014 / 未命中 $0.07 / 输出 $0.14)"
+          "notes": "批量推理按半价(命中 $0.0014 / 未命中 $0.07 / 输出 $0.14);官方人民币价 ¥1/¥2/命中 ¥0.02"
         },
         "mimo-v2.6-pro-ultraspeed": {
           "input": 4.35,
@@ -633,7 +633,7 @@
           "billingMode": "flat",
           "sourceUrl": "https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go",
           "checkedAt": "2026-09-28",
-          "notes": "速度优先档,单价为 mimo-v2.6-pro 的 10 倍;官方未提供批量推理档"
+          "notes": "速度优先档,单价为 mimo-v2.6-pro 的 10 倍;官方未提供批量推理档;官方人民币价 ¥30/¥60/命中 ¥0.25"
         },
         "mimo-v2.5": {
           "input": 0.14,
