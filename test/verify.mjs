@@ -1277,6 +1277,9 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   const base = sanitizeConfig({})
   assert.equal(base.hideOfficialBalance, false, '隐藏官方余额默认关闭')
   assert.equal(base.hideTodayCost, false, '隐藏今日消耗默认关闭')
+  assert.equal(base.sidebarTodayMetric, 'cost', '侧边栏默认显示费用')
+  assert.equal(applyConfigPatch(base, { sidebarTodayMetric: 'tokens' }).config.sidebarTodayMetric, 'tokens', '可切换显示 Token')
+  assert.ok(applyConfigPatch(base, { sidebarTodayMetric: 'unknown' }).errors.length > 0, '未知显示方式被拒绝')
   const patched = applyConfigPatch(base, { hideOfficialBalance: true, hideTodayCost: true })
   assert.equal(patched.errors.length, 0, '合法布尔补丁通过')
   assert.equal(patched.config.hideOfficialBalance, true, '隐藏官方余额可开启')
@@ -1298,13 +1301,14 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   assert.ok(clientSource.includes('config.hideTodayCost === true ? null : el(Card,'), '概览今日卡片可整体隐藏')
   assert.ok(clientSource.includes("&& config.hideOfficialBalance !== true\n          ? el(BalancePanel"), '设置页官方余额面板可整体隐藏')
   assert.ok(clientSource.includes('config.hideTodayCost === true ? null : el(\'div\', { className: \'cm-bbox-line cm-num\' }'), '预算盒明细今日金额行可隐藏')
-  assert.ok(clientSource.includes('...(config.hideTodayCost === true ? [] : [t(\'todayShare\''), '预算 tooltip 今日金额行可隐藏')
+  assert.ok(clientSource.includes("...(config.hideTodayCost === true ? [] : [config.sidebarTodayMetric === 'tokens'"), '预算 tooltip 今日金额行可隐藏')
   // 设置开关与读侧白名单。
   assert.ok(clientSource.includes("setField('hideOfficialBalance'"), '设置 UI 含隐藏官方余额开关')
   assert.ok(clientSource.includes("setField('hideTodayCost'"), '设置 UI 含隐藏今日消耗开关')
   assert.ok(clientSource.includes('hideOfficialBalanceLabel') && clientSource.includes('hideTodayCostLabel'), '开关文案存在(zh/en)')
   assert.ok(clientSource.includes('hideOfficialBalance: v.hideOfficialBalance === true'), 'parseConfig 白名单含 hideOfficialBalance(读侧不剥离)')
   assert.ok(clientSource.includes('hideTodayCost: v.hideTodayCost === true'), 'parseConfig 白名单含 hideTodayCost(读侧不剥离)')
+  assert.ok(clientSource.includes("sidebarTodayMetric: v.sidebarTodayMetric === 'tokens'") && clientSource.includes("setField('sidebarTodayMetric'"), '今日指标双端接线')
   assert.ok(clientSource.includes('showSessionId: v.showSessionId === true'), 'parseConfig 白名单补齐 showSessionId(既有缺陷修复)')
   // v1.5.38 的隐私模式遮罩已整体移除。
   assert.ok(!clientSource.includes('hideAmounts'), '客户端不再含 hideAmounts 隐私遮罩')
@@ -1709,12 +1713,13 @@ assert.equal(matchModelId('deepseek-v4-flash', dsCandidates), 'deepseek-v4-flash
 assert.equal(matchModelId('deepseek-v4-flash-2026-08-01', dsCandidates), 'deepseek-v4-flash', '去日期后缀')
 assert.equal(matchModelId('deepseek-v4-pro-v2', dsCandidates), 'deepseek-v4-pro', '去版本后缀')
 assert.equal(matchModelId('deepseek-v4-flash-128k', dsCandidates), 'deepseek-v4-flash', '前缀匹配')
-assert.equal(matchModelId('gpt-5-mini-2026-01-01', ['gpt-5-2025-08-07', 'gpt-4.1-2025-04-14']), 'gpt-5-2025-08-07', '家族 token 相似')
+assert.equal(matchModelId('gpt-5-mini-2026-01-01', ['gpt-5-2025-08-07', 'gpt-4.1-2025-04-14']), null, '不同变体不互配')
 assert.equal(matchModelId('totally-unknown-model', dsCandidates), null, '阈值防误配')
+assert.equal(billingClassOf('openai-codex', 'gpt-6-luna', { models: { 'openai-codex:gpt-6-luna': 'plan' } }, new Set()), 'plan', '未知 provider 的模型级 Plan 覆盖优先生效')
 // 防跨版本家族误配(issue #18:订阅制 glm-5.3 曾被匹配到 glm-5.2 付费价实时虚增)。
 assert.equal(matchModelId('glm-5.3', ['glm-5.2', 'glm-5.1']), null, '分歧位为版本号时拒绝跨版本匹配')
 assert.equal(matchModelId('claude-opus-4-9', ['claude-opus-4-8']), null, '同家族不同版本不误配')
-assert.equal(matchModelId('glm-5', ['glm-5.3', 'glm-5.2']), 'glm-5.3', '前缀式家族匹配保留(请求名更泛)')
+assert.equal(matchModelId('glm-5', ['glm-5.3', 'glm-5.2']), null, '不猜测版本号')
 // 数字分叉守卫覆盖宽泛包含/前缀阶段(此前守卫只在家族 token 阶段,'glm-53'
 // 包含 'glm5' 即命中旧版低价):候选是请求前缀且余量全为数字 → 版本分叉拒绝;
 // '-128k' 等容量后缀(余量非纯数字)不受影响。
@@ -2559,7 +2564,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 服务端 bestMode 对齐;数字分叉守卫双端同步。
   assert.ok(clientSource.includes("currency: typeof v.prices?.currency === 'string'"), '客户端 parseConfig 保留 prices.currency')
   assert.ok(clientSource.includes("bestMode = modelsCat[h]?.billingMode === 'deepseek-peak' ? 'deepseek-peak' : 'flat'"), '客户端跨厂商兑底 billingMode 与服务端同口径')
-  assert.ok(clientSource.includes("if (/^\\d{1,2}$/.test(canon.slice(idx + cc.length))) continue") && clientSource.includes("if (/^\\d{1,2}$/.test(rest.replace(/^[-_./:]+/, ''))) continue"), '客户端 matchModelIdLocal 数字分叉守卫与 pricing.js 同步')
+  assert.ok(clientSource.includes('const suffix = /^(?:[-_./:@]') && clientSource.includes('suffix.test(stripped.slice(strip(c).length))'), '客户端安全后缀匹配与 pricing.js 同步')
   console.log('[ok] 手动价格映射裸 DeepSeek 名兜底(宿主+客户端双端/语义保留/下拉框根因修复)通过')
 }
 
@@ -3185,7 +3190,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.equal(ledger36c.todayOfficialCost(), 0, '无今日记录返回 0')
   // 源结构断言:index.js 对账改用官方渠道费用;client.js 官方分支走 todayOfficialUsd,自定义分支维持全量。
   const idxSrc36 = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-  assert.ok(idxSrc36.includes('reconcileBalanceDelta(ledger.balanceRef, balanceCache.value, ledger.todayOfficialCost()'), '对账传入官方渠道费用(issue #36)')
+  assert.ok(idxSrc36.includes('const todayCost = ledger.todayOfficialCost() + (externalCost ?? 0)'), '对账合计官方渠道与当天外部费用(issue #185)')
   assert.ok(!idxSrc36.includes('ledger.today().cost, localDayKey'), '对账不再使用全渠道今日合计')
   const cliSrc36 = readClientSource()
   assert.ok(cliSrc36.includes('function todayOfficialUsd(state)'), 'client.js 定义 todayOfficialUsd')
@@ -3694,7 +3699,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 额度:四类来源(订阅 / Go / 网关 / 自定义余额)统一由 QuotasSection 总装,仍落在同一标签分支。
   between("el(QuotasSection, { key: 'quotas', state, api, t, draft, setDraft })", branch.quotas, branch.usage, '统一额度区(QuotasSection)在额度标签')
   // 用量:用量统计 + 按模型 + 历史 + 会话排行 + 历史数据操作。
-  between('el(ModelStatsPanel, { state, config: draft ?? config, t })', branch.usage, branch.display, '按模型统计在用量标签')
+  between('el(ModelStatsPanel, { state, config: draft ?? config, t, draft, setDraft })', branch.usage, branch.display, '按模型统计在用量标签')
   between('el(HistoryPanel, { state, api })', branch.usage, branch.display, '历史面板在用量标签')
   between('el(SessionRankPanel, { state, api })', branch.usage, branch.display, '会话排行在用量标签')
   between("t('historyDataTitle')", branch.usage, branch.display, '历史数据操作分组在用量标签')

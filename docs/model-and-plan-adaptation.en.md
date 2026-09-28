@@ -20,19 +20,15 @@ Supported billing buckets: `input` / `cacheMiss`, `cachedInput` / `cacheHit` / `
 
 ### 1.2 Automatic model-name matching
 
-Unknown model ids are resolved in this order:
+Manual overrides (`priceOverrides`) take priority. Automatic matching accepts exact names, normalized equivalents, and date, version or context-length suffixes. Distinct models and variants remain unpriced until added to the table or assigned manually.
 
-```
-exact match → manual override (priceOverrides) → normalized-equal → containing match → strip date/version suffix → prefix (longest) → family-token similarity (≥2 leading tokens)
-```
-
-Normalization: lowercased; case / spaces / hyphens / underscores / dots are ignored, and bracketed annotations (e.g. `(go)`) are dropped. Containing match: a hit when the normalized request name **contains** a table model name (longest candidate wins; overly short candidates are skipped to prevent mis-matches). Router providers (opencode / zen etc., not registered in the price table) trigger a cross-vendor search over the whole catalog, with DeepSeek models keeping their peak/off-peak tiers.
+Normalization lowercases names, ignores spaces, hyphens, underscores and dots, and drops bracketed annotations such as `(go)`. Router providers (opencode, zen and other unregistered channels) can search across vendors by the complete model name. DeepSeek models retain their peak/off-peak tiers.
 
 Examples:
 
 | Model id in the request | Match result |
 |---|---|
-| `gpt5.6 luna(go)` | `gpt-5.6-luna` (containing match) |
+| `gpt5.6 luna(go)` | `gpt-5.6-luna` (normalized-equal) |
 | `DeepSeek V4 Flash` | `deepseek-v4-flash` (normalized-equal) |
 | `deepseek-v4-flash-2026-08-01` | `deepseek-v4-flash` (date suffix stripped) |
 | `deepseek-chat` and other legacy aliases | never guessed; falls back to the DeepSeek default price |
