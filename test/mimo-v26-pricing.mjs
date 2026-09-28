@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { DEFAULT_PROVIDER_PRICE_TABLE, DEFAULT_PRICE_TABLE, buildPriceCatalog, costOf, normalizePrice, providerPriceEntryFor } from '../lib/pricing.js'
+import { DEFAULT_PROVIDER_PRICE_TABLE, DEFAULT_PRICE_TABLE, buildPriceCatalog, costOf, normalizePrice, providerPriceEntryFor, usdFromCost } from '../lib/pricing.js'
 
 // MiMo V2.6 三个型号补价:此前目录只有 2.5 系,mimo-v2.6-* 一律被模糊匹配到
 // mimo-v2.5,pro 少算 3.1 倍、速度优先档少算 31 倍。价目以官方 pay-as-you-go
@@ -36,9 +36,12 @@ const tiersOf = (provider, model) => {
   const ultra = tiersOf('xiaomi', 'mimo-v2.6-pro-ultraspeed')
   const pro = tiersOf('xiaomi', 'mimo-v2.6-pro')
   near(ultra.cacheMiss, pro.cacheMiss * 10, 'ultraspeed 未命中价为 pro 的 10 倍')
-  // 官方人民币价随 notes 记录:第三方 flat 条目恒按美元入账,人民币账单精度靠展示汇率对齐。
-  for (const [id, cny] of [['mimo-v2.6-pro', '¥3/¥6/命中 ¥0.025'], ['mimo-v2.6-flash', '¥1/¥2/命中 ¥0.02'], ['mimo-v2.6-pro-ultraspeed', '¥30/¥60/命中 ¥0.25']]) {
-    assert.ok(String(DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models[id].notes).includes(cny), `${id} notes 含官方人民币价 ${cny}`)
+  // 人民币价为独立可计费档位，不通过展示汇率推导。
+  for (const [id, hit, miss, output] of [['mimo-v2.6-pro', 0.025, 3, 6], ['mimo-v2.6-flash', 0.02, 1, 2], ['mimo-v2.6-pro-ultraspeed', 0.25, 30, 60]]) {
+    const cny = DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models[id].cny
+    near(cny.cacheHit, hit, `${id} 人民币命中价`)
+    near(cny.cacheMiss, miss, `${id} 人民币未命中价`)
+    near(cny.output, output, `${id} 人民币输出价`)
   }
   assert.notEqual(ultra.cacheMiss, DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models['mimo-v2.5'].input, '未误套 mimo-v2.5 价')
   assert.notEqual(pro.cacheMiss, DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models['mimo-v2.5'].input, 'pro 未误套 mimo-v2.5 价')
@@ -68,11 +71,10 @@ const tiersOf = (provider, model) => {
   const goFlash = tiersOf('opencode-go', 'mimo-v2.6-flash')
   near(goFlash.cacheHit, 0.0028, 'Go 目录 flash 命中价')
   near(goFlash.cacheMiss, 0.14, 'Go 目录 flash 未命中价')
-  // 速度优先档不在 Go 目录:渠道自报 opencode-go 时按「宽泛包含」落到同目录的
-  // pro 条目;小米各渠道与空 provider 均精确命中 ultraspeed(见 ②③),真实计费
-  // 只有前两条路,故此处锁定包含匹配的落点,不指望跨目录兜底。
+  // Go 目录没有速度优先档，不应套用普通 pro 的价格。
   const goUltra = providerPriceEntryFor('opencode-go', 'mimo-v2.6-pro-ultraspeed', prices, { mode: 'auto' })
-  near(goUltra.entry.cacheMiss, 0.435, 'Go 目录内 ultraspeed 落 pro 条目(包含匹配)')
+  assert.equal(goUltra.priced, false, 'Go 目录内 ultraspeed 保持未定价')
+  assert.equal(providerPriceEntryFor('openai-codex', 'gpt-6-luna', prices).priced, false, '不同 GPT-6 变体不借用 Astra 价格')
   const old = DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models
   near(old['mimo-v2.5'].input, 0.14, '2.5 未命中价保持不变')
   near(old['mimo-v2.5'].output, 0.28, '2.5 输出价保持不变')
@@ -80,6 +82,18 @@ const tiersOf = (provider, model) => {
   near(old['mimo-v2.5-pro'].output, 0.87, '2.5-pro 输出价保持不变')
   assert.ok(String(old['mimo-v2.5'].notes).includes('即将下线'), '2.5 标注官方下线提示')
   assert.ok(String(old['mimo-v2.5-pro'].notes).includes('即将下线'), '2.5-pro 标注官方下线提示')
+}
+
+// CNY 模式选官方人民币档位，再按显示汇率折回账本美元；无 CNY 档位仍按美元计。
+{
+  const cnyPrices = { ...prices, currency: 'CNY' }
+  const pro = providerPriceEntryFor('xiaomi', 'mimo-v2.6-pro', cnyPrices)
+  assert.equal(pro.currency, 'CNY')
+  near(pro.entry.cacheMiss, 3, '人民币官方输入价')
+  near(usdFromCost(costOf({ input: 1_000_000, output: 1_000_000 }, pro.entry, Date.now(), { enabled: false }), pro.currency, 7.2), 9 / 7.2, '人民币计价折回美元')
+  const go = providerPriceEntryFor('opencode-go', 'mimo-v2.6-pro', cnyPrices)
+  assert.equal(go.currency, 'USD', '无人民币价的 Go 条目按美元计')
+  assert.equal(normalizePrice({ input: 1, output: 2, cny: { cacheHit: -1, cacheMiss: 2, output: 3 } }), null, '非法人民币档位被拒绝')
 }
 
 // ⑤ 家族分组与随包 json 同步(挂载入口与外部对表消费)。

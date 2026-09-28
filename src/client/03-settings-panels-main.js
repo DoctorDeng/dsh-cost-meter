@@ -595,6 +595,7 @@
       entry = priceAt(entry)
       if (entry === null || typeof entry !== 'object') return ''
       if (entry.unpriced === true) return t('catalogUnpriced')
+      if (currency === 'CNY' && entry.cny) entry = entry.cny
       const usd = n => (currency === 'CNY' ? '¥' : '$') + String(n)
       const pk = entry.peak !== null && typeof entry.peak === 'object' ? entry.peak : null
       if (pk !== null) return usd(entry.cacheMiss) + '/' + usd(pk.cacheMiss) + ' in · ' + usd(entry.output) + '/' + usd(pk.output) + ' out'
@@ -682,7 +683,7 @@
         }
         return el('div', { key: modelId, className: 'cm-catalog-row' },
           el('span', { className: 'cm-catalog-id' }, modelId),
-          el('span', { className: 'cm-catalog-price' }, catalogPriceText(entry, t, provider === 'deepseek' ? prices.currency : 'USD')),
+          el('span', { className: 'cm-catalog-price' }, catalogPriceText(entry, t, provider === 'deepseek' || entry?.cny ? prices.currency : 'USD')),
           mounted ? el('span', { className: 'cm-catalog-tag' }, t('mountedTag')) : null,
           directToggle,
           el('button', { className: 'cm-btn small', disabled: !mounted && entry?.unpriced === true, onClick: () => (mounted ? unmount(provider, modelId) : mount(provider, modelId, entry)) },
@@ -795,7 +796,7 @@
     }
 
     function ModelStatsPanel(props) {
-      const { state, config, t, initialTab } = props
+      const { state, config, t, initialTab, draft, setDraft } = props
       const [tab, setTab] = useState(initialTab === 'history' ? 'history' : 'today')
       // 默认收起,保持设置页简洁;需要时点三角展开。
       const [open, setOpen] = useState(false)
@@ -812,6 +813,17 @@
       const classChip = r => r.cls === 'plan'
         ? el('span', { className: 'cm-plan-tag', title: t('billingClassLabel') }, t('billingClassPlan'))
         : null
+      const classSelect = r => el('select', { className: 'cm-input', title: t('billingClassLabel'),
+        value: config.planBilling?.models?.[r.key] ?? 'auto', disabled: draft === null,
+        onChange: event => {
+          const models = { ...(draft.planBilling?.models ?? {}) }
+          if (event.target.value === 'auto') delete models[r.key]
+          else models[r.key] = event.target.value
+          setDraft({ ...draft, planBilling: { ...draft.planBilling, models } })
+        } },
+        el('option', { value: 'auto' }, t('billingClassAuto')),
+        el('option', { value: 'plan' }, t('billingClassPlan')),
+        el('option', { value: 'api' }, t('billingClassApi')))
       const barRow = (name, frac, barClass, valueText, tagNode) => el('div', { className: 'cm-mstats-row' },
         el('span', { className: 'cm-mstats-name', title: name }, name, tagNode ?? null),
         el('div', { className: 'cm-mstats-barbg' },
@@ -833,6 +845,7 @@
               barRow(r.label, maxCost > 0 ? r.cost / maxCost : 0, 'cost', formatMoneyUsd(r.cost, config),
                 el(Fragment, null,
                   classChip(r),
+                  classSelect(r),
                   r.cacheUnreported ? el('span', { className: 'cm-plan-tag', title: t('modelStatsHitUnreportedTip') }, '⚠') : null)))),
             // 2) Token 消耗(堆叠:输入/缓存/输出)。
             el('div', { className: 'cm-mstats-h' }, t('modelStatsTokensH')),
@@ -1043,6 +1056,13 @@
         models[modelId] = { ...(models[modelId] ?? {}), [field]: Math.max(0, value) }
         writeModels(models)
       }
+      const setCny = (field, value) => {
+        if (draft === null) return
+        const models = { ...((draft.prices.providers ?? {})[provider]?.models ?? {}) }
+        const current = models[modelId] ?? {}
+        models[modelId] = { ...current, cny: { ...current.cny, [field]: Math.max(0, value) } }
+        writeModels(models)
+      }
       const remove = () => {
         if (draft === null) return
         const models = { ...((draft.prices.providers ?? {})[provider]?.models ?? {}) }
@@ -1066,7 +1086,12 @@
               // 第三方三桶为必填计价结构:清空不提交(保留原值),避免误清成 0 价免费。
               numInput({ value: entry?.input ?? null, emptyMode: 'ignore' }, v => setNum('input', v)),
               numInput({ value: entry?.cachedInput ?? null, emptyMode: 'ignore' }, v => setNum('cachedInput', v)),
-              numInput({ value: entry?.output ?? null, emptyMode: 'ignore' }, v => setNum('output', v)))))
+              numInput({ value: entry?.output ?? null, emptyMode: 'ignore' }, v => setNum('output', v))),
+            entry?.cny ? el('div', { className: 'cm-price-row' },
+              el('span', null, 'CNY'),
+              numInput({ value: entry.cny.cacheMiss, emptyMode: 'ignore' }, v => setCny('cacheMiss', v)),
+              numInput({ value: entry.cny.cacheHit, emptyMode: 'ignore' }, v => setCny('cacheHit', v)),
+              numInput({ value: entry.cny.output, emptyMode: 'ignore' }, v => setCny('output', v))) : null))
     }
 
     // ── 余额面板(设置页,按 balance.display 配置挂载) ────────────────────────
@@ -2131,7 +2156,7 @@
           ? el(UsagePanel, { state, t, locale })
           : null,
         // 按模型统计(今日/近90天:费用、token、缓存命中率、性价比)
-        el(ModelStatsPanel, { state, config: draft ?? config, t }),
+        el(ModelStatsPanel, { state, config: draft ?? config, t, draft, setDraft }),
         // Token Plan 用量统计(issue #64):每 1% 额度与满窗估算 + 日/周/月曲线
         el(PlanStatsPanel, { state, config: draft ?? config, t }),
         // 历史(三角折叠面板;日期行可再展开会话明细)
@@ -2270,6 +2295,12 @@
               }),
               el('span', null, t('hideTodayCostLabel'))),
             el('div', { className: 'cm-grid-group' }, t('groupSidebar')),
+            el('div', { className: 'cm-field' },
+              el('label', null, t('sidebarTodayMetric')),
+              el('select', { className: 'cm-input', value: draft?.sidebarTodayMetric ?? 'cost',
+                onChange: event => setField('sidebarTodayMetric', event.target.value) },
+                el('option', { value: 'cost' }, t('sidebarTodayCost')),
+                el('option', { value: 'tokens' }, t('sidebarTodayTokens')))),
             el('label', { className: 'cm-check' },
               el('input', { type: 'checkbox', checked: draft?.sidebarSimple === true,
                 onChange: event => { if (draft) setDraft({ ...draft, sidebarSimple: event.target.checked, sidebarSimplePromptSeen: true }) } }),

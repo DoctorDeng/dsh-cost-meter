@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseExternalUsageSnapshot, readExternalUsageSnapshot, EXTERNAL_USAGE_MAX_BYTES } from '../lib/external-usage.js'
+import { parseExternalUsageSnapshot, readExternalUsageSnapshot, externalTodayCostForReconcile, EXTERNAL_USAGE_MAX_BYTES } from '../lib/external-usage.js'
 import { sanitizeConfig, localDayKey } from '../lib/store.js'
 import { apply } from '../lib/index.js'
 import { stateSchema } from '../lib/typert.host.js'
@@ -25,6 +25,9 @@ assert.equal(parsed.sources[1].today.calls, 1)
 assert.ok(parsed.sources[1].today.cost > 0)
 assert.equal(parsed.combined.today.calls, 3)
 assert.equal(parsed.combined.today.cost, parsed.sources[0].today.cost + parsed.sources[1].today.cost)
+assert.equal(externalTodayCostForReconcile(parsed), parsed.combined.today.cost, '有效快照并入当日对账')
+assert.equal(externalTodayCostForReconcile({ ...parsed, combined: { today: {} } }), 0, '缺少今日费用按零处理')
+assert.equal(externalTodayCostForReconcile({ ...parsed, stale: true }), null, '过期快照暂停偏差提示')
 assert.equal(parsed.combined.history.length, 1)
 assert.equal(parseExternalUsageSnapshot(snapshot, config, now).combined.total.calls, 3, '重读不重复累加')
 assert.equal(parseExternalUsageSnapshot({ ...snapshot, sources: [snapshot.sources[0], snapshot.sources[0]] }, config, now), null, '同名来源不能重复')
