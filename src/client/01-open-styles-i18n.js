@@ -321,8 +321,12 @@ window.__ModuleLoader__.load({
       '.cm-mm-row.wide .cm-mm-text{flex:1;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-bal-line{font-size:13px;color:var(--dsw-alias-label-secondary)}',
       '.cm-bal-line.warn{color:var(--dsw-alias-state-warning-primary,#b45309)}',
-      '.cm-footer-stack{display:flex;flex-direction:column;gap:6px;width:100%;align-items:stretch;box-sizing:border-box}',
-      '.cm-footer-stack.rail{align-items:center}',
+      // footer.action 与其它插件共用 flex 容器；宽栏费用独占一行，窄栏图标纵排。
+      // :has 随卡片挂载/隐藏自动生效和撤销，不移动 React 管理的 DOM 或覆盖宿主内联样式。
+      ':has(>.cm-footer-stack){flex-wrap:wrap}',
+      ':has(>.cm-footer-stack.rail){flex-direction:column;flex-wrap:nowrap;align-items:center;gap:6px}',
+      '.cm-footer-stack{display:flex;flex:none;order:-1;flex-direction:column;gap:6px;width:100%;min-width:0;max-width:100%;align-items:stretch;box-sizing:border-box}',
+      '.cm-footer-stack.rail{align-items:center;order:1}',
       '.cm-footer-stack .cm-bbox{width:100%;min-width:0}',
       '.cm-footer-stack .cm-foot{width:100%;box-sizing:border-box}',
       '.cm-footer-stack.compact .cm-bbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:12px;row-gap:2px;align-items:center}',
