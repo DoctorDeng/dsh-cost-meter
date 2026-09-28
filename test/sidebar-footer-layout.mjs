@@ -1,5 +1,5 @@
 // Browser regression for #192. Start with:
-// node test/sidebar-footer-layout.mjs <directory containing react and react-dom> [--baseline]
+// node test/sidebar-footer-layout.mjs <directory containing react and react-dom> [--baseline v1.7.42]
 // Open the printed URL and click Run regression. No real host/account is contacted.
 import { readFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -11,15 +11,20 @@ import { sanitizeConfig } from '../lib/store.js'
 const root = resolve(import.meta.dirname, '..')
 const reactDir = process.argv[2]
 if (!reactDir) throw new Error('Pass a node_modules directory containing react and react-dom')
+const baselineIndex = process.argv.indexOf('--baseline')
+const baseline = baselineIndex < 0 ? null : process.argv[baselineIndex + 1] ?? 'v1.7.42'
 const fragments = readdirSync(resolve(root, 'src/client')).filter(n => n.endsWith('.js')).sort()
-const source = fragments.map(n => process.argv.includes('--baseline')
-  ? execFileSync('git', ['show', `v1.7.41:src/client/${n}`], { cwd: root, encoding: 'utf8' })
+const source = fragments.map(n => baseline
+  ? execFileSync('git', ['show', `${baseline}:src/client/${n}`], { cwd: root, encoding: 'utf8' })
   : readFileSync(resolve(root, 'src/client', n), 'utf8')).join('')
   .replace('exports.apply = apply', 'exports.preview = { SidebarFooter }; exports.apply = apply')
 const config = sanitizeConfig({ locale: 'zh', hideOfficialBalance: true, goQuota: { enabled: false },
   peakEnabled: true, peakNotice: true, sidebarModels: { enabled: true } })
 // Footer geometry copied from DSH dsh-v0.1.7-rc.2 SidebarRoot.module.css and
 // bowenliang123/dsh-context src/client/styles/overview.css (2026-09-28).
+// IMPORTANT: SlotOutlet in ui-renderer/src/client/scoped-slots.tsx also adds
+// <div data-slot="sidebar.footer.action" style={{display:'contents'}}>.
+// The wrapper has no layout box, but changes DOM ancestry for :has(>...)!
 const hostCSS = `
 .host{padding:6px 12px;box-sizing:border-box;background:#f7f8fa;font-size:14px}
 .host.collapsed{padding:18px 10px 6px}
@@ -42,16 +47,19 @@ const {SidebarFooter}=factory(n=>n==='react'?React:{Tooltip:({children})=><>{chi
 const totals={cost:1,apiCost:1,calls:1,input:100,output:20,cacheRead:0,cacheWrite:0,byProviderModel:{'deepseek:deepseek-v4-pro':{cost:1,apiCost:1,input:100,output:20,cacheRead:0,cacheWrite:0}}};
 const state={config:${JSON.stringify(config)},today:totals,month:totals,total:totals,history:[],balance:{status:'off'},goQuota:{status:'off'},codingPlans:{},gatewayQuotas:{sources:[]}};
 let update, checks=0;
-function Scenario({width=280,simple=false,compact=false,enabled=true,hidden=false,extra=true,context=true,locale='zh',index=0}){
+function Scenario({width=280,simple=false,compact=false,enabled=true,hidden=false,extra=true,context=true,locale='zh',index=0,wrapped=true}){
  const wide=width>56, label=locale==='zh'?'上下文洞察':'Context Insights';
  const snapshot={...state,config:{...state.config,locale,sidebarSimple:simple,sidebarStyle:compact?'compact':'standard',hideTodayCost:hidden,peakNotice:!hidden,sidebarModels:{...state.config.sidebarModels,enabled:!hidden}}};
- return <section data-case={index}><h2>{width}px · {simple?'简化':compact?'紧凑':'标准'} · {locale}</h2><div className={'host'+(wide?'':' collapsed')} style={{width}}><div className="footArea"><div className="footerActions">
+ const entries=<>
  {context&&<button key="context" className={'lc-ov-entry'+(wide?'':' lc-ov-entry-rail')} aria-label={label}><span className="lc-ov-entry-icon">▣</span>{wide&&<span className="lc-ov-entry-label">{label}</span>}</button>}
  {enabled&&<SidebarFooter key="cost" wide={wide} useCost={pick=>pick({state:snapshot})}/>}
  {extra&&<button key="extra" className="extra" aria-label="Remote control">↗</button>}
+ </>;
+ return <section data-case={index}><h2>{width}px · {simple?'简化':compact?'紧凑':'标准'} · {locale} · {wrapped?'DSH 0.1.7':'旧宿主'}</h2><div className={'host'+(wide?'':' collapsed')} style={{width}}><div className="footArea"><div className="footerActions">
+ {wrapped?<div data-slot="sidebar.footer.action" style={{display:'contents'}}>{entries}</div>:entries}
  </div><div className="settingsArea">{wide?'⚙ 设置':'⚙'}</div></div></div></section>
 }
-function App(){const [dynamic,setDynamic]=React.useState({});update=setDynamic;return <><h1>#192 侧栏布局回归</h1><button onClick={run}>Run regression</button><p id="result" role="status">Ready</p><main>{[240,280,360,56].flatMap(width=>['standard','compact','simple'].flatMap(mode=>['zh','en'].map(locale=><Scenario key={width+mode+locale} width={width} compact={mode==='compact'} simple={mode==='simple'} locale={locale} index={width+mode+locale}/>)))}</main><h2>动态挂载 / 隐藏 / 展开收起</h2><div id="dynamic"><Scenario {...dynamic}/></div></>}
+function App(){const [dynamic,setDynamic]=React.useState({});update=setDynamic;return <><h1>#192 侧栏布局回归</h1><button onClick={run}>Run regression</button><p id="result" role="status">Ready</p><main>{[true,false].flatMap(wrapped=>[240,280,360,56].flatMap(width=>['standard','compact','simple'].flatMap(mode=>['zh','en'].map(locale=><Scenario key={width+mode+locale+wrapped} width={width} compact={mode==='compact'} simple={mode==='simple'} locale={locale} wrapped={wrapped} index={width+mode+locale+wrapped}/>))))}</main><h2>动态挂载 / 隐藏 / 展开收起</h2><div id="dynamic"><Scenario {...dynamic}/></div></>}
 function check(ok,msg){checks++;if(!ok)throw new Error(msg)}
 function measure(section){
  const host=section.querySelector('.host'), parent=section.querySelector('.footerActions'), stack=parent.querySelector('.cm-footer-stack');
@@ -64,7 +72,9 @@ function measure(section){
  if(context){const c=rect(context);check(Math.abs(c.width-(wide?p.width+4-(!stack&&extra?36:0):36))<1,label+' context keeps native width');
   const text=context.querySelector('.lc-ov-entry-label');if(text)check(text.scrollWidth<=text.clientWidth+1,label+' context label visible');}
  if(extra)check(Math.abs(rect(extra).width-36)<1,label+' extra button stays 36px');
- const order=[...parent.children].map(n=>n.classList.contains('lc-ov-entry')?'context':n.classList.contains('cm-footer-stack')?'cost':'extra');
+ const slot=parent.querySelector('[data-slot="sidebar.footer.action"]');
+ if(slot)check(slot.style.cssText==='display: contents;',label+' slot remains layout-neutral');
+ const order=[...(slot??parent).children].map(n=>n.classList.contains('lc-ov-entry')?'context':n.classList.contains('cm-footer-stack')?'cost':'extra');
  check(order.join(',')===[context&&'context',stack&&'cost',extra&&'extra'].filter(Boolean).join(','),label+' React DOM order unchanged');
  check(parent.getAttribute('style')===null,label+' host inline styles untouched');
  if(!stack){const style=getComputedStyle(parent);check(style.flexDirection==='row'&&style.flexWrap==='nowrap',label+' host layout restored');}
@@ -72,10 +82,10 @@ function measure(section){
 const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
 async function run(){const result=document.getElementById('result');checks=0;try{
  document.querySelectorAll('main section').forEach(measure);
- for(const next of [{width:56},{width:56,hidden:true},{width:56,enabled:false},{width:280},{width:280,context:false},{width:280,context:true,extra:false},{width:56,simple:true},{width:360,compact:true},{width:280,hidden:true},{width:280}]){
-  flushSync(()=>update(next));await frame();measure(document.querySelector('#dynamic section'));
+ for(const wrapped of [true,false])for(const next of [{width:56},{width:56,hidden:true},{width:56,enabled:false},{width:280},{width:280,context:false},{width:280,context:true,extra:false},{width:56,simple:true},{width:360,compact:true},{width:280,hidden:true},{width:280}]){
+  flushSync(()=>update({...next,wrapped}));await frame();measure(document.querySelector('#dynamic section'));
  }
- result.textContent='PASS: 24 layouts + 10 transitions, '+checks+' assertions';
+ result.textContent='PASS: 48 layouts + 20 transitions, '+checks+' assertions';
  }catch(error){result.textContent='FAIL: '+error.message;console.error(error)}}
 createRoot(document.getElementById('root')).render(<App/>);
 `

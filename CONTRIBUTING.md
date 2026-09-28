@@ -50,7 +50,9 @@ node test/verify.mjs
 node test/sidebar-footer-layout.mjs /path/to/node_modules
 ```
 
-打开输出的本地地址，点击 `Run regression`，检查 `PASS` 结果及可见布局。页面使用合成数据，覆盖四种宽度、中英文、三种显示模式和动态启停；追加 `--baseline` 可用 v1.7.41 源码复现 #192。
+打开输出的本地地址，点击 `Run regression`，检查 `PASS` 结果及可见布局。页面使用合成数据，覆盖四种宽度、中英文、三种显示模式、新旧宿主结构和动态启停；追加 `--baseline v1.7.42` 可复现 #192 的升级后问题。
+
+DSH 0.1.7 的 `SlotOutlet` 会添加 `<div data-slot="sidebar.footer.action" style="display: contents">`。该节点没有布局盒，但仍参与 CSS 子节点选择器匹配；测试必须保留这层容器，不能仅复制 `SidebarRoot` 的样式。隐藏和卸载费用区时也要确认宿主布局恢复。
 
 ### 这个项目的几个「坑」(改动时务必注意)
 
