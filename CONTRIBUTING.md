@@ -44,6 +44,14 @@ node --check lib/index.js && node --check lib/client.js && node --check lib/stor
 node test/verify.mjs
 ```
 
+改动侧栏底部布局时，可运行浏览器回归页面。参数填写已安装 `react` 和 `react-dom` 的 `node_modules` 目录（例如 DSH 开发环境）：
+
+```sh
+node test/sidebar-footer-layout.mjs /path/to/node_modules
+```
+
+打开输出的本地地址，点击 `Run regression`，检查 `PASS` 结果及可见布局。页面使用合成数据，覆盖四种宽度、中英文、三种显示模式和动态启停；追加 `--baseline` 可用 v1.7.41 源码复现 #192。
+
 ### 这个项目的几个「坑」(改动时务必注意)
 
 这些是历史上真实踩过的,改动涉及对应区域时请特别小心:
