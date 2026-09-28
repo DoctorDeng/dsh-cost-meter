@@ -56,10 +56,10 @@ The built-in read-only catalog is grouped by **vendor → model family**, coveri
 | Alibaba Qwen | Qwen3.8 Max, 3.7, 3.6, 3.5 Plus |
 | Kimi / Moonshot | K3, K2.7 Code, K2.6, K2.5 |
 | MiniMax | M3, M2.7, M2.5 |
-| Xiaomi MiMo | V2.5 (+Pro) |
+| Xiaomi MiMo | V2.6 (Pro / Flash / Pro UltraSpeed), V2.5 (+Pro, officially marked as retiring soon) |
 | Tencent Hunyuan | Hy3 |
 | OpenRouter / Mistral / NVIDIA / Upstage | common models |
-| **OpenCode Go (subscription)** | official reference prices for the **17 non-DeepSeek models** included in the subscription (DeepSeek V4 Flash/Pro follow the official main table and are not duplicated) |
+| **OpenCode Go (subscription)** | official reference prices for the non-DeepSeek models included in the subscription (DeepSeek V4 Flash/Pro follow the official main table and are not duplicated) |
 
 Price sources: cross-checked against the **OpenCode Zen/Go official price list** (officially stated as cost-pass-through, identical to each vendor's own prices) and each vendor's official pricing pages; entries without a verifiable price (e.g. GLM-5.3) are marked `unpriced` — **prices are never invented**. A machine-readable copy is [`provider-pricing.json`](./provider-pricing.json) (auto-generated from code).
 

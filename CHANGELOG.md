@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- **#187 MiMo V2.6 三型号补价**：内置价格目录此前只收录 2.5 系，`mimo-v2.6-pro` / `mimo-v2.6-flash` / `mimo-v2.6-pro-ultraspeed` 经模糊匹配落到 `mimo-v2.5`，pro 输入/输出少计约 3.1×、速度优先档少计约 31×。现按官方 pay-as-you-go 价目页（USD 表）收录三型号的命中/未命中/输出三档价（$0.0036/$0.435/$0.87、$0.0028/$0.14/$0.28、$0.036/$4.35/$8.7），官方人民币价与批量推理半价记入 notes；2.6-Pro 与 2.6-Flash 同步进 OpenCode Go 目录（随 Go 表值），2.5 系补「官方标注即将下线」说明。
+- 家族分组、`docs/provider-pricing.json` 与双语适配文档同步更新；回归见 `test/mimo-v26-pricing.mjs`。
+
 ## [1.7.40] - 2026-09-27
 
 - 合并社区贡献 PR #184：新增 `locale/en.json` 与 `locale/zh.json`，通过包导出和发布文件列表让 DSH 插件列表读取中文名称及简介；英文回退到现有 `package.json` 元信息。
