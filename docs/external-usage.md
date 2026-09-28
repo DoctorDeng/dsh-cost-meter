@@ -2,7 +2,7 @@
 
 ## English
 
-Another local process can write `$DSH_HOME/storages/cost-meter/external_usage.json` to add usage from the **same account** that bypasses DSH. The plugin reads the file on each state refresh. It never calls Hindsight or any other external service. Settings → Cost shows DSH and external usage separately, plus combined today/month/all-time totals. Expand a source to see its token buckets, calls, costs and up to 90 recent daily rows. DSH session totals and official balance reconciliation remain DSH-only.
+Another local process can write `$DSH_HOME/storages/cost-meter/external_usage.json` to add usage from the **same account** that bypasses DSH. The plugin reads the file on each state refresh. It never calls Hindsight or any other external service. Settings → Cost shows DSH and external usage separately, plus combined today/month/all-time totals. Expand a source to see its token buckets, calls, costs and up to 90 recent daily rows. DSH session totals remain separate. Official balance reconciliation includes the external snapshot's cost for today when the snapshot is less than 24 hours old; a stale snapshot mutes drift warnings until refreshed. A missing today entry counts as zero.
 
 Write the entire snapshot to a temporary file in the same directory, then atomically rename it to `external_usage.json`. Replace the file on every refresh; **do not append deltas**. The same snapshot can be read repeatedly without double-counting. Use ISO 8601 timestamps with `Z` or an explicit offset. `source` is a stable name (1–64 characters), not a model name. Up to eight sources are accepted. The file is capped at 512 KiB; each source can supply up to 3,660 daily summaries, or the whole file can supply up to 5,000 individual records. Snapshots older than 24 hours are marked stale; those older than 30 days, malformed, oversized, or unreadable are ignored. The producer should refresh regularly and keep historical days in each replacement snapshot. All-time totals cover only the days supplied by the producer.
 
@@ -52,7 +52,7 @@ A snapshot can contain a single top-level source as above, or a `sources` array.
 
 ## 中文
 
-其他本地进程可将同一账户、但绕过 DSH 的用量写入 `$DSH_HOME/storages/cost-meter/external_usage.json`。插件每次刷新状态时读取，不直接请求 Hindsight 等服务。设置 → 费用按来源显示外部用量、DSH 与外部合计，以及近 90 天的逐日数据；DSH 会话金额和官方余额对账仍只使用 DSH 账本。
+其他本地进程可将同一账户、但绕过 DSH 的用量写入 `$DSH_HOME/storages/cost-meter/external_usage.json`。插件每次刷新状态时读取，不直接请求 Hindsight 等服务。设置 → 费用按来源显示外部用量、DSH 与外部合计，以及近 90 天的逐日数据。DSH 会话金额保持独立；官方余额对账会计入 24 小时内有效快照的今日外部费用。快照过期时暂停偏差提示，缺少今日条目按零计。
 
 采集器先在同目录写完整临时文件，再原子重命名为 `external_usage.json`。每次刷新替换整份快照，**不要追加增量**；重复读取不会重复计费。时间使用带 `Z` 或时区偏移的 ISO 8601。`source` 是稳定的来源名称，不是模型名。最多 8 个来源；文件上限 512 KiB；每来源最多 3660 条日汇总，或整份快照最多 5000 条调用记录。超过 24 小时未更新会标为过期；超过 30 天、损坏、过大或不可读的快照会被忽略。刷新时应保留所需的历史日期；累计费用只覆盖采集器提供的日期。
 

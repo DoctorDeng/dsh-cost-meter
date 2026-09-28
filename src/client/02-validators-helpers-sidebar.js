@@ -87,6 +87,7 @@
         if (v[key] === undefined) continue
         out[key] = parsePriceTier(v[key], path + '.' + key, ['cacheWrite', 'reasoning', 'aboveInputTokens'])
       }
+      if (v.cny !== undefined) out.cny = parsePriceTier(v.cny, path + '.cny')
       if (v.legacy !== undefined) out.legacy = needBool(v.legacy, path + '.legacy')
       if (v.rateHistory !== undefined) {
         if (!Array.isArray(v.rateHistory) || v.rateHistory.length > 16) fail(path + '.rateHistory', 'price history')
@@ -126,6 +127,7 @@
         showSessionId: v.showSessionId === true,
         hideOfficialBalance: v.hideOfficialBalance === true,
         hideTodayCost: v.hideTodayCost === true,
+        sidebarTodayMetric: v.sidebarTodayMetric === 'tokens' ? 'tokens' : 'cost',
         showTotalWithPlan: v.showTotalWithPlan === true,
         sidebarSimple: v.sidebarSimple === true,
         sidebarSimplePromptSeen: v.sidebarSimplePromptSeen === true,
@@ -753,7 +755,7 @@
     }
     /**
      * 模型名自动匹配(与 lib/pricing.js 的 matchModelId 同逻辑;bundle 无法导入,修改时两处同步)。
-     * 精确 → 归一化等价 → 宽泛包含(取最长候选) → 去后缀 → 前缀 → 家族 token 相似。
+     * 精确 → 归一化等价 → 去日期/版本后缀 → 安全后缀。
      */
     function matchModelIdLocal(modelId, candidates) {
       if (typeof modelId !== 'string' || modelId.length === 0) return null
@@ -766,54 +768,12 @@
       if (canon.length === 0) return null
       const byCanon = list.find(c => canonModelIdLocal(c) === canon)
       if (byCanon !== undefined) return byCanon
-      let containHit = null
-      let containLen = 0
-      for (const c of list) {
-        const cc = canonModelIdLocal(c)
-        if (cc.length < 4 || cc === canon) continue
-        if (canon.includes(cc) && cc.length > containLen) {
-          // 数字分叉守卫(issue #18 同源,与 pricing.js 同步):候选是请求 canon
-          // 的真前缀且剩余段为 1-2 位纯数字(glm-5 vs glm-5.3)时视为版本分叉
-          // 拒绝;日期快照(≥3 位)与 '-128k' 容量后缀余量不受影响。
-          const idx = canon.indexOf(cc)
-          if (/^\d{1,2}$/.test(canon.slice(idx + cc.length))) continue
-          containHit = c; containLen = cc.length
-        }
-      }
-      if (containHit !== null) return containHit
       const stripped = strip(modelId)
       const byStripped = list.find(c => strip(c) === stripped)
       if (byStripped !== undefined) return byStripped
-      let prefixHit = null
-      for (const c of list) {
-        const cs = strip(c)
-        if (cs.length === 0 || cs === stripped) continue
-        const rest = stripped.slice(cs.length)
-        if (stripped.startsWith(cs) && /^[-_./:]/.test(rest)) {
-          if (/^\d{1,2}$/.test(rest.replace(/^[-_./:]+/, ''))) continue // 版本分叉(gpt-5.9 的 '.9'),与 pricing.js 同步
-          if (prefixHit === null || strip(prefixHit).length < cs.length) prefixHit = c
-        }
-      }
-      if (prefixHit !== null) return prefixHit
-      const tokensOf = id => strip(id).split(/[-_./:]+/).filter(Boolean)
-      const mt = tokensOf(modelId)
-      if (mt.length < 2) return null
-      let best = null
-      let bestLen = 0
-      for (const c of list) {
-        const ct = tokensOf(c)
-        let n = 0
-        while (n < mt.length && n < ct.length && mt[n] === ct[n]) n += 1
-        // 防跨版本误配(issue #18,与 pricing.js 同步):分歧位置两侧都是数字/版本号 token 时拒绝匹配。
-        if (n < mt.length && n < ct.length && /^\d+$/.test(mt[n]) && /^\d+$/.test(ct[n])) continue
-        // 候选耗尽而请求多出全为 1-2 位纯数字 token(glm-5 vs glm-5.3)同为版本分叉,拒绝。
-        if (n >= 2 && n === ct.length && n < mt.length && mt.slice(n).every(t => /^\d{1,2}$/.test(t))) continue
-        // 分歧位一侧为 1-2 位版本号、另一侧为变体名(gpt-5.9 vs gpt-5-nano),与 pricing.js 同步拒绝。
-        if (n >= 2 && n < mt.length && n < ct.length
-          && ((/^\d{1,2}$/.test(mt[n]) && /^[a-z]/.test(ct[n])) || (/^\d{1,2}$/.test(ct[n]) && /^[a-z]/.test(mt[n])))) continue
-        if (n >= 2 && (n > bestLen || (n === bestLen && best !== null && c.length < best.length))) { best = c; bestLen = n }
-      }
-      return best
+      const suffix = /^(?:[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest))+$/
+      return list.filter(c => stripped.startsWith(strip(c)) && suffix.test(stripped.slice(strip(c).length)))
+        .sort((a, b) => b.length - a.length)[0] ?? null
     }
     /**
      * 客户端价格解析(与 pricing.js providerPriceEntryFor 同口径):手动覆盖 → 精确 → 自动匹配。
@@ -839,7 +799,7 @@
       const model = typeof modelId === 'string' ? modelId.toLowerCase() : ''
       return LOCAL_MODEL_PREFIXES.some(prefix => model.startsWith(prefix))
     }
-    function resolveClientPrice(providerRaw, modelId, config) {
+    function resolveClientPriceRaw(providerRaw, modelId, config) {
       const prices = config?.prices ?? {}
       const mode = config?.priceMatch === 'exact' ? 'exact' : 'auto'
       const overrides = config?.priceOverrides && typeof config.priceOverrides === 'object' ? config.priceOverrides : {}
@@ -900,6 +860,7 @@
       const hit = catalog[targetModel] !== undefined ? targetModel
         : (mode === 'auto' ? matchModelIdLocal(targetModel, Object.keys(catalog)) : null)
       if (hit !== null) return { entry: catalog[hit], priced: catalog[hit]?.unpriced !== true, billingMode: 'flat', matched: true }
+      if (targetProvider === 'opencode-go') return { entry: null, priced: false, billingMode: 'flat', matched: false }
       // 跨厂商兑底(与 pricing.js 同口径):provider 未在价格表登记时按模型名全库查找。
       if (mode === 'auto') {
         const dsModels = prices.models ?? {}
@@ -934,6 +895,13 @@
         if (retryHit !== null) return { entry: dsModels[retryHit], priced: true, billingMode: 'deepseek-peak', matched: true }
       }
       return { entry: null, priced: false, billingMode: 'flat', matched: false }
+    }
+    function resolveClientPrice(provider, modelId, config) {
+      const result = resolveClientPriceRaw(provider, modelId, config)
+      if (result.priced && config?.prices?.currency === 'CNY' && result.entry?.cny) {
+        return { ...result, entry: result.entry.cny, currency: 'CNY' }
+      }
+      return { ...result, currency: result.billingMode === 'deepseek-peak' && config?.prices?.currency === 'CNY' ? 'CNY' : 'USD' }
     }
     /** 投影 token 桶 → 按当前时刻档位计价的美元成本。 */
     /**
@@ -1026,14 +994,16 @@
     function billingClassOfLocal(provider, modelId, config) {
       let planId = planProviderIdOfLocal(provider)
       if (planId === null && isRoutedThirdPartyCallLocal(provider, modelId, config)) planId = 'go'
-      if (planId === null) return 'api'
       const models = config?.planBilling?.models
       if (models !== null && typeof models === 'object') {
         const direct = models[provider + ':' + modelId]
         if (direct === 'plan' || direct === 'api') return direct
-        const canonical = models[planId + ':' + modelId]
-        if (canonical === 'plan' || canonical === 'api') return canonical
+        if (planId !== null) {
+          const canonical = models[planId + ':' + modelId]
+          if (canonical === 'plan' || canonical === 'api') return canonical
+        }
       }
+      if (planId === null) return 'api'
       const configured = config?.planBilling?.providers?.[planId]
       if (configured === 'plan' || configured === 'api') return configured
       return enabledPlanSetOfLocal(config).has(planId) ? 'plan' : 'api'
@@ -1061,7 +1031,7 @@
         const resolved = resolveClientPrice(provider, modelId, config)
         if (resolved.priced) {
           const c = costOfBuckets(byModel[providerKey], tierFor(normalizeClientPrice(resolved.entry), now, { ...peak, enabled: resolved.billingMode === 'deepseek-peak' && peak.enabled }))
-          const billed = usdFromCostLocal(c, resolved.billingMode === 'deepseek-peak' && config.prices?.currency === 'CNY' ? 'CNY' : 'USD', config.exchangeRate)
+          const billed = usdFromCostLocal(c, resolved.currency, config.exchangeRate)
           total += billed
           if (billingClassOfLocal(provider, modelId, config) === 'api') api += billed
         }
@@ -2207,10 +2177,12 @@
             ? el(Fragment, null,
               // 今日金额行受 hideTodayCost 门控(issue #46);金额为真金白银口径(issue #64)。
               config.hideTodayCost === true ? null : el('div', { className: 'cm-bbox-line cm-num' },
-                t('todayShare', {
-                  amount: formatMoneyUsd(displayCostOf(today, config), config),
-                  pct: todayPct === null ? '—' : todayPct.toFixed(1) + '%',
-                })),
+                config.sidebarTodayMetric === 'tokens'
+                  ? t('today') + ' ' + sidebarTodayValue(today, config, t)
+                  : t('todayShare', {
+                    amount: formatMoneyUsd(displayCostOf(today, config), config),
+                    pct: todayPct === null ? '—' : todayPct.toFixed(1) + '%',
+                  })),
               el('div', { className: 'cm-bbox-line cm-num' },
                 t('usedOf', { used: formatMoneyValue(used, config), amount: formatMoneyValue(amount, config) })))
             : null),
@@ -2981,11 +2953,18 @@
           el('button', { type: 'button', className: 'cm-btn small primary', onClick: dismiss }, t('balanceClickGuideOk'))))
     }
 
+    function sidebarTodayValue(today, config, t) {
+      return config.sidebarTodayMetric === 'tokens'
+        ? formatTokens((Number(today?.input) || 0) + (Number(today?.output) || 0)) + ' ' + t('tokensUnit')
+        : formatMoneyUsd(displayCostOf(today, config), config)
+    }
+
     function BudgetBoxContent(props) {
       const { state, wide } = props
       const today = state.today
       const config = state.config
       const t = makeT(resolveLocale(config?.locale))
+      const todayValue = sidebarTodayValue(today, config, t)
       const budget = config.budget ?? { enabled: false, amount: 100, period: 'month' }
       const rate = Number(config.exchangeRate)
       const budgetUsedUsd = state.budgetUsed ?? (
@@ -3007,10 +2986,9 @@
           t('usedOf', { used: formatMoneyValue(used, config), amount: formatMoneyValue(amount, config) })
             + ' · ' + (pct === null ? '—' : pct.toFixed(1) + '%'),
           // 今日金额行受 hideTodayCost 门控(issue #46)。
-          ...(config.hideTodayCost === true ? [] : [t('todayShare', {
-            amount: formatMoneyUsd(todayApi, config),
-            pct: todayPct === null ? '—' : todayPct.toFixed(1) + '%',
-          })]),
+          ...(config.hideTodayCost === true ? [] : [config.sidebarTodayMetric === 'tokens'
+            ? t('today') + ' ' + todayValue
+            : t('todayShare', { amount: todayValue, pct: todayPct === null ? '—' : todayPct.toFixed(1) + '%' })]),
           t('monthTotal', {
             month: formatMoneyUsd(displayCostOf(state.month, config), config),
             total: formatMoneyUsd(displayCostOf(state.total, config), config),
@@ -3019,7 +2997,7 @@
         if (props.summary === true) return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
           el('div', { className: 'cm-simple-summary' + (level === 'ok' ? '' : ' ' + level), tabIndex: 0 },
             el('span', null, t('todayBudget', { period: t(PERIOD_KEYS[budget.period] ?? 'periodMonth') })),
-            el('span', { className: 'cm-num' }, formatMoneyUsd(todayApi, config) + ' / ' + formatMoneyValue(amount, config))))
+            el('span', { className: 'cm-num' }, todayValue + ' / ' + formatMoneyValue(amount, config))))
         const view = budgetBoxBody(state, config, t)
         return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
           el('div', { className: 'cm-bbox' + (level === 'ok' ? '' : ' ' + level) + (wide ? '' : ' rail') },
@@ -3027,7 +3005,7 @@
       }
 
       const detail = [
-        t('todayCostTitle'),
+        config.sidebarTodayMetric === 'tokens' ? t('todayTokensTitle') : t('todayCostTitle'),
         t('callsTokens', {
           calls: today.calls,
           input: formatTokens(today.input),
@@ -3040,7 +3018,7 @@
       return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
         el(Fragment, null,
           el('div', { className: 'cm-foot' + (wide ? '' : ' cm-foot-rail') },
-            wide ? el(Fragment, null, t('today'), ' ', el('span', { className: 'cm-num' }, formatMoneyUsd(displayCostOf(today, config), config))) : el(WalletIcon, { size: 16 })),
+            wide ? el(Fragment, null, t('today'), ' ', el('span', { className: 'cm-num' }, todayValue)) : el(WalletIcon, { size: 16 })),
           wide ? peakNoticeEl(state, config, t) : null))
     }
 
@@ -3271,7 +3249,7 @@
       // 合并为一条「今日 / 预算」摘要(上游 #123),余额仍走原图框/行。
       if (mergedBudget) nodes.push(el(BudgetBoxContent, { state, wide, summary: true }))
       else if (simple && wide && showToday) nodes.push(el('div', { className: 'cm-simple-summary' },
-        el('span', null, t('today')), el('span', { className: 'cm-num' }, formatMoneyUsd(displayCostOf(state.today, config), config))))
+        el('span', null, t('today')), el('span', { className: 'cm-num' }, sidebarTodayValue(state.today, config, t))))
       // 展开态:今日费用 + 官方余额 + 峰谷条合并为一张卡(含今日/累计 Token 量,见 TodayBalanceCard);
       // 收起(rail)态与 simple 模式维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
       if (wide && !simple) nodes.push(el(TodayBalanceCard, { state, wide, api: props.api, showBalance, showBalanceBar, showToday }))
