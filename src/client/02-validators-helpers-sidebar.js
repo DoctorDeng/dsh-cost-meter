@@ -3161,45 +3161,6 @@
       useProjectionRefresh(props, projectionUsage)
       const state = costStore?.state
       const wide = !!props.wide
-      const rootRef = useRef(null)
-      // 兼容外壳 footerActions 与其它插件(如 dsh-remote-web-ui 的「更新/远程控制」行)的图标布局:
-      // - 展开(wide):本插件堆叠保持在最左侧;
-      // - 窄栏(rail):把外壳容器改为纵向排布,本插件置底,同一行的其它插件图标上移。
-      useEffect(() => {
-        const root = rootRef.current
-        const parent = root?.parentElement
-        if (!root || !parent) return
-        const apply = () => {
-          if (wide) {
-            if (parent.firstElementChild !== root) parent.insertBefore(root, parent.firstElementChild)
-          } else {
-            if (parent.lastElementChild !== root) parent.appendChild(root)
-          }
-        }
-        apply()
-        const observer = new MutationObserver(() => { if (root.isConnected) apply() })
-        observer.observe(parent, { childList: true })
-        if (wide) {
-          parent.style.flexDirection = ''
-          parent.style.flexWrap = ''
-          parent.style.alignItems = ''
-          parent.style.gap = ''
-        } else {
-          parent.style.flexDirection = 'column'
-          parent.style.flexWrap = 'nowrap'
-          parent.style.alignItems = 'center'
-          parent.style.gap = '6px'
-        }
-        return () => {
-          observer.disconnect()
-          if (!wide) {
-            parent.style.flexDirection = ''
-            parent.style.flexWrap = ''
-            parent.style.alignItems = ''
-            parent.style.gap = ''
-          }
-        }
-      }, [wide, state])
       if (!state) return null
       const config = state.config
       const t = makeT(resolveLocale(config?.locale))
@@ -3288,6 +3249,5 @@
       if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
       if (modelsOn) nodes.splice(config.sidebarModels.position === 'first' ? 0 : config.sidebarModels.position === 'afterBalance' ? afterBalance : nodes.length, 0,
         el(SidebarModelCosts, { key: 'models', state, wide }))
-      // 外壳的 footerActions 是横向 flex;这里用自建纵向堆叠保证余额在上、图框在下。
-      return el('div', { ref: rootRef, ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : '') }, ...nodes)
+      return el('div', { ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : '') }, ...nodes)
     }

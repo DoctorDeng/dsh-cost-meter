@@ -10,6 +10,33 @@ permissions:
   contents: read
 
 jobs:
+  next-host-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install pinned DSH 0.2 host
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+          mkdir -p .tmp-next-host
+          cp test/fixtures/next-host/package.json .tmp-next-host/package.json
+          npm install --prefix .tmp-next-host --no-audit --no-fund
+      - name: Verify compatibility, sessions and RPC on the next host
+        run: |
+          export DSH_TEST_NODE_MODULES="$PWD/.tmp-next-host/node_modules"
+          node test/host-peer-compatibility.mjs
+          node test/verify.mjs
+          node test/market-hot-install.mjs
+      - name: Install the packed plugin and start the real Web host
+        run: |
+          export DSH_TEST_NODE_MODULES="$PWD/.tmp-next-host/node_modules"
+          mkdir -p .tmp-next-package
+          npm pack --pack-destination .tmp-next-package
+          node test/next-host-install.mjs .tmp-next-package/dsh-cost-meter-*.tgz
+
   market-hot-install:
     runs-on: ubuntu-latest
     steps:

@@ -360,8 +360,13 @@ window.__ModuleLoader__.load({
       '.cm-mm-row.wide .cm-mm-text{flex:1;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-bal-line{font-size:13px;color:var(--dsw-alias-label-secondary)}',
       '.cm-bal-line.warn{color:var(--dsw-alias-state-warning-primary,#b45309)}',
-      '.cm-footer-stack{display:flex;flex-direction:column;gap:10px;width:100%;align-items:stretch;box-sizing:border-box}',
-      '.cm-footer-stack.rail{align-items:center}',
+      // footer.action 与其它插件共用 flex 容器；宽栏费用独占一行，窄栏图标纵排。
+      // 0.1.7 的 SlotOutlet 多一层 display:contents 容器，布局规则需命中外层 flex。
+      // 同时保留旧宿主的直接子节点结构；卡片隐藏/卸载后规则自动失效。
+      ':has(>.cm-footer-stack),:has(>[data-slot="sidebar.footer.action"]>.cm-footer-stack){flex-wrap:wrap}',
+      ':has(>.cm-footer-stack.rail),:has(>[data-slot="sidebar.footer.action"]>.cm-footer-stack.rail){flex-direction:column;flex-wrap:nowrap;align-items:center;gap:6px}',
+      '.cm-footer-stack{display:flex;flex:none;order:-1;flex-direction:column;gap:10px;width:100%;min-width:0;max-width:100%;align-items:stretch;box-sizing:border-box}',
+      '.cm-footer-stack.rail{align-items:center;order:1}',
       // 侧边栏全部信息卡(费用/余额/Plan/网关/预算/Go):卡面按主题明暗分向提亮——
       // 亮色主题(默认):bg-base 向白提亮 45%(比底色亮一档且保留底色暖调);纯白底时由投影+边框承担卡片感;
       // 暗色主题:挂宿主自身的暗色标记 body[data-ds-dark-theme]

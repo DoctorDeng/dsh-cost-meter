@@ -44,6 +44,16 @@ node --check lib/index.js && node --check lib/client.js && node --check lib/stor
 node test/verify.mjs
 ```
 
+改动侧栏底部布局时，可运行浏览器回归页面。参数填写已安装 `react` 和 `react-dom` 的 `node_modules` 目录（例如 DSH 开发环境）：
+
+```sh
+node test/sidebar-footer-layout.mjs /path/to/node_modules
+```
+
+打开输出的本地地址，点击 `Run regression`，检查 `PASS` 结果及可见布局。页面使用合成数据，覆盖四种宽度、中英文、三种显示模式、新旧宿主结构和动态启停；追加 `--baseline v1.7.42` 可复现 #192 的升级后问题。
+
+DSH 0.1.7 的 `SlotOutlet` 会添加 `<div data-slot="sidebar.footer.action" style="display: contents">`。该节点没有布局盒，但仍参与 CSS 子节点选择器匹配；测试必须保留这层容器，不能仅复制 `SidebarRoot` 的样式。隐藏和卸载费用区时也要确认宿主布局恢复。
+
 ### 这个项目的几个「坑」(改动时务必注意)
 
 这些是历史上真实踩过的,改动涉及对应区域时请特别小心:
