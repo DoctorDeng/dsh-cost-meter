@@ -62,7 +62,9 @@ window.__ModuleLoader__.load({
       // 会先把整行占满,圆点就被顶到下一行去了。max-width 放开是要紧的——100% 基准会被 .cm-root 原有的
       // 720px 上限夹住而不触发换行。独占一行后两行间距只剩 .cm-root 自己的 4px 上内边距。
       'div:has(> [data-slot="conversation.composer.dock"]) .cm-root,div:has(> [data-slot="conversation.composer.dock"]) .cm-corner{order:1;flex:1 1 100%;max-width:100%}',
-      '.cm-root{display:block;text-align:center;max-width:var(--dsh-chat-content-width,720px);width:100%;margin:0 auto;box-sizing:border-box;padding:4px calc(var(--dsh-composer-side-clearance,0px) + 16px) 0;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      // 上游 #200(dock 统计布局):.cm-root 由块级 720px 居中改为宿主行内的 flex 子项,采用上游写法;
+      // 本 fork 在宿主 dock 行内仍由上面两条 :has 规则接管换行与整行占位(1e79e89),两者按优先级叠加。
+      '.cm-root{flex:0 1 auto;min-width:0;max-width:100%;text-align:center;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-chip{display:inline-flex;align-items:center;gap:4px;max-width:180px;padding:0 8px;height:22px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-size:12px;line-height:22px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-foot{display:flex;align-items:center;gap:6px;height:32px;padding:0 8px;border-radius:8px;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden}',
       '.cm-foot:hover,.cm-foot-rail:hover,.cm-corner-chip:hover,.cm-qchip:hover,.cm-tab:hover,.cm-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}',
