@@ -1397,7 +1397,10 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan(id) : null)"), '通用 Coding Plan 图框接 refreshCodingPlan(id)')
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan('minimax') : null)"), 'MiniMax 图框接 refreshCodingPlan(minimax)')
   const footerSource = clientSource.match(/function SidebarFooter\(props\) \{([\s\S]*?)\n    \}/)?.[0] ?? ''
-  assert.equal((clientSource.match(/api: props\.api/g) ?? []).length, 8, 'SidebarFooter 八处渲染均透传 api(六类图框 + Codex 卡片 + 今日/余额合并卡)')
+  // 口径限定在 SidebarFooter 内:上游 1.8.x 设置页新增的 BillingStatistics 也透传 api(全源码 9 处),
+  // 但本断言守的是侧边栏六类图框 + Codex 卡片 + fork 的今日/余额合并卡这 8 处。
+  assert.ok(footerSource.length > 0, 'SidebarFooter 源码片段可定位')
+  assert.equal((footerSource.match(/api: props\.api/g) ?? []).length, 8, 'SidebarFooter 八处渲染均透传 api(六类图框 + Codex 卡片 + 今日/余额合并卡)')
   assert.ok(clientSource.includes('const clickableRefreshProps = (busy, run) => ({'), '可点击属性 helper 存在')
   assert.ok(clientSource.includes("role: 'button'") && clientSource.includes("tabIndex: 0") && clientSource.includes("'aria-busy': busy ? 'true' : 'false'"), 'role=button + tabIndex + aria-busy')
   assert.ok(clientSource.includes("event.key === 'Enter' || event.key === ' '"), '键盘 Enter/Space 同样触发')
