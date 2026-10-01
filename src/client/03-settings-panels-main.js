@@ -8,6 +8,34 @@
         el('p', { className: 'cm-card-sub' }, props.sub))
     }
 
+    function BillingStatistics(props) {
+      const [Page, setPage] = useState(null), [error, setError] = useState(''), [retry, setRetry] = useState(0)
+      useEffect(() => {
+        let active = true
+        setError('')
+        props.api.loadStatistics().then(page => { if (active) setPage(() => page) }, e => { if (active) setError(String(e.message ?? e)) })
+        return () => { active = false }
+      }, [props.api, retry])
+      if (Page) return el(Page, { ...props, formatMoneyUsd, formatTokens })
+      return el('p', { role: error ? 'alert' : 'status' }, error || '…', error ? el('button', { className: 'cm-btn', onClick: () => setRetry(n => n + 1) }, '↻') : null)
+    }
+
+    function SessionStatisticsButton(props) {
+      const snapshot = props.useCost?.(s => s), state = snapshot?.state
+      const [openedId, setOpenedId] = useState(null), dialog = React.useRef(null)
+      const open = !!props.sessionId && openedId === props.sessionId
+      useEffect(() => { if (open) dialog.current?.showModal() }, [open])
+      useEffect(() => { setOpenedId(null) }, [props.sessionId])
+      if (!props.sessionId) return null
+      const en = resolveLocale(state?.config.locale) === 'en'
+      const label = en ? 'Conversation cost details' : '本会话费用明细'
+      return el(Fragment, null,
+        el('button', { type: 'button', className: 'cm-btn cm-stat-entry', 'aria-haspopup': 'dialog', onClick: () => setOpenedId(props.sessionId), style: { flexShrink: 0, whiteSpace: 'nowrap' } }, label),
+        open ? el('dialog', { ref: dialog, 'aria-label': label, onCancel: () => setOpenedId(null), style: { width: 'min(1160px,94vw)', maxHeight: '90vh', padding: 24, borderRadius: 16, border: '1px solid var(--dsw-alias-border-l1)', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base,#fff)' } },
+          el('button', { type: 'button', className: 'cm-btn', autoFocus: true, 'aria-label': en ? 'Close' : '关闭', onClick: () => setOpenedId(null), style: { float: 'right' } }, '×'),
+          state ? el(BillingStatistics, { key: props.sessionId, state, api: props.api, sessionId: props.sessionId }) : el('p', { role: snapshot?.error ? 'alert' : 'status' }, snapshot?.error || (en ? 'Loading…' : '加载中…'), el('button', { type: 'button', className: 'cm-btn', onClick: () => props.api.reload() }, en ? 'Retry' : '重试'))) : null)
+    }
+
     function ExternalUsagePanel({ state, t }) {
       const ext = state.externalUsage
       if (!ext) return null
@@ -2047,6 +2075,7 @@
       // 设置页标签(issue #29):按用途分五组,切换只改可见分区,不拆配置模型与保存逻辑。
       const tabItems = [
         ['overview', t('tabOverview')],
+        ['statistics', locale === 'en' ? 'Cost statistics' : '计费统计'],
         ['quotas', t('tabQuotas')],
         ['usage', t('tabUsage')],
         ['pricing', t('tabPricing')],
@@ -2070,6 +2099,7 @@
           saveBadge),
         // 操作结果提示(价格同步/历史导入/清除):全局展示,不随触发按钮所在标签页。
         cmMsg(message),
+        tab === 'statistics' ? el(BillingStatistics, { state, api }) : null,
         // ── 概览:汇总卡片、今日会话、预算、官方余额 ──
         tab === 'overview' ? el(Fragment, { key: 'overview' },
         // 汇总卡片(今日卡片受 hideTodayCost 门控,issue #46;金额为真金白银口径,issue #64)
@@ -2195,7 +2225,7 @@
           el('h3', { className: 'cm-h' }, t('displaySettings')),
           el('div', { className: 'cm-grid' },
             el('div', { className: 'cm-grid-group' }, t('groupGeneral')),
-            ...['includeSubagentCost', 'codexQuotaEnabled'].map(key => el('label', { key, className: 'cm-check' },
+            ...['includeSubagentCost', 'codexQuotaEnabled', 'codexQuotaSidebar'].map(key => el('label', { key, className: 'cm-check' },
               el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
               el('span', null, t(key)))),
             USAGE_POSITION_SWITCHABLE
@@ -2701,7 +2731,14 @@
         if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
         return result.value
       }
+      let statisticsPage = null
       const api = {
+        loadStatistics: () => {
+          if (!statisticsPage) statisticsPage = (typeof require.async === 'function'
+            ? require.async('./client.statistics.js').then(module => module.mount(ctx))
+            : Promise.reject(new Error(rpcT()('statisticsUpgrade')))).catch(error => { statisticsPage = null; throw error })
+          return statisticsPage
+        },
         reload,
         updateConfig: async patch => {
           const state = await call('updateConfig', [patch])
@@ -2727,6 +2764,7 @@
         getDaySessions: async date => call('getDaySessions', [date]),
         // 跨全部日期的会话排行(issue #22 不分日期视角):支持费用/时间升降序与实时顺序。
         getSessionCost: async id => call('getSessionCost', [id]),
+        getTurnCost: async (id, start, end) => call('getTurnCost', [id, start, end]),
         getTopSessions: async (limit, sort, dir) => call('getTopSessions', [limit, sort, dir]),
         refreshBalance: async () => receive(costMeter.refreshBalance(), 'rpcBalanceFailed'),
         refreshGoQuota: async () => receive(costMeter.refreshGoQuota()),
@@ -2744,6 +2782,8 @@
       if (slots === undefined) return
 
       const injected = () => ({ hooks: { cost: store }, api })
+      for (const name of ['conversation.session.header.actions', 'conversation.composer.dock']) slots.inject(name, () => slots.register({ name, id: 'cost-meter-statistics', order: 15, inject: injected }, SessionStatisticsButton))
+      slots.inject('conversation.chat.turnTail', () => slots.register({ name: 'conversation.chat.turnTail', id: 'cost-meter-turn', order: 10, inject: injected }, TurnCost))
       // 通用插槽注册去重:共享「失效旧注册→bump gen→注入→生成期护栏→记录 dispose→卸载清理」逻辑。
       const slotActive = () => ({ gen: 0, dispose: null })
       const registerSlot = (active, slotName, options, component, enabled = true) => {

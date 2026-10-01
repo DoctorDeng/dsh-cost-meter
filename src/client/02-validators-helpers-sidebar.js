@@ -54,6 +54,9 @@
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'calls', 'cost']) out[key] = needNum(v[key], path + '.' + key)
       return out
     }
+    function parseTurnRows(rows) {
+      return (Array.isArray(rows) ? rows : fail('rows', 'array')).map(r => ({ provider: needStr(r.provider, 'provider'), model: needStr(r.model, 'model'), bucket: needStr(r.bucket, 'bucket'), tokens: needNum(r.tokens, 'tokens'), rate: needNum(r.rate, 'rate'), cost: needNum(r.cost, 'cost'), priced: needBool(r.priced, 'priced'), plan: needBool(r.plan, 'plan') }))
+    }
     function parseSession(v, path) {
       return {
         ...parseUsageFields(v, path),
@@ -133,6 +136,7 @@
         sidebarSimplePromptSeen: v.sidebarSimplePromptSeen === true,
         sidebarModels: Object.fromEntries(Object.entries(MODEL_SIDEBAR_DEFAULTS).map(([k, v0]) => [k, v.sidebarModels?.[k] ?? v0])),
         codexQuotaEnabled: v.codexQuotaEnabled === true,
+        codexQuotaSidebar: v.codexQuotaSidebar !== false,
         includeSubagentCost: v.includeSubagentCost === true,
         sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
         priceMatchDismissed: Array.isArray(v.priceMatchDismissed) ? v.priceMatchDismissed.filter(key => typeof key === 'string') : [],
@@ -541,6 +545,12 @@
           method: 'getSessionCost',
           parameters: [rpcParam('sessionId', 'SessionId', providerCodec)],
           result: strictCodec('SessionCost', codecOf(v => ({ own: parseSession(v.own, 'own'), subagents: parseSession(v.subagents, 'subagents'), found: needBool(v.found, 'found'), subagentCount: needNum(v.subagentCount, 'subagentCount') }))),
+        },
+        {
+          id: 'dsh-cost-meter#costMeter/getTurnCost', service: 'costMeter', namespace: 'costMeter', method: 'getTurnCost', invocation: { kind: 'direct' },
+          parameters: [rpcParam('sessionId', 'SessionId', codecOf(v => needStr(v, 'sessionId'))), ...['startSeq', 'endSeq'].map(name => rpcParam(name, 'TurnSeq', codecOf(v => { if (!Number.isSafeInteger(v) || v < 0) fail(name, 'nonnegative integer'); return v })))],
+          result: strictCodec('TurnCost', codecOf(v => ({ found: needBool(v.found, 'found'), cost: needNum(v.cost, 'cost'), apiCost: needNum(v.apiCost, 'apiCost'), rows: parseTurnRows(v.rows),
+            calls: (Array.isArray(v.calls) ? v.calls : fail('calls', 'array')).map(c => ({ kind: needStr(c.kind, 'kind'), provider: needStr(c.provider, 'provider'), model: needStr(c.model, 'model'), atMs: needNum(c.atMs, 'atMs'), cost: needNum(c.cost, 'cost'), apiCost: needNum(c.apiCost, 'apiCost'), plan: needBool(c.plan, 'plan'), priced: needBool(c.priced, 'priced'), longContext: needBool(c.longContext, 'longContext'), rows: parseTurnRows(c.rows) })) }))),
         },
         {
           method: 'getTopSessions',
@@ -1321,6 +1331,40 @@
     function modelCostDetail(usage, config) {
       return Object.entries(usage?.byProviderModel ?? {}).filter(([, row]) => row.input || row.output || row.cacheRead || row.cacheWrite || row.reasoning)
         .map(([id, row]) => id + ' ' + formatMoneyUsd(row.cost, config)).join('; ')
+    }
+
+    function TurnCost(props) {
+      const config = props.useCost?.(s => s)?.state?.config
+      const [value, setValue] = useState(null)
+      const [error, setError] = useState('')
+      const start = props.turn?.start?.seq, end = props.turn?.end?.seq
+      const sessionId = props.sessionId
+      const pricingKey = JSON.stringify([config?.prices, config?.priceOverrides, config?.priceMatch, config?.planBilling, config?.codingPlans, config?.goQuota?.enabled, config?.peakEnabled, config?.peakEffectiveAt, config?.peakWindows, config?.peakHolidays, config?.exchangeRate])
+      useEffect(() => {
+        let active = true
+        setValue(null); setError('')
+        if (!sessionId || start == null || end == null) return
+        props.api.getTurnCost(sessionId, start, end).then(v => { if (active) setValue(v) }, e => { if (active) setError(String(e.message ?? e)) })
+        return () => { active = false }
+      }, [sessionId, start, end, pricingKey])
+      if (!config || start == null || end == null) return null
+      const en = resolveLocale(config.locale) === 'en'
+      const names = en ? { input: 'Input', output: 'Output', cacheRead: 'Cache read', cacheWrite: 'Cache write', reasoning: 'Reasoning' } : { input: '输入', output: '输出', cacheRead: '缓存读取', cacheWrite: '缓存写入', reasoning: '推理' }
+      const money = n => formatMoneyUsd(n, { ...config, decimals: Math.max(8, config.decimals ?? 2) })
+      const kinds = en ? { model: 'Model call', compaction: 'Context compaction', search: 'Native search' } : { model: '模型调用', compaction: '上下文压缩', search: '原生搜索' }
+      const rowView = (row, i) => el('div', { key: i, style: { marginBottom: 4, overflowWrap: 'anywhere' } },
+        row.provider + ':' + row.model + ' · ' + names[row.bucket] + (row.plan ? ' (Plan)' : '') + ': ' + row.tokens.toLocaleString() + ' × ' + (row.priced ? money(row.rate) : '?') + ' / 1,000,000 ≈ ' + (row.priced ? money(row.cost) : '?'),
+        !row.priced ? (en ? ' (price unavailable)' : '（未配置价格）') : row.bucket === 'reasoning' && row.rate === 0 ? (en ? ' (no separate charge)' : '（不单独收费）') : '')
+      return el('details', { className: 'cm-note', style: { fontSize: 12, marginTop: 6 } },
+        el('summary', { style: { cursor: 'pointer' } }, en ? 'Turn cost' : '本轮费用', value?.found ? ' ≈ ' + money(config.showTotalWithPlan ? value.cost : value.apiCost) + (value.rows.some(r => !r.priced) ? (en ? ' + unpriced usage' : ' + 未定价用量') : '') : error ? ' ⚠' : ''),
+        error ? el('div', { role: 'alert' }, error) : !value ? (en ? 'Loading…' : '加载中…') : !value.found ? (en ? 'Complete usage records unavailable' : '没有完整用量记录') :
+          el(Fragment, null, el('p', null, en ? 'Estimated from recorded usage and configured prices; rates per 1M tokens.' : '按已记录用量和配置价格估算；单价单位为每百万 Token。'),
+            el('p', null, 'API ≈ ' + money(value.apiCost) + ' · Plan ≈ ' + money(value.cost - value.apiCost) + (en ? ' (equivalent)' : '（等值）')),
+            value.rows.map(rowView),
+            el('details', null, el('summary', { style: { cursor: 'pointer' } }, (en ? 'Individual calls' : '逐次调用明细') + ' (' + value.calls.length + ')'),
+              value.calls.map((call, i) => el('details', { key: i, style: { margin: '6px 0' } },
+                el('summary', { style: { cursor: 'pointer', overflowWrap: 'anywhere' } }, '#' + (i + 1) + ' ' + kinds[call.kind] + ' · ' + call.provider + ':' + call.model + ' · ' + new Date(call.atMs).toLocaleTimeString() + ' · ' + (call.plan ? 'Plan ' : 'API ') + (call.priced ? '≈ ' + money(call.cost) : (en ? 'price unavailable' : '未配置价格')) + (call.longContext ? (en ? ' · long context' : ' · 长上下文价格') : '')),
+                call.rows.map(rowView))))))
     }
 
     function SessionCost(props) {
@@ -2460,9 +2504,10 @@
       const hoverProps = useQuotaHoverRefresh()
       const { state, wide } = props
       const t = makeT(resolveLocale(state.config?.locale))
-      const snap = useCodexQuota(state.config?.codexQuotaEnabled === true)
-      const refresh = useClickRefresh(() => fetchCodexQuota(true, state.config?.codexQuotaEnabled === true))
-      if (state.config?.codexQuotaEnabled !== true || snap.status !== 'ok') return null
+      const enabled = state.config?.codexQuotaEnabled === true && state.config?.codexQuotaSidebar !== false
+      const snap = useCodexQuota(enabled)
+      const refresh = useClickRefresh(() => fetchCodexQuota(true, enabled))
+      if (!enabled || snap.status !== 'ok') return null
       const win = snap.windows.weekly ?? null
       if (win === null) return null
       const direction = barDirectionOf(state.config, 'plan')
@@ -3159,7 +3204,7 @@
 
     function SidebarFooter(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
-      useCodexQuota(costStore?.state?.config?.codexQuotaEnabled === true)
+      useCodexQuota(costStore?.state?.config?.codexQuotaEnabled === true && costStore?.state?.config?.codexQuotaSidebar !== false)
       // 侧边栏页脚非会话作用域插槽:useProjection 在部分宿主/页面可能不可用或
       // 抛错(无活跃会话),try/catch 退化,联动刷新随之失效(60s 轮询兜底)。
       let projectionUsage
@@ -3202,7 +3247,7 @@
       const gatewayNodes = gatewaySidebarCards(state, config, wide, props.api)
       // Codex 周额度(issue #59):客户端探测 dsh-codex-connect,ok 时并入侧边栏;
       // 其余显示全关时也要为它保留渲染入口(模块装载即有被动探测,快照同步读)。
-      const codexOn = config.codexQuotaEnabled === true && codexQuotaCache.status === 'ok'
+      const codexOn = config.codexQuotaEnabled === true && config.codexQuotaSidebar !== false && codexQuotaCache.status === 'ok'
         && codexQuotaCache.windows.weekly !== null
       const budgetOn = (config.budget ?? {}).enabled === true
       const showToday = config.sidebar !== false && config.hideTodayCost !== true
