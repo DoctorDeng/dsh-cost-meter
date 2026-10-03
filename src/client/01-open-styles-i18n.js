@@ -443,7 +443,7 @@ window.__ModuleLoader__.load({
         tierPeak: '峰时',
         // 余额面板
         balanceApiKey: '余额专用 API Key',
-        balanceKeyHint: '优先使用此开放平台 Key；未配置时沿用模型凭据。账号登录令牌不能查询余额。',
+        balanceKeyHint: '优先使用此开放平台 Key；未配置时读取已登录官方账号余额，其次沿用模型凭据。',
         balanceLine: '总余额 {total} · 赠送 {granted} · 充值 {toppedUp} · 更新于 {time}',
         balanceQueryFailedHint: '余额查询失败:{message}',
         balanceNotQueried: '未查询余额',
@@ -962,7 +962,7 @@ window.__ModuleLoader__.load({
         tierOffPeak: 'Off-peak',
         tierPeak: 'Peak',
         balanceApiKey: 'Balance API key',
-        balanceKeyHint: 'This Open Platform key takes priority over model credentials. Account-login tokens cannot query balances.',
+        balanceKeyHint: 'This Open Platform key takes priority; otherwise the signed-in official account balance is read, then model credentials.',
         balanceLine: 'Total {total} · Granted {granted} · Topped-up {toppedUp} · Updated {time}',
         balanceQueryFailedHint: 'Balance query failed: {message}',
         balanceNotQueried: 'Balance not queried',

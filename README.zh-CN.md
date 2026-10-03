@@ -387,7 +387,7 @@ DSH `0.2.0-rc.1` 已通过安装包安装、Web 启动、模块复用、合成�
 
 如果插件市场仅显示 `diagnostics: .../.plugin-manager/logs/operation-.../pnpm.log`，这行信息无法指出失败的包或命令。请打开所指的 `pnpm.log`，反馈其中第一条实际错误；分享前删去凭据及私人路径。DSH `0.2.0-rc.1` 的 Git 地址和 npm 包名安装已在隔离 Windows 环境通过；特定机器上的失败仍需要该机器的诊断日志。
 
-账号模式下余额返回 HTTP 401：请在「设置 → 费用 → 官方账户余额」保存独立的开放平台 API Key。凭据优先级和存储说明见[余额专用凭据](docs/balance-credentials.md)。
+账号模式余额：DSH 桌面版登录官方账号后无需 API Key，插件直接读取账号钱包；若仍报 HTTP 401，请在「设置 → 费用 → 官方账户余额」保存独立的开放平台 API Key。凭据来源、优先级和存储说明见[余额凭据来源](docs/balance-credentials.md)。
 
 ### 更新 / 卸载
 

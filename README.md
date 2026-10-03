@@ -387,7 +387,7 @@ DSH `0.2.0-rc.1` passes packed installation, Web startup, shared-module checks, 
 
 If Plugin Hub reports only `diagnostics: .../.plugin-manager/logs/operation-.../pnpm.log`, that line does not identify the failed package or command. Open the named `pnpm.log` and include the first actual error when reporting the failure; remove credentials and private paths before sharing it. Git URL and npm-name installation on DSH `0.2.0-rc.1` are covered by isolated Windows checks, but an individual machine's failure still requires its diagnostic log.
 
-Balance HTTP 401 in account-login mode: configure a dedicated Open Platform API key under **Settings → Cost → Account balance**. See [credential priority and storage](docs/balance-credentials.md).
+Account-mode balance: in DSH Desktop a signed-in official account is read without any API key; if you still get HTTP 401, save a dedicated Open Platform key under **Settings → Cost → Account balance**. See [credential sources and priority](docs/balance-credentials.md).
 
 ### Update / Uninstall
 
