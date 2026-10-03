@@ -74,7 +74,8 @@ const tiersOf = (provider, model) => {
   // Go 目录没有速度优先档，不应套用普通 pro 的价格。
   const goUltra = providerPriceEntryFor('opencode-go', 'mimo-v2.6-pro-ultraspeed', prices, { mode: 'auto' })
   assert.equal(goUltra.priced, false, 'Go 目录内 ultraspeed 保持未定价')
-  assert.equal(providerPriceEntryFor('openai-codex', 'gpt-6-luna', prices).priced, false, '不同 GPT-6 变体不借用 Astra 价格')
+  assert.equal(providerPriceEntryFor('openai-codex', 'gpt-6-luna', prices).entry.cacheMiss, 0.1, '新核价 Luna 使用自身价格，不借用 Astra')
+  assert.equal(providerPriceEntryFor('openai-codex', 'gpt-6-astra-unlisted-variant', prices).priced, false, '未知 GPT-6 变体不借用 Astra 价格')
   const old = DEFAULT_PROVIDER_PRICE_TABLE.xiaomi.models
   near(old['mimo-v2.5'].input, 0.14, '2.5 未命中价保持不变')
   near(old['mimo-v2.5'].output, 0.28, '2.5 输出价保持不变')
