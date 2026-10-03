@@ -4846,7 +4846,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   {
     const clientSrc = readClientSource()
     const sliceStart = clientSrc.indexOf('function priceEntryFor(modelId, table)')
-    const sliceEnd = clientSrc.indexOf('function makeStore(initial)')
+    const sliceEnd = clientSrc.indexOf('function makeStore(initial,')
     const todayStart = clientSrc.indexOf('function todayOfficialUsd(state)')
     const todayEnd = clientSrc.indexOf('function todayUsedInBalanceCurrency(')
     assert.ok(sliceStart > 0 && sliceEnd > sliceStart && todayStart > 0 && todayEnd > todayStart, '客户端计费助手区段定位成功(函数改名时同步本测试)')
@@ -4966,7 +4966,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   {
     const clientSrcTz = readClientSource()
     const sliceStartTz = clientSrcTz.indexOf('function priceEntryFor(modelId, table)')
-    const sliceEndTz = clientSrcTz.indexOf('function makeStore(initial)')
+    const sliceEndTz = clientSrcTz.indexOf('function makeStore(initial,')
     assert.ok(sliceStartTz > 0 && sliceEndTz > sliceStartTz, '客户端助手区段定位成功')
     const CTz = new Function(clientSrcTz.slice(sliceStartTz, sliceEndTz) + '\nreturn { formatTzOffset, timezoneMismatchOf }')()
     assert.equal(CTz.formatTzOffset(480), 'UTC+8', 'formatTzOffset 整小时')
@@ -5291,7 +5291,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 {
   const clientSrc11 = readClientSource()
   const sliceStart11 = clientSrc11.indexOf('function priceEntryFor(modelId, table)')
-  const sliceEnd11 = clientSrc11.indexOf('function makeStore(initial)')
+  const sliceEnd11 = clientSrc11.indexOf('function makeStore(initial,')
   assert.ok(sliceStart11 > 0 && sliceEnd11 > sliceStart11, '客户端价格区段定位成功')
   const C11 = new Function(clientSrc11.slice(sliceStart11, sliceEnd11) + '\nreturn { resolveClientPrice, isLocalOriginClient }')()
   const prices11m = sanitizeConfig({}).prices
@@ -5766,7 +5766,7 @@ await import('./typert-codecs.mjs')
 {
   const clientSrc163 = readClientSource()
   const sliceStart163 = clientSrc163.indexOf('function priceEntryFor(modelId, table)')
-  const sliceEnd163 = clientSrc163.indexOf('function makeStore(initial)')
+  const sliceEnd163 = clientSrc163.indexOf('function makeStore(initial,')
   assert.ok(sliceStart163 > 0 && sliceEnd163 > sliceStart163, '客户端可测区段定位成功')
   const C163 = new Function(clientSrc163.slice(sliceStart163, sliceEnd163) + '\nreturn { cacheUnreportedOf }')()
   // 疑似未上报:≥3 次调用、非缓存输入 ≥100k、缓存读恒 0。
@@ -6771,4 +6771,6 @@ await import('./model-quota-cards.mjs')
 await import('./mimo-quota.mjs')
 await import('./mimo-enable-flow.mjs')
 await import('./mimo-v26-pricing.mjs')
+await import('./host-locale.mjs')
+await import('./host-locale-client.mjs')
 console.log('[ok] 全部验证通过')

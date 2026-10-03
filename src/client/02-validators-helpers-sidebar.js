@@ -435,6 +435,7 @@
         // 扩展价格表目录(宿主只读下发;缺失时 UI 自动隐藏目录面板)。
         priceCatalog: v.priceCatalog !== null && typeof v.priceCatalog === 'object' && !Array.isArray(v.priceCatalog) ? v.priceCatalog : null,
         meta: {
+          ...(supportedLocale(v.meta?.locale) ? { locale: supportedLocale(v.meta.locale) } : {}),
           now: typeof v.meta?.now === 'number' ? v.meta.now : Date.now(),
           timezoneOffsetMinutes: typeof v.meta?.timezoneOffsetMinutes === 'number' ? v.meta.timezoneOffsetMinutes : 0,
           timezone: typeof v.meta?.timezone === 'string' ? v.meta.timezone : '',
@@ -1190,8 +1191,8 @@
 
     // ── 客户端状态存储 ──────────────────────────────────────────────────────
 
-    function makeStore(initial) {
-      let snapshot = initial
+    function makeStore(initial, decorate = value => value) {
+      let snapshot = decorate(initial)
       const listeners = new Set()
       return {
         getSnapshot: () => snapshot,
@@ -1200,6 +1201,7 @@
           return () => { listeners.delete(fn) }
         },
         set: next => {
+          next = decorate(next)
           if (next === snapshot) return
           snapshot = next
           for (const fn of [...listeners]) fn()
@@ -1411,7 +1413,7 @@
         return () => { active = false }
       }, [sessionId, start, end, pricingKey, config?.hideTurnCost])
       if (!config || config.hideTurnCost || start == null || end == null) return null
-      const en = resolveLocale(config.locale) === 'en'
+      const en = resolveLocale(config) === 'en'
       const names = en ? { input: 'Input', output: 'Output', cacheRead: 'Cache read', cacheWrite: 'Cache write', reasoning: 'Reasoning' } : { input: '输入', output: '输出', cacheRead: '缓存读取', cacheWrite: '缓存写入', reasoning: '推理' }
       const money = n => formatMoneyUsd(n, { ...config, decimals: Math.max(8, config.decimals ?? 2) })
       const kinds = en ? { model: 'Model call', compaction: 'Context compaction', search: 'Native search' } : { model: '模型调用', compaction: '上下文压缩', search: '原生搜索' }
@@ -1433,7 +1435,7 @@
     function SessionCost(props) {
       const { usage, config } = useSessionUsage(props)
       if (!usage || !config || (billedInput(usage) + (usage?.output ?? 0)) === 0) return null
-      const t = makeT(resolveLocale(config.locale))
+      const t = makeT(resolveLocale(config))
       const { cost, planPart } = sessionCostParts(usage, config)
       const detail = [
         t('sessionCostTitle'),
@@ -1463,7 +1465,7 @@
       const cache = (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0)
       const output = usage.output ?? 0
       if (input + cache + output === 0) return null
-      const t = makeT(resolveLocale(config.locale))
+      const t = makeT(resolveLocale(config))
       const { cost, planPart } = sessionCostParts(usage, config)
       // 缓存写入属于输入分母，但不是缓存命中；无输入时显示未知。
       const hitRate = billedInput(usage) > 0 ? ((usage.cacheRead ?? 0) / billedInput(usage) * 100).toFixed(1) + '%' : '—'
@@ -1652,7 +1654,7 @@
     function BalanceRowContent(props) {
       const { state, wide, api } = props
       const balance = state.balance
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const refresh = useClickRefresh(api ? () => api.refreshBalance() : null)
       if (!balance || balance.status === 'off') return null
       if (balance.status === 'error') {
@@ -1680,7 +1682,7 @@
       const { state, wide, api } = props
       const config = state.config
       const balance = state.balance
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const refresh = useClickRefresh(api ? () => api.refreshBalance() : null)
       if (!balance || balance.status !== 'ok') return null
       const segments = segmentsForOfficialBalance(state, config)
@@ -1769,7 +1771,7 @@
     }
 
     function customBalanceBoxBody(state, config, t, custom, entryCfg) {
-      const label = resolveCustomBalanceLabel(entryCfg ?? config.customBalance ?? {}, resolveLocale(config?.locale))
+      const label = resolveCustomBalanceLabel(entryCfg ?? config.customBalance ?? {}, resolveLocale(config))
       const remaining = formatCustomBalanceMoney(custom.remaining, config, custom, entryCfg)
       const segments = segmentsForCustomBalance(state, config, custom, entryCfg)
       return {
@@ -1809,7 +1811,7 @@
     function CustomBalanceBox(props) {
       const { state, wide, api } = props
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const visible = visibleCustomEntries(state, config)
       if (visible.length === 0) return null
       return el(Fragment, null, visible.map(({ index, entry, snapshot }) =>
@@ -1832,7 +1834,7 @@
     function CustomBalanceRowContent(props) {
       const { state, wide, api } = props
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const visible = visibleCustomEntries(state, config)
       if (visible.length === 0) return null
       return el(Fragment, null, visible.map(({ index, entry, snapshot }) =>
@@ -1845,7 +1847,7 @@
       const custom = snapshot ?? emptyCustomSnapshot(index)
       if (custom.status === 'off') return null
       const refresh = useClickRefresh(api ? () => api.refreshCustomBalance(index) : null)
-      const label = resolveCustomBalanceLabel(entry ?? config.customBalance ?? {}, resolveLocale(config?.locale))
+      const label = resolveCustomBalanceLabel(entry ?? config.customBalance ?? {}, resolveLocale(config))
       if (custom.status === 'error') {
         return el(Tooltip, { label: [custom.message || t('unknownError'), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
           el('div', { className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
@@ -1863,7 +1865,7 @@
       const state = costStore?.state
       if (!state) return null
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const corner = config.corner ?? { enabled: false, goRolling: true, goWeekly: true, goMonthly: true, budget: true }
       const goQuota = state.goQuota
       const goOk = config?.goQuota?.enabled !== false && goQuota?.status === 'ok'
@@ -2040,7 +2042,7 @@
           // 预览系统通知:遵循 Web 通知开关与授权,标题加预览标记。
           const cfg = costStore?.state?.config
           if (cfg?.peakAlertWebNotify === true && window.Notification && Notification.permission === 'granted') {
-            const pt = makeT(resolveLocale(cfg.locale))
+            const pt = makeT(resolveLocale(cfg))
             try {
               new Notification(pt(kind === 'peak' ? 'peakAlertTitlePeak' : 'peakAlertTitleOffPeak') + pt('peakAlertPreviewTag'),
                 { body: pt('peakAlertBody', { time: pt('countdownMinute', { m: 2 }), phase: pt(kind === 'peak' ? 'peakAlertPhasePeak' : 'peakAlertPhaseOffPeak') }) })
@@ -2068,7 +2070,7 @@
         const aheadMs = (Number.isFinite(mins) && mins >= 1 ? mins : 2) * 60000
         if (now < wv.nextAtMs - aheadMs || now >= wv.nextAtMs) return
         if (lastPeakNotifyAtMs === wv.nextAtMs) return
-        const t = makeT(resolveLocale(config.locale))
+        const t = makeT(resolveLocale(config))
         lastPeakNotifyAtMs = wv.nextAtMs
         try {
           new Notification(
@@ -2103,7 +2105,7 @@
         intoPeak = preview === 'peak'
         dismiss = () => setPreview(null)
       } else return null
-      const t = makeT(resolveLocale(config.locale))
+      const t = makeT(resolveLocale(config))
       const position = config.peakAlertPosition === 'center' ? 'cm-peak-alert-center' : 'cm-peak-alert-corner'
       return el('div', { className: 'cm-peak-alert ' + position + ' ' + (intoPeak ? 'cm-peak-alert-peak' : 'cm-peak-alert-offpeak'), role: 'alert' },
         el('div', { className: 'cm-peak-alert-badge' }, t(intoPeak ? 'peakAlertBadgePeak' : 'peakAlertBadgeOffPeak')),
@@ -2295,7 +2297,7 @@
     function GoQuotaBox(props) {
       const { state, wide } = props
       const goQuota = state.goQuota
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       if (!goQuota || goQuota.status !== 'ok') return null
       const mainKey = state.config?.goQuota?.main === 'weekly' || state.config?.goQuota?.main === 'monthly' ? state.config.goQuota.main : 'rolling'
       if (goQuota[mainKey] === null || typeof goQuota[mainKey]?.percent !== 'number') return null
@@ -2429,7 +2431,7 @@
     function MiniMaxPlanBox(props) {
       const { state, wide, api } = props
       const live = state.codingPlans?.minimax
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const refresh = useClickRefresh(api ? () => api.refreshCodingPlan('minimax') : null)
       if (!live || live.status !== 'ok') return null
       const { five, seven } = miniMaxWindowsOf(live.windows)
@@ -2521,7 +2523,7 @@
     function CodexPlanBox(props) {
       const hoverProps = useQuotaHoverRefresh()
       const { state, wide } = props
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const enabled = state.config?.codexQuotaEnabled === true && state.config?.codexQuotaSidebar !== false
       const snap = useCodexQuota(enabled)
       const refresh = useClickRefresh(() => fetchCodexQuota(true, enabled))
@@ -2566,7 +2568,7 @@
       const hoverProps = useQuotaHoverRefresh()
       const { id, state, wide, api } = props
       const live = state.codingPlans?.[id]
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const refresh = useClickRefresh(api ? () => api.refreshCodingPlan(id) : null)
       const rowDef = CODING_PLAN_ROWS.find(r => r.id === id)
       if (!rowDef || !live || live.status !== 'ok') return null
@@ -2632,7 +2634,7 @@
     function GatewayQuotaBox(props) {
       const hoverProps = useQuotaHoverRefresh()
       const { source, snapshot, state, wide, api } = props
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const [selection, setSelection] = useState(() => ({ source: source.id, id: readGatewayAccountLS(source.id) }))
       const refresh = useClickRefresh(api ? () => api.refreshGatewayQuota(source.id) : null)
       const direction = barDirectionOf(state.config, 'plan')
@@ -2751,7 +2753,7 @@
       const config = state.config
       const strip = config.quotaStrip ?? { enabled: false, budget: true, go: true, plans: true }
       if (strip.enabled !== true) return null
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const chips = []
       // 预算 chip:与预算图框同口径(≥80% 预警、≥100% 超支);点击 reload 重取状态(issue #52)。
       if (strip.budget !== false) {
@@ -2920,7 +2922,7 @@
       const [dismissed, setDismissed] = useState(false)
       const config = store?.state?.config
       if (!config || dismissed || simpleGuideSeen(config)) return null
-      const t = makeT(resolveLocale(config.locale))
+      const t = makeT(resolveLocale(config))
       const dismiss = () => {
         setDismissed(true)
         try { window.localStorage.setItem(SIMPLE_GUIDE_KEY, '1') } catch (_) { /* 本次页面仍可关闭 */ }
@@ -2957,7 +2959,7 @@
       const config = state.config
       if (!simpleGuideSeen(config)) return null
       if (config.quotaStrip?.promptSeen === true) return null
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const choose = enabled => {
         if (busyRef.current === true) return
         busyRef.current = true
@@ -3007,7 +3009,7 @@
       // 点掉一张露出另一张,视觉上像「点了没反应」。等横条引导处理完(promptSeen)再出现。
       if (!simpleGuideSeen(config)) return null
       if (config.quotaStrip?.promptSeen !== true) return null
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const dismiss = () => {
         if (busyRef.current === true) return
         // 乐观消失:点击立即隐藏,落盘确认失败才恢复可见(避免宿主渲染时序让卡片看起来「点不掉」)。
@@ -3034,7 +3036,7 @@
       const { state, wide } = props
       const today = state.today
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const todayValue = sidebarTodayValue(today, config, t)
       const budget = config.budget ?? { enabled: false, amount: 100, period: 'month' }
       const rate = Number(config.exchangeRate)
@@ -3107,7 +3109,7 @@
       const wide = !!props.wide
       if (!state) return null
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const showBalance = (config.balance?.display === 'sidebar' || config.balance?.display === 'both')
         && config.hideOfficialBalance !== true
       // 多配置形态(v1.7.0,issue #79):可见性逐条判定(可见条目集由

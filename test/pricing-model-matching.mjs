@@ -9,7 +9,7 @@ const clientUrl = process.argv[3] ? pathToFileURL(resolve(process.argv[3])) : ne
 const { providerPriceEntryFor, matchModelId, normalizePrice } = await import(pricingUrl)
 const source = readFileSync(clientUrl, 'utf8')
 const start = source.indexOf('function priceEntryFor(modelId, table)')
-const end = source.indexOf('function makeStore(initial)')
+const end = source.indexOf('function makeStore(initial,')
 assert.ok(start >= 0 && end > start)
 const client = new Function(source.slice(start, end) + '\nreturn { resolveClientPrice, matchModelIdLocal }')()
 

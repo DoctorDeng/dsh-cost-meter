@@ -54,7 +54,7 @@ Desktop users: follow the [Desktop installation instructions](docs/install-troub
 | Peak/off-peak hours display | Settings / budget / today | Shows UTC peak hours 01:00–04:00 and 06:00–10:00 with the current tier; weekends and configured Chinese public holidays (Beijing dates) are off-peak all day, with separate labels; expanded view shows a period strip and countdown, collapsed view shows a vertical bar; independently toggleable |
 | Peak/off-peak switch popup alert | Global overlay | A full-width bracketed popup appears when the next tier switch is within the configured lead time (default 2 minutes, 1–30), with an alert-colored badge distinguishing entering peak vs off-peak; position selectable (**bottom-right / screen center**), alert type selectable (entering peak / entering off-peak / both), one alert per switch point; optionally **sends a browser (system) notification** (so you still get alerted when the page is backgrounded; requires granting notification permission); configured in the peak pricing panel in Settings, with a **one-click popup preview** (rendered by the real component — copy, position and notifications exactly as they will fire) |
 | Official price sync | Settings page | Fetches and parses the official pricing page, applies with one click; the **official price currency** is selectable (USD · English page / CNY · Chinese page) — CNY prices are booked at the display exchange rate and match the official CNY bill when displayed in CNY |
-| UI language | Settings → Display settings | Simplified Chinese / English / Follow browser (auto); switches instantly and auto-saves |
+| UI language | Settings → Display settings | Simplified Chinese / English / Follow DSH (auto); switches instantly and auto-saves |
 | Hide official balance / hide today's cost | Settings → Display settings | Two independent toggles: when on, the matching UI blocks (sidebar balance row & panels / today's cost row, budget details, overview today card) **are not rendered at all**; token and call-count stats stay visible — safe for screen sharing and screenshots |
 | AI price sync | [prompt](docs/AI-PRICE-SYNC-PROMPT.en.md) | DeepSeek official sync; other providers use the verified official price catalog and manual configuration |
 | Model & Plan adaptation guide | [adaptation doc](docs/model-and-plan-adaptation.en.md) | Adaptation matrix for per-model billing and the Coding Plan vendors, the auto-matching mechanism and price sources ([中文](docs/model-and-plan-adaptation.md)) |
@@ -171,10 +171,10 @@ Connects to a local or LAN-deployed [CLIProxyAPI](https://github.com/router-for-
 
 The plugin UI (session badge, sidebar balance row & budget box, and the entire Settings page) supports **Simplified Chinese** and **English**:
 
-- Language options: **Simplified Chinese** / **English** / **Follow browser (auto)**;
-- Default is “Follow browser”: the browser language is auto-detected (`zh*` → Chinese, otherwise English), and the detected value is written back into the config so server-side messages (balance query, price sync, etc.) match the UI language;
+- Language options: **Simplified Chinese** / **English** / **Follow DSH (auto)**;
+- Default is “Follow DSH”: auto uses DSH’s active language and updates live, including the statistics screen and Settings sidebar label. Older hosts without the locale face use the saved DSH preference when available, then the browser language (`zh*` → Chinese, otherwise English). Auto stays `auto` in the saved config;
 - Switch it under **Settings → Cost → Display settings → Language** — the whole plugin UI updates instantly and auto-saves; the section label in the Settings sidebar switches too (费用 / Cost);
-- Server-generated notices (balance refresh, official price sync, config validation errors, …) are also output in the current language.
+- An explicit Chinese/English plugin choice overrides DSH for both UI and server-generated notices. In auto mode, the Host reads DSH’s saved language preference; without an observable preference it retains the Chinese compatibility fallback. Browser/native-only provisional choices and different clients’ languages cannot be inferred by the Host, so notices may differ in those cases.
 
 ## Screenshots & walkthrough
 
