@@ -94,6 +94,17 @@ import {
 } from '../lib/coding-plans.js'
 import { extractByRule } from '../lib/custom-balance.js'
 
+// Fixture credentials must never reach live APIs. Tests override this guard with
+// explicit in-process mocks; the optional public pricing smoke is read-only opt-in.
+const defaultFetch = globalThis.fetch
+globalThis.fetch = async (url, init) => {
+  const address = new URL(typeof url === 'string' || url instanceof URL ? url : url.url)
+  if (address.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(address.hostname)) return defaultFetch(url, init)
+  if (process.env.DSH_TEST_LIVE_PRICING === '1' && String(url) === 'https://api-docs.deepseek.com/quick_start/pricing' && init === undefined) return defaultFetch(url)
+  throw new Error('Regression network request requires an explicit in-process mock')
+}
+process.on('exit', () => { globalThis.fetch = defaultFetch })
+
 // 每个验证进程使用独立临时目录，双时区同时执行时不互相删除账本。
 const suiteRoot = mkdtempSync(join(osTmpdir(), 'cm-verify-'))
 const tmpdir = () => suiteRoot
@@ -6027,60 +6038,78 @@ function m_costOf85(entry, tokens) {
 //       (customVarStatus 下发)。
 {
   const prevStateHome = process.env.DSH_HOME
-  const varRoot = join(tmpdir(), `cm-cb-var-${Date.now()}`)
-  mkdirSync(join(varRoot, 'storages', 'cost-meter'), { recursive: true })
-  writeFileSync(join(varRoot, 'storages', 'cost-meter', 'ledger.json'), JSON.stringify({ version: 1, config: {
-    customBalances: [{
-      enabled: true,
-      label: 'relay',
-      display: 'settings',
-      request: { url: 'https://relay.example.com/api/user/self', method: 'GET', headers: { Authorization: 'Bearer {{MY_RELAY_KEY}}' } },
-      extract: { remaining: 'data.quota_remain' },
-      allowedHosts: ['relay.example.com'],
-    }],
-  }, days: {} }))
-  process.env.DSH_HOME = varRoot
-  const store86 = { MY_RELAY_KEY: false }
-  const varCreds = {
-    async describe(ref) { return { configured: store86[String(ref)] === true, writable: true, source: store86[String(ref)] === true ? 'env' : '' } },
-    async set(ref, value) { store86[String(ref)] = value.length > 0 },
-    async unset(ref) { delete store86[String(ref)] },
+  const prevVarFetch = globalThis.fetch
+  const varCleanups = []
+  let varRequests = 0
+  // Credential fixtures must never reach a real relay or reuse environment credentials.
+  globalThis.fetch = async url => {
+    assert.equal(String(url), 'https://relay.example.com/api/user/self')
+    varRequests++
+    return Response.json({ data: { quota_remain: 42 } })
   }
-  const provided86 = {}
-  const { apply } = await import('../lib/index.js')
-  apply({
-    on: () => () => {},
-    effect: () => {},
-    inject: () => {},
-    provide: (k, v) => { provided86[k] = v },
-    logger: console,
-    get: key => (key === 'credentials' ? varCreds : key === 'settings' ? { get: () => ({}) } : undefined),
-  })
-  const svc = provided86.costMeter
-  // ① getState:customVarStatus 下发(未配置)。
-  const st1 = await svc.getState()
-  assert.equal(st1.customVarStatus?.MY_RELAY_KEY?.configured, false, 'customVarStatus 下发未配置状态')
-  assert.equal(st1.config.customBalances[0].request.headers.Authorization, 'Bearer {{MY_RELAY_KEY}}', '占位符头原样下发')
-  // ② setCredential customVar:合法名写入 + 状态翻转。
-  const setOk = await svc.setCredential('customVar:MY_RELAY_KEY', 'sk-var-PLAINTEXT-0003')
-  assert.equal(setOk.ok, true, 'customVar 写入成功')
-  const st2 = await svc.getState()
-  assert.equal(st2.customVarStatus?.MY_RELAY_KEY?.configured, true, '写入后 customVarStatus 翻转为已配置')
-  // ③ 非法名 / 内置冲突名 / 缺名拒绝。
-  const bad1 = await svc.setCredential('customVar:lower_case', 'x')
-  assert.equal(bad1.ok, false, '小写变量名拒绝')
-  const bad2 = await svc.setCredential('customVar:CUSTOM_BALANCE_KEY_X', 'x')
-  assert.equal(bad2.ok, false, '保留前缀名拒绝')
-  const bad3 = await svc.setCredential('customVar:OPENCODE_GO_API_KEY', 'x')
-  assert.equal(bad3.ok, false, '与内置密钥同名拒绝(须走 goQuota 目标)')
-  const bad4 = await svc.setCredential('customVar:', 'x')
-  assert.equal(bad4.ok, false, '空变量名拒绝')
-  // ④ clearCredential customVar:移除 + 状态回落。
-  const clr = await svc.clearCredential('customVar:MY_RELAY_KEY')
-  assert.equal(clr.ok, true, 'customVar 移除成功')
-  const st3 = await svc.getState()
-  assert.equal(st3.customVarStatus?.MY_RELAY_KEY?.configured, false, '移除后状态回落未配置')
-  process.env.DSH_HOME = prevStateHome
+  try {
+    const varRoot = join(tmpdir(), `cm-cb-var-${Date.now()}`)
+    mkdirSync(join(varRoot, 'storages', 'cost-meter'), { recursive: true })
+    writeFileSync(join(varRoot, 'storages', 'cost-meter', 'ledger.json'), JSON.stringify({ version: 1, config: {
+      balance: { display: 'off' }, goQuota: { enabled: false },
+      customBalances: [{
+        enabled: true,
+        label: 'relay',
+        display: 'settings',
+        request: { url: 'https://relay.example.com/api/user/self', method: 'GET', headers: { Authorization: 'Bearer {{MY_RELAY_KEY}}' } },
+        extract: { remaining: 'data.quota_remain' },
+        allowedHosts: ['relay.example.com'],
+      }],
+    }, days: {} }))
+    process.env.DSH_HOME = varRoot
+    const store86 = { MY_RELAY_KEY: false }
+    const varCreds = {
+      async resolve(ref) { return String(ref) === 'MY_RELAY_KEY' ? { value: 'TEST_CUSTOM_VAR_KEY' } : undefined },
+      async describe(ref) { return { configured: store86[String(ref)] === true, writable: true, source: store86[String(ref)] === true ? 'env' : '' } },
+      async set(ref, value) { store86[String(ref)] = value.length > 0 },
+      async unset(ref) { delete store86[String(ref)] },
+    }
+    const provided86 = {}
+    const { apply } = await import('../lib/index.js')
+    apply({
+      on: () => () => {},
+      effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') varCleanups.push(cleanup) },
+      inject: () => {},
+      provide: (k, v) => { provided86[k] = v },
+      logger: console,
+      get: key => (key === 'credentials' ? varCreds : key === 'settings' ? { get: () => ({}) } : undefined),
+    })
+    const svc = provided86.costMeter
+    // ① getState:customVarStatus 下发(未配置)。
+    const st1 = await svc.getState()
+    assert.equal(st1.customVarStatus?.MY_RELAY_KEY?.configured, false, 'customVarStatus 下发未配置状态')
+    assert.equal(st1.config.customBalances[0].request.headers.Authorization, 'Bearer {{MY_RELAY_KEY}}', '占位符头原样下发')
+    // ② setCredential customVar:合法名写入 + 状态翻转。
+    const setOk = await svc.setCredential('customVar:MY_RELAY_KEY', 'sk-var-PLAINTEXT-0003')
+    assert.equal(setOk.ok, true, 'customVar 写入成功')
+    const st2 = await svc.getState()
+    assert.equal(st2.customVarStatus?.MY_RELAY_KEY?.configured, true, '写入后 customVarStatus 翻转为已配置')
+    // ③ 非法名 / 内置冲突名 / 缺名拒绝。
+    const bad1 = await svc.setCredential('customVar:lower_case', 'x')
+    assert.equal(bad1.ok, false, '小写变量名拒绝')
+    const bad2 = await svc.setCredential('customVar:CUSTOM_BALANCE_KEY_X', 'x')
+    assert.equal(bad2.ok, false, '保留前缀名拒绝')
+    const bad3 = await svc.setCredential('customVar:OPENCODE_GO_API_KEY', 'x')
+    assert.equal(bad3.ok, false, '与内置密钥同名拒绝(须走 goQuota 目标)')
+    const bad4 = await svc.setCredential('customVar:', 'x')
+    assert.equal(bad4.ok, false, '空变量名拒绝')
+    // ④ clearCredential customVar:移除 + 状态回落。
+    const clr = await svc.clearCredential('customVar:MY_RELAY_KEY')
+    assert.equal(clr.ok, true, 'customVar 移除成功')
+    const st3 = await svc.getState()
+    assert.equal(st3.customVarStatus?.MY_RELAY_KEY?.configured, false, '移除后状态回落未配置')
+    assert.ok(varRequests > 0, '自定义余额请求由本地 mock 处理')
+  } finally {
+    for (const cleanup of varCleanups.reverse()) cleanup()
+    globalThis.fetch = prevVarFetch
+    if (prevStateHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = prevStateHome
+  }
   console.log('[ok] customVar 凭据目标 e2e(写入/校验/移除/状态下发,issue #86)通过')
 }
 

@@ -1,16 +1,23 @@
 // 账号渠道余额:DSH 桌面版登录官方账号后钱包由宿主账号服务持有(deepseekAccount),
 // 用户通常不保存开放平台 Key;本文件驱动真实 apply() 服务验证来源优先级与失败语义。
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { apply } from '../lib/index.js'
 import { stateSchema } from '../lib/typert.host.js'
+import { setImmediate as tick } from 'node:timers/promises'
+import vm from 'node:vm'
+import { Ledger, localDayKey } from '../lib/store.js'
+import { mergeLedger } from '../lib/ledger-persistence.js'
 
 const root = mkdtempSync(join(tmpdir(), 'cm-account-balance-'))
 const envNames = ['DSH_HOME', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_API_KEY', 'DSH_DEEPSEEK_API_KEY', 'DEEPSEEK_BALANCE_API_KEY']
 const saved = Object.fromEntries(envNames.map(name => [name, process.env[name]]))
 const originalFetch = globalThis.fetch
+const originalNow = Date.now
+const instances = []
+const sensitiveDetail = 'TEST_PRIVATE_ACCOUNT_DETAIL'
 const dedicatedKey = 'TEST_DEDICATED_BALANCE_KEY'
 const modelKey = 'TEST_MODEL_PLATFORM_KEY'
 const balanceBody = { is_available: true, balance_infos: [{ currency: 'USD', total_balance: '3.00', granted_balance: '0.00', topped_up_balance: '3.00' }] }
@@ -21,7 +28,13 @@ const cnyBonus = { currency: 'CNY', balance: '1.00' }
 const totalOf = (main, bonus) => Number(main.balance) + Number(bonus.balance)
 
 /** 独立实例:balanceCache 在服务内,复用会命中缓存。 */
-function mount({ account = null, section = {}, secrets = {} }) {
+function mount({ account = null, accountState, describe, proxyAccount = false, section = {}, secrets = {} }) {
+  const events = new Map(), cleanups = []
+  let currentAccount = account === null ? undefined : {
+    getBalance: async client => { accountCalls.push(client); return account(client) },
+    ...(accountState === undefined ? {} : { getState: async () => ({ status: accountState() }) }),
+    getPlatformSession: () => { throw Error('must not read account tokens') },
+  }
   const requests = [], accountCalls = []
   globalThis.fetch = async (url, init) => {
     requests.push({ url, headers: init.headers ?? {}, redirect: init.redirect })
@@ -32,28 +45,31 @@ function mount({ account = null, section = {}, secrets = {} }) {
     get: name => name === 'settings'
       ? { get: () => section }
       : name === 'credentials'
-        ? { resolve: async ref => (secrets[String(ref)] ? { value: secrets[String(ref)] } : undefined) }
+        ? { resolve: async ref => (secrets[String(ref)] ? { value: secrets[String(ref)] } : undefined),
+            describe: async ref => { if (describe) await describe(String(ref)); return { configured: Boolean(secrets[String(ref)]), source: 'file' } } }
         : name === 'deepseekAccount'
-          ? (account === null ? undefined : {
-            getBalance: async client => {
-              accountCalls.push(client)
-              return account(client)
-            },
-          })
+          ? proxyAccount && currentAccount ? new Proxy(currentAccount, { get: (target, key) => key === Symbol.for('cordis.original') ? target : Reflect.get(target, key) }) : currentAccount
           : undefined,
     provide: (name, value) => { if (name === 'costMeter') service = value },
-    on: () => () => {}, inject() {}, effect: () => {}, logger: { info() {}, warn() {}, error() {} },
+    on: (name, fn) => { if (!events.has(name)) events.set(name, []); events.get(name).push(fn); return () => {} }, inject() {},
+    effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) }, logger: { info() {}, warn() {}, error() {} },
   })
-  return { service, requests, accountCalls }
+  const instance = { service, requests, accountCalls,
+    emit: (name, ...args) => { for (const fn of events.get(name) ?? []) fn(...args) },
+    replaceAccount: value => { currentAccount = value },
+    dispose: () => { for (const fn of cleanups.splice(0).reverse()) fn() },
+  }
+  instances.push(instance)
+  return instance
 }
 
 /** 每个场景一份账本:locale 决定消息语言,config.balance.display 决定余额卡片是否启用。 */
-function useHome(tag, env = {}) {
+function useHome(tag, env = {}, balanceRef = null) {
   const dir = join(root, tag)
   mkdirSync(join(dir, 'storages', 'cost-meter'), { recursive: true })
   writeFileSync(join(dir, 'storages', 'cost-meter', 'ledger.json'), JSON.stringify({
     version: 1,
-    days: {},
+    days: {}, balanceRef,
     config: { locale: 'en', goQuota: { enabled: false }, balance: { display: 'both' } },
   }))
   process.env.DSH_HOME = dir
@@ -95,7 +111,7 @@ try {
   // ③ 未登录(null):回退到模型凭据,桌面版未登录用户行为不变。
   useHome('signed-out')
   const signedOut = mount({
-    account: () => null,
+    account: () => null, accountState: () => 'signed-out',
     section: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' },
     secrets: { DSH_DEEPSEEK_API_KEY: modelKey },
   })
@@ -113,21 +129,23 @@ try {
   })
   result = await failed.service.refreshBalance()
   assert.equal(result.ok, false, '账号侧失败不报成功')
-  assert.equal(result.state.balance.status, 'off', '软失败不写死 error(下个周期自动重试)')
+  assert.equal(result.state.balance.status, 'error', '账号失败在自动轮询和设置面板保持可见')
   assert.match(result.state.balance.message, /official account/i, '提示指向账号登录状态')
   assert.equal(failed.requests.length, 0, '账号侧失败不得改发开放平台请求')
   stateSchema.parse(result.state)
 
-  // ⑤ 账号服务本身抛错(凭据记录损坏/宿主版本差异):视为不可用,退回既有模型凭据路径。
+  // ⑤ 账号服务抛错不得切换到模型 Key 的另一账户,原始诊断不外泄。
   useHome('account-throws')
   const thrown = mount({
-    account: () => { throw new Error('PlatformAuthError: storage') },
+    account: () => { throw new Error(sensitiveDetail) },
     section: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' },
     secrets: { DSH_DEEPSEEK_API_KEY: modelKey },
   })
   result = await thrown.service.refreshBalance()
-  assert.equal(result.ok, true, '账号服务抛错时不阻断模型凭据路径')
-  assert.equal(thrown.requests.at(-1).headers.authorization, 'Bearer ' + modelKey)
+  assert.equal(result.ok, false, '账号服务抛错保留失败状态')
+  assert.equal(result.state.balance.status, 'error')
+  assert.equal(thrown.requests.length, 0, '账号异常不回退模型凭据')
+  assert.ok(!JSON.stringify(result).includes(sensitiveDetail), '原始账号诊断不下发客户端')
 
   // ⑥ 无账号服务(web/CLI profile):来源与改动前一致。
   useHome('no-account-service')
@@ -136,7 +154,7 @@ try {
   assert.equal(result.ok, true, '无账号服务时行为不变')
   assert.equal(legacy.requests.length, 1)
 
-  // ⑦ 账号已登录但钱包列表为空:不算余额来源,继续回退模型凭据。
+  // ⑦ ready 结果无有效钱包是协议失败,不得误认未登录或显示零余额。
   useHome('account-empty-wallets')
   const empty = mount({
     account: () => ({ status: 'ready', value: [], bonusWallets: [] }),
@@ -144,8 +162,9 @@ try {
     secrets: { DSH_DEEPSEEK_API_KEY: modelKey },
   })
   result = await empty.service.refreshBalance()
-  assert.equal(result.ok, true, '空钱包列表回退模型凭据')
-  assert.equal(empty.requests.length, 1)
+  assert.equal(result.ok, false, '空钱包列表报账号查询失败')
+  assert.equal(result.state.balance.status, 'error')
+  assert.equal(empty.requests.length, 0)
 
   // ⑧ 幂等与脱敏:重复刷新不重复请求账号服务之外的来源,快照不含凭据。
   const state = (await ready.service.refreshBalance()).state
@@ -153,8 +172,207 @@ try {
   assert.ok(!JSON.stringify(state).includes(dedicatedKey), '快照不含专用凭据')
   assert.ok(!JSON.stringify(state).includes(modelKey), '快照不含模型凭据')
 
-  console.log('[ok] 账号渠道余额(来源优先级/回退/失败语义/多币种/赠送钱包/脱敏)通过')
+  // Failed snapshots remain visible without hammering the account service; force and expiry retry.
+  useHome('retry-throttle')
+  let broken = true
+  const retry = mount({ account: () => broken ? ({ status: 'failed' }) : ({ status: 'ready', value: [cnyMain], bonusWallets: [] }) })
+  result = await retry.service.getState()
+  assert.equal(result.balance.status, 'error')
+  await retry.service.getState(); await retry.service.getState()
+  assert.equal(retry.accountCalls.length, 1, '自动轮询按刷新周期节流失败查询')
+  broken = false
+  result = await retry.service.refreshBalance()
+  assert.equal(result.ok, true, '手动刷新绕过失败节流')
+  broken = true
+  await retry.service.refreshBalance()
+  broken = false
+  const later = originalNow() + 6 * 60_000
+  Date.now = () => later
+  await retry.service.getState()
+  for (let n = 0; n < 100 && (await retry.service.getState()).balance.status !== 'ok'; n++) await tick()
+  assert.equal((await retry.service.getState()).balance.status, 'ok', '过期失败自动重试后恢复')
+  Date.now = originalNow
+
+  for (const [tag, details] of Object.entries({
+    undefinedResult: undefined,
+    missing: { status: 'ready' }, invalid: { status: 'ready', value: [{ currency: 'CNY', balance: sensitiveDetail }], bonusWallets: [] },
+    blank: { status: 'ready', value: [{ currency: 'CNY', balance: '' }], bonusWallets: [] },
+    overflow: { status: 'ready', value: [{ currency: 'CNY', balance: '1e999' }], bonusWallets: [] },
+    sumOverflow: { status: 'ready', value: [{ currency: 'CNY', balance: '1e308' }, { currency: 'CNY', balance: '1e308' }], bonusWallets: [] },
+  })) {
+    useHome('malformed-' + tag)
+    const bad = mount({ account: () => details, secrets: { DSH_DEEPSEEK_API_KEY: modelKey }, section: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' } })
+    const response = await bad.service.refreshBalance()
+    assert.equal(response.ok, false)
+    assert.equal(response.state.balance.status, 'error')
+    assert.equal(bad.requests.length, 0)
+    assert.ok(!JSON.stringify(response).includes(sensitiveDetail))
+  }
+  useHome('null-during-grant-change')
+  const changedNull = mount({ account: () => null, accountState: () => 'credential-stored', secrets: { DSH_DEEPSEEK_API_KEY: modelKey }, section: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' } })
+  assert.equal((await changedNull.service.refreshBalance()).ok, false, '仍有凭据时 null 不认作退出')
+  assert.equal(changedNull.requests.length, 0)
+
+  // Runtime account changes invalidate warm caches, pending results and disk baselines.
+  for (const event of ['credentials/record-updated', 'deepseek-account/signed-out', 'deepseek-account/session-expired']) {
+    useHome('lifecycle-' + event.replaceAll('/', '-'))
+    const home = process.env.DSH_HOME
+    let amount = '100', fail = false
+    const lifecycle = mount({ account: () => fail ? ({ status: 'failed' }) : ({ status: 'ready', value: [{ currency: 'CNY', balance: amount }], bonusWallets: [] }) })
+    await lifecycle.service.refreshBalance()
+    lifecycle.emit('credentials/record-updated', 'unrelated/default')
+    assert.equal((await lifecycle.service.getState()).balance.totalBalance, 100, '无关凭据事件保留有效缓存')
+    assert.equal(lifecycle.accountCalls.length, 1)
+    amount = '10'
+    lifecycle.emit(event, 'deepseek-account-platform/default')
+    const switched = await lifecycle.service.getState()
+    assert.equal(switched.balance.totalBalance, 10, '账号事件立即作废旧余额')
+    assert.equal(switched.reconcile.ok, true, '不同账号余额不能互相对账')
+    fail = true
+    lifecycle.emit(event, 'deepseek-account-platform/default')
+    assert.equal((await lifecycle.service.getState()).balance.status, 'error')
+    lifecycle.dispose()
+    const disk = JSON.parse(readFileSync(join(home, 'storages', 'cost-meter', 'ledger.json'), 'utf8'))
+    assert.equal(disk.balanceRef, null, '失败查询后的显式基准清空持久化')
+    const reopened = Ledger.load(join(home, 'storages', 'cost-meter', 'ledger.json'))
+    assert.equal(reopened.balanceRef, null, '重开账本不恢复旧账号基准')
+    reopened.close()
+  }
+
+  useHome('restart-baseline', {}, { date: localDayKey(), total: 100, granted: 0, topped: 100, currency: 'CNY', at: Date.now() - 1000 })
+  const restartHome = process.env.DSH_HOME
+  const restart = mount({ account: () => ({ status: 'failed' }) })
+  assert.equal((await restart.service.getState()).balance.status, 'error')
+  restart.dispose()
+  assert.equal(JSON.parse(readFileSync(join(restartHome, 'storages', 'cost-meter', 'ledger.json'), 'utf8')).balanceRef, null, '重挂载无法确认旧账号身份时丢弃磁盘基准')
+
+  const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
+  for (const late of ['ready', 'null', 'throw']) {
+    useHome('pending-' + late)
+    const gate = deferred()
+    let started = false, current = false
+    const pending = mount({ account: async () => {
+      if (current) return { status: 'ready', value: [{ currency: 'CNY', balance: '10' }], bonusWallets: [] }
+      started = true; await gate.promise
+      if (late === 'throw') throw Error(sensitiveDetail)
+      return late === 'null' ? null : { status: 'ready', value: [{ currency: 'CNY', balance: '100' }], bonusWallets: [] }
+    }, secrets: { DSH_DEEPSEEK_API_KEY: modelKey }, section: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' } })
+    const old = pending.service.refreshBalance()
+    for (let n = 0; n < 100 && !started; n++) await tick()
+    assert.ok(started)
+    current = true
+    pending.emit('credentials/record-updated', 'deepseek-account-platform/default')
+    assert.equal((await pending.service.getState()).balance.totalBalance, 10)
+    gate.resolve(); await old
+    assert.equal((await pending.service.getState()).balance.totalBalance, 10, '晚到旧账号结果不能污染新缓存')
+    assert.equal(pending.requests.length, 0, '失效中的 null/异常不能触发模型 Key 请求')
+    pending.dispose()
+  }
+  for (const method of ['getState', 'refreshBalance']) {
+    useHome('snapshot-race-' + method)
+    const gate = deferred()
+    let descriptionStarted = false, blockDescription = true
+    const snapshot = mount({
+      account: () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '100' }], bonusWallets: [] }),
+      describe: async ref => { if (ref === 'DEEPSEEK_BALANCE_API_KEY' && blockDescription) { descriptionStarted = true; await gate.promise } },
+    })
+    const response = snapshot.service[method]()
+    for (let n = 0; n < 100 && !descriptionStarted; n++) await tick()
+    assert.ok(descriptionStarted, '状态组装已进入异步凭据描述')
+    snapshot.emit('deepseek-account/signed-out')
+    blockDescription = false
+    gate.resolve()
+    const assembled = await response
+    const state = method === 'getState' ? assembled : assembled.state
+    assert.equal(state.balance.status, 'off', '状态组装期间退出不得重发旧账号余额')
+    assert.equal(state.balance.totalBalance, 0)
+    assert.equal(state.reconcile.ok, true)
+    if (method === 'refreshBalance') assert.equal(assembled.ok, false, '退出后刷新不再沿用旧成功状态')
+    stateSchema.parse(state)
+    snapshot.dispose()
+  }
+  useHome('replacement')
+  const replacement = mount({ account: () => ({ status: 'ready', value: [cnyMain], bonusWallets: [] }) })
+  await replacement.service.getState()
+  replacement.replaceAccount({ getBalance: async () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '1' }], bonusWallets: [] }) })
+  assert.equal((await replacement.service.getState()).balance.totalBalance, 1, '宿主账号服务替换即作废缓存')
+  assert.equal((await replacement.service.getState()).reconcile.ok, true)
+
+  useHome('cordis-proxy')
+  const proxied = mount({ proxyAccount: true, account: () => ({ status: 'ready', value: [cnyMain], bonusWallets: [] }) })
+  assert.equal((await proxied.service.getState()).balance.totalBalance, Number(cnyMain.balance), '每次 ctx.get 返回新 Cordis proxy 时仍可读取账号余额')
+  await proxied.service.getState(); await proxied.service.getState()
+  assert.equal(proxied.accountCalls.length, 1, '同一 proxy target 不重复作废缓存')
+  proxied.replaceAccount({ getBalance: async () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '1' }], bonusWallets: [] }) })
+  assert.equal((await proxied.service.getState()).balance.totalBalance, 1, '真实账号服务 target 替换仍立即作废缓存')
+
+  for (const late of ['ready', 'null']) {
+    useHome('proxy-pending-replacement-' + late)
+    const gate = deferred()
+    let started = false
+    const replaced = mount({ proxyAccount: true, account: async () => {
+      started = true; await gate.promise
+      return late === 'null' ? null : { status: 'ready', value: [{ currency: 'CNY', balance: '100' }], bonusWallets: [] }
+    }, secrets: { DSH_DEEPSEEK_API_KEY: modelKey }, section: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' } })
+    const previous = replaced.service.refreshBalance()
+    for (let n = 0; n < 100 && !started; n++) await tick()
+    assert.ok(started)
+    replaced.replaceAccount({ getBalance: async () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '1' }], bonusWallets: [] }) })
+    assert.equal((await replaced.service.getState()).balance.totalBalance, 1)
+    gate.resolve(); await previous
+    assert.equal((await replaced.service.getState()).balance.totalBalance, 1, '旧 proxy target 在途结果不能覆盖新服务余额')
+    assert.equal(replaced.requests.length, 0, '旧 proxy target 的 null 不得触发模型 Key 回退')
+    replaced.dispose()
+  }
+
+  useHome('dispose-pending')
+  const closingGate = deferred()
+  let closingStarted = false
+  const closing = mount({ account: async () => { closingStarted = true; await closingGate.promise; return null }, secrets: { DSH_DEEPSEEK_API_KEY: modelKey }, section: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' } })
+  const closingRequest = closing.service.refreshBalance()
+  for (let n = 0; n < 100 && !closingStarted; n++) await tick()
+  assert.ok(closingStarted)
+  closing.dispose(); closingGate.resolve(); await closingRequest
+  assert.equal(closing.requests.length, 0, '卸载后旧账号请求不得继续回退')
+
+  const base = { version: 1, days: {}, config: {}, balanceRef: { date: localDayKey(), total: 100, at: 10 }, migrations: [], planSamples: {}, planHourBuckets: {}, openrouterPriceHashes: {} }
+  const cleared = { ...base, balanceRef: null }, newer = { ...base, balanceRef: { ...base.balanceRef, at: 20 } }
+  assert.equal(mergeLedger(base, cleared, base, []).balanceRef, null, '本地清空不被原磁盘恢复')
+  assert.equal(mergeLedger(base, newer, cleared, []).balanceRef, null, '并发清空优先于不可比较账号采样')
+  assert.equal(mergeLedger(base, cleared, newer, []).balanceRef, null)
+
+  useHome('ledger-clear-flush', {}, { date: localDayKey(), total: 100, granted: 0, topped: 100, currency: 'CNY', at: 10 })
+  const resetPath = join(process.env.DSH_HOME, 'storages', 'cost-meter', 'ledger.json')
+  const resetLedger = Ledger.load(resetPath)
+  resetLedger.balanceRef = null
+  resetLedger.scheduleWrite(); resetLedger.flush()
+  assert.equal(resetLedger.balanceRef, null, '实际 flush 后运行期基准仍为空')
+  assert.equal(JSON.parse(readFileSync(resetPath, 'utf8')).balanceRef, null)
+  resetLedger.close()
+
+  // Execute the actual client components against a failed RPC snapshot in both languages.
+  const dir = new URL('../src/client/', import.meta.url)
+  const source = readdirSync(dir).filter(n => n.endsWith('.js')).sort().map(n => readFileSync(new URL(n, dir), 'utf8')).join('')
+  let factory
+  vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { BalanceRowContent, BalancePanel, makeT }; exports.apply = apply'), { window: { __ModuleLoader__: { load: v => { factory = v.factory } }, localStorage: { getItem: () => null } }, navigator: { language: 'en' } })
+  const el = (type, props, ...children) => ({ type, props: props ?? {}, children })
+  const React = { createElement: el, Fragment: 'fragment', useState: init => [typeof init === 'function' ? init() : init, () => {}], useEffect() {}, useRef: value => ({ current: value }), useCallback: fn => fn }
+  const ui = factory(name => name === 'react' ? React : { Tooltip: 'tooltip' }).test
+  const textOf = node => node == null ? '' : typeof node === 'object' ? (node.children ?? []).map(textOf).join(' ') : String(node)
+  for (const locale of ['en', 'zh']) {
+    const errorState = { ...result.state, config: { ...result.state.config, locale }, balance: { ...result.state.balance, status: 'error', message: 'sanitized account failure' } }
+    const row = ui.BalanceRowContent({ state: errorState, api: retry.service, wide: true })
+    assert.ok(row, '错误侧栏仍可见')
+    assert.match(row.props.label, /sanitized account failure/)
+    const panel = ui.BalancePanel({ state: errorState, api: retry.service, t: ui.makeT(locale), draft: null })
+    assert.match(textOf(panel), /sanitized account failure/, '设置页渲染失败原因')
+    assert.equal(ui.BalanceRowContent({ state: { ...errorState, balance: { ...errorState.balance, status: 'off' } }, wide: true }), null)
+  }
+
+  console.log('[ok] 账号渠道余额(优先级/脱敏可见错误/重试节流/钱包校验/账号生命周期/取消/磁盘基准/UI 渲染)通过')
 } finally {
+  Date.now = originalNow
+  for (const instance of instances.reverse()) instance.dispose()
   globalThis.fetch = originalFetch
   for (const [name, value] of Object.entries(saved)) value === undefined ? delete process.env[name] : process.env[name] = value
   rmSync(root, { recursive: true, force: true })

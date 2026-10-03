@@ -44,6 +44,8 @@ node --check lib/index.js && node --check lib/client.js && node --check lib/stor
 node test/verify.mjs
 ```
 
+回归套件默认禁止未模拟的外网请求，凭据场景仅使用合成值、进程内 HTTP 桩与本机回环测试服务器。若需要额外检查公开价格页面，可显式运行 `DSH_TEST_LIVE_PRICING=1 node test/verify.mjs`；此选项只允许不带凭据的官方价格页面读取，不开放账户或用量 API。
+
 改动侧栏底部布局时，可运行浏览器回归页面。参数填写已安装 `react` 和 `react-dom` 的 `node_modules` 目录（例如 DSH 开发环境）：
 
 ```sh

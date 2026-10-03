@@ -16,13 +16,15 @@ Desktop 使用相同的费用设置页与宿主凭据接口。更新时使用 De
 
 1. 有专用 Key 时，只使用该 Key 请求 `https://api.deepseek.com/user/balance`，与模型的 `baseURL`、`apiKeyEnv` 及账号登录状态无关。
 2. 未配置专用 Key 且已登录官方账号时，经宿主账号服务读取账号钱包。已登录但本次查询失败时报出账号侧失败并结束本次查询，不改用模型凭据重试，也不把失败写成零余额；自动查询按刷新间隔重试。
-3. 未登录、账号服务不可用或钱包为空时，沿用「设置 → 模型」中的凭据，保留旧版行为。该回退路径仍只允许 DeepSeek 官方 HTTPS 端点。
+3. 未登录或当前 profile 没有账号服务时，沿用「设置 → 模型」中的凭据，保留旧版行为。该回退路径仍只允许 DeepSeek 官方 HTTPS 端点。
 4. 专用 Key 返回 401 时显示认证失败及配置方法，不再改用另一个账户的 Key 重试。自动查询遵守刷新间隔，手动刷新可立即重试。
 5. 保存或清除专用 Key 会作废旧余额、取消在途请求并重新建立对账基准；不修改模型凭据。清除后恢复账号渠道与模型凭据回退。
 
+退出、凭据失效或更换以及宿主账号服务替换会作废余额缓存、在途响应与对账基准。插件仅观察公开生命周期事件，不读取账号令牌；重启时无法确认旧基准的账号身份，因此会重新建立基准。
+
 ## 验证
 
-验证使用合成凭据和 HTTP 响应，覆盖真实 DSH 凭据 provider 的「进程环境优先于凭据文件」行为、保存/清除、缓存取消、迟到响应、对账基准以及 Host/Client codec。账号渠道另有独立回归：来源优先级、账号元数据、未登录与空钱包回退、账号侧失败语义、账号服务抛错、重复刷新以及快照脱敏。
+验证使用合成凭据和 HTTP 响应，覆盖真实 DSH 凭据 provider 的「进程环境优先于凭据文件」行为、保存/清除、缓存取消、迟到响应、对账基准以及 Host/Client codec。账号渠道另有独立回归：来源优先级、账号元数据、明确退出后的回退、空钱包及损坏金额错误、账号侧失败与异常脱敏、刷新节流、账号切换与在途结果隔离、对账基准持久化及客户端错误渲染。
 
 ## English
 
@@ -32,4 +34,6 @@ DSH account login uses an inference token, which is not an Open Platform API key
 
 Alternatively, since 1.7.46, enter an Open Platform key in **Settings → Cost → Account balance → Balance API key**, save it, then refresh the balance. DSH stores it as `DEEPSEEK_BALANCE_API_KEY`; the plugin never stores it in its config or ledger, or returns it to the browser. The same environment variable is supported under the host's normal credential priority rules.
 
-Query order: the dedicated key always queries the official HTTPS endpoint and takes priority; without it a signed-in official account is read through the host service, and a failed account query is reported as a failure rather than retried with another credential or shown as a zero balance. Without a dedicated key and a usable account, the plugin retains the model-credential fallback. An invalid dedicated key does not fall back to another account. Saving or clearing the key invalidates cached and in-flight responses and resets the reconciliation baseline, while leaving model credentials intact. Account-login inference tokens still cannot query the Open Platform balance endpoint directly.
+Query order: the dedicated key always queries the official HTTPS endpoint and takes priority; without it a signed-in official account is read through the host service, and a failed account query is reported as a failure rather than retried with another credential or shown as a zero balance. The model-credential fallback is used only when this profile has no account service or the account is explicitly signed out. Empty or malformed ready wallets and account exceptions remain visible failures; failed queries are throttled and manual refresh retries immediately. An invalid dedicated key does not fall back to another account. Saving or clearing the key invalidates cached and in-flight responses and resets the reconciliation baseline, while leaving model credentials intact. Account-login inference tokens still cannot query the Open Platform balance endpoint directly.
+
+Account sign-out, expiry, credential replacement and host account-service replacement invalidate cached and in-flight balances and clear reconciliation baselines. The plugin observes public lifecycle events without reading account tokens. Anonymous persisted account baselines are discarded when the plugin restarts.
