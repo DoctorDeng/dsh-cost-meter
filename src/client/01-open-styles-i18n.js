@@ -891,7 +891,7 @@ window.__ModuleLoader__.load({
         sourceBundled: '内置默认',
         // 语言
         languageLabel: '界面语言',
-        localeAuto: '跟随浏览器(自动)',
+        localeAuto: '跟随 DSH(自动)',
         localeZh: '简体中文',
         localeEn: 'English',
         sectionLabel: '费用',
@@ -1408,7 +1408,7 @@ window.__ModuleLoader__.load({
         sourceOfficial: 'Official docs',
         sourceBundled: 'Bundled',
         languageLabel: 'Language',
-        localeAuto: 'Follow browser (auto)',
+        localeAuto: 'Follow DSH (auto)',
         localeZh: 'Simplified Chinese',
         localeEn: 'English',
         sectionLabel: 'Cost',
@@ -1424,10 +1424,15 @@ window.__ModuleLoader__.load({
       return lang.toLowerCase().startsWith('zh') ? 'zh' : 'en'
     }
 
-    /** 解析生效语言:显式 zh/en 直接采用;auto/缺失 → 浏览器探测。 */
-    function resolveLocale(configLocale) {
-      if (configLocale === 'zh' || configLocale === 'en') return configLocale
-      return detectBrowserLocale()
+    /** 显式插件语言优先;auto 使用当前 DSH 语言,旧宿主回退浏览器。 */
+    function supportedLocale(value) {
+      const lang = typeof value === 'string' ? value.toLowerCase().split(/[-_]/)[0] : ''
+      return lang === 'zh' || lang === 'en' ? lang : null
+    }
+    function resolveLocale(config) {
+      const value = typeof config === 'string' ? config : config?.locale
+      if (value === 'zh' || value === 'en') return value
+      return supportedLocale(config?.activeLocale) || detectBrowserLocale()
     }
 
     /** 构造按当前语言取文案的函数 t(key, vars)。 */

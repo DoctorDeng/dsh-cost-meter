@@ -7,7 +7,7 @@
     }
     function SidebarModelCosts({ state, wide }) {
       const cfg = { ...MODEL_SIDEBAR_DEFAULTS, ...state.config.sidebarModels }
-      const t = makeT(resolveLocale(state.config.locale))
+      const t = makeT(resolveLocale(state.config))
       const readOpen = () => {
         try { const saved = cfg.remember ? window.localStorage.getItem(MODEL_OPEN_KEY) : null; if (saved !== null) return saved === '1' } catch (_) {}
         return cfg.defaultOpen

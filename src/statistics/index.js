@@ -204,8 +204,8 @@ window.__ModuleLoader__.load({
         el(Pager, { offset, count: detail.totalCalls, size: 50, onChange: n => { setOffset(n); setSelected(-1) }, text }))
     }
 
-    function Statistics({ state, api, sessionId = '', formatMoneyUsd, formatTokens }) {
-      const en = state.config.locale === 'en' || state.config.locale === 'auto' && !/^zh\b/i.test(navigator.language)
+    function Statistics({ state, api, sessionId = '', formatMoneyUsd, formatTokens, resolveLocale }) {
+      const en = resolveLocale ? resolveLocale(state.config) === 'en' : (state.config.locale === 'en' || state.config.locale !== 'zh' && (state.config.activeLocale || state.meta?.locale || (typeof navigator !== 'undefined' && /^zh/i.test(navigator.language) ? 'zh' : 'en')) === 'en')
       const text = (zh, english) => en ? english : zh
       const [period, setPeriod] = useState(sessionId ? 'all' : 'week'), [custom, setCustom] = useState(null)
       const [scope, setScope] = useState({ id: sessionId, title: sessionId }), [provider, setProvider] = useState(''), [model, setModel] = useState('')
