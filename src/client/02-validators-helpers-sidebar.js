@@ -766,13 +766,13 @@
     }
     /**
      * 模型名归一化(与 lib/pricing.js 的 canonModelId 同逻辑;bundle 无法导入,修改时两处同步):
-     * 小写,去括号附注(如 (go)),只保留字母数字——大小写/空格/横杠/点号等差异全部忽略。
+     * NFKC 全角/兼容字符归一化后转小写,仅去已知渠道附注 (go)/(zen),只保留 Unicode 字母数字——大小写/空格/横杠/点号等差异全部忽略。
      */
+    function modelNameText(id) {
+      return String(id ?? '').normalize('NFKC').toLowerCase().replace(/[(（]\s*(?:go|zen)\s*[)）]/g, ' ').trim()
+    }
     function canonModelIdLocal(id) {
-      return String(id ?? '').toLowerCase()
-        .replace(/\([^)]*\)/g, ' ')
-        .replace(/（[^）]*）/g, ' ')
-        .replace(/[^a-z0-9]+/g, '')
+      return modelNameText(id).replace(/[^\p{L}\p{N}]+/gu, '')
     }
     /**
      * 模型名自动匹配(与 lib/pricing.js 的 matchModelId 同逻辑;bundle 无法导入,修改时两处同步)。
@@ -780,17 +780,17 @@
      */
     function stripIdDecor(id) {
       // Strip request decorations one at a time; candidate snapshots keep their identity.
-      return String(id).toLowerCase().replace(/[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest)$/, '')
+      return modelNameText(id).replace(/[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest)$/, '')
     }
 
     /** Exact IDs precede unique punctuation aliases and request-only safe decorations. */
-    function matchModelIdLocal(modelId, candidates) {
+    function matchModelIdLocal(modelId, candidates, exactId = modelId) {
       if (typeof modelId !== 'string' || modelId.length === 0) return null
       const list = Array.isArray(candidates) ? candidates.filter(c => typeof c === 'string' && c.length > 0) : []
-      const exact = list.find(c => c === modelId)
+      const exact = list.find(c => c === exactId)
       if (exact !== undefined) return exact
-      if (/[:(（]\s*(?:free|online)\b/i.test(modelId)) return null
-      let target = modelId
+      let target = modelId.normalize('NFKC').trim()
+      if (/[:(（]\s*(?:free|online)\b/i.test(target)) return null
       for (;;) {
         const canon = canonModelIdLocal(target)
         if (canon.length === 0) return null
@@ -802,7 +802,7 @@
       }
     }
 
-    const SCOPED_PRICE_PROVIDERS = new Set(['openrouter', 'opencode-zen', 'opencode-go'])
+    const SCOPED_PRICE_PROVIDERS = new Set(['openrouter', 'opencode-zen', 'opencode-go', 'zen', 'opencode'])
     const MODEL_VENDOR_PREFIXES = {
       openai: /^(?:gpt|o\d|codex)/i, anthropic: /^claude/i, google: /^gemini/i,
       deepseek: /^deepseek/i, moonshot: /^kimi/i, 'z-ai': /^glm/i, xai: /^grok/i,
@@ -814,20 +814,23 @@
       return ['deepseek-peak', 'utc-peak'].includes(entry?.billingMode) ? entry.billingMode : 'flat'
     }
     // Full IDs win. Auto aliases may remove a known upstream namespace, never a routing variant.
+    // Gemini API model resource names use models/{model}: https://ai.google.dev/api/models
     function priceModelHit(modelId, models, provider, mode, prices) {
       if (typeof modelId !== 'string') return null
       if (Object.hasOwn(models, modelId)) return modelId
       if (mode !== 'auto') return null
-      let target = modelId
-      const sep = target.indexOf('/')
+      let target = modelId.normalize('NFKC').trim().replace(/^models\/(?=gemini)/i, 'google/')
+      const sep = target.search(/[/:]/)
       if (sep > 0) {
-        const vendor = target.slice(0, sep).toLowerCase(), bare = target.slice(sep + 1)
+        const vendor = target.slice(0, sep).trim().toLowerCase(), bare = target.slice(sep + 1).trim()
         if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)
           && (vendor === provider || (provider === 'opencode-zen' || provider === 'opencode-go')
             && (MODEL_VENDOR_PREFIXES[vendor].test(bare)
               || matchModelIdLocal(bare, Object.keys(vendor === 'deepseek' ? prices?.models ?? {} : prices?.providers?.[vendor]?.models ?? {})) !== null))) target = bare
+        else if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)) return null
       }
-      return matchModelIdLocal(target, Object.keys(models))
+      // Formatting a request must not create a literal hit that bypasses alias collisions.
+      return matchModelIdLocal(target, Object.keys(models), modelId)
     }
     /**
      * 客户端价格解析(与 pricing.js providerPriceEntryFor 同口径):手动覆盖 → 精确 → 自动匹配。
@@ -850,12 +853,12 @@
     ]
     function isLocalOriginClient(provider, modelId) {
       if (typeof provider === 'string' && LOCAL_PROVIDER_IDS.has(provider)) return true
-      const model = typeof modelId === 'string' ? modelId.toLowerCase() : ''
+      const model = typeof modelId === 'string' ? modelNameText(modelId) : ''
       return LOCAL_MODEL_PREFIXES.some(prefix => model.startsWith(prefix))
     }
     function legacyDeepseekOverride(provider, override, prices, mode) {
       if (provider !== 'deepseek' && !provider.includes('deepseek')
-        && typeof override === 'string' && override.length > 0 && !override.includes(':')) {
+        && typeof override === 'string' && override.length > 0 && override !== '__local__' && !override.includes(':')) {
         const dsModels = prices.models ?? {}
         const retryHit = Object.hasOwn(dsModels, override) ? override
           : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels)) : null)
@@ -885,7 +888,7 @@
           targetModel = override
         }
         if (targetProvider === 'deepseek' && targetModel === '__default__') {
-          return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: true, billingMode: 'deepseek-peak', matched: false }
+          return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: prices.default?.unpriced !== true, billingMode: 'deepseek-peak', matched: false }
         }
       }
           if (['zen', 'opencode'].includes(targetProvider)) {
@@ -919,9 +922,8 @@
             if (SCOPED_PRICE_PROVIDERS.has(prov)) continue
             const modelsCat = table?.models ?? {}
             const h = priceModelHit(targetModel, modelsCat, prov, mode, prices)
-            if (h === null || modelsCat[h]?.unpriced === true) continue
-            const isExact = h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel)
-            const score = (isExact ? 1000 : 0) + canonModelIdLocal(h).length
+            if (h === null) continue
+            const score = +(h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel))
             if (score > bestLen) {
               bestEntry = modelsCat[h]; bestLen = score; ambiguous = false
               // 与 pricing.js 同口径:命中条目自带峰谷模式时保留,否则客户端
@@ -930,9 +932,9 @@
             } else if (score === bestLen) ambiguous = true
           }
           if (ambiguous) return { entry: null, priced: false, billingMode: 'flat', matched: false }
-          if (bestEntry !== null) return { entry: bestEntry, priced: true, billingMode: bestMode, matched: true }
+          if (bestEntry !== null) return { entry: bestEntry, priced: bestEntry.unpriced !== true, billingMode: bestMode, matched: true }
         }
-        return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: true, billingMode: 'deepseek-peak', matched: false }
+        return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: prices.default?.unpriced !== true, billingMode: 'deepseek-peak', matched: false }
       }
       const catalog = prices.providers?.[targetProvider]?.models ?? {}
       const hit = priceModelHit(targetModel, catalog, targetProvider, mode, prices)
@@ -941,27 +943,23 @@
       if (Object.hasOwn(MODEL_VENDOR_PREFIXES, targetProvider)) return { entry: null, priced: false, billingMode: 'flat', matched: false }
       // 跨厂商兑底(与 pricing.js 同口径):provider 未在价格表登记时按模型名全库查找。
       if (mode === 'auto') {
-        const dsModels = prices.models ?? {}
-        const dsHit = priceModelHit(targetModel, dsModels, 'deepseek', mode, prices)
-        if (dsHit !== null) return { entry: dsModels[dsHit], priced: true, billingMode: 'deepseek-peak', matched: true }
         let bestEntry = null
         let bestLen = -1
         let ambiguous = false
         let bestMode = 'flat'
-        for (const [prov, table] of Object.entries(prices.providers ?? {})) {
+        for (const [prov, table] of [['deepseek', { models: prices.models ?? {} }], ...Object.entries(prices.providers ?? {})]) {
           if (prov === targetProvider || SCOPED_PRICE_PROVIDERS.has(prov)) continue
           const models = table?.models ?? {}
           const h = priceModelHit(targetModel, models, prov, mode, prices)
-          if (h === null || models[h]?.unpriced === true) continue
-          const isExact = h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel)
-          const score = (isExact ? 1000 : 0) + canonModelIdLocal(h).length
+          if (h === null) continue
+          const score = +(h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel))
           if (score > bestLen) {
             bestEntry = models[h]; bestLen = score; ambiguous = false
-            bestMode = priceBillingMode(models[h]) // 与 pricing.js 同口径
+            bestMode = prov === 'deepseek' ? 'deepseek-peak' : priceBillingMode(models[h]) // 与 pricing.js 同口径
           } else if (score === bestLen) ambiguous = true
         }
         if (ambiguous) return { entry: null, priced: false, billingMode: 'flat', matched: false }
-        if (bestEntry !== null) return { entry: bestEntry, priced: true, billingMode: bestMode, matched: true }
+        if (bestEntry !== null) return { entry: bestEntry, priced: bestEntry.unpriced !== true, billingMode: bestMode, matched: true }
       }
       // issue #56 镜像:v1.5.42 及之前设置页下拉框把 DeepSeek 目标存成裸名,被按
       // 「同渠道换名」解析后查无此价。此处对「裸值覆盖 + 非 DeepSeek 渠道解析失败」
@@ -978,7 +976,7 @@
       if (result.priced && config?.prices?.currency === 'CNY' && result.entry?.cny) {
         return { ...result, entry: result.entry.cny, currency: 'CNY' }
       }
-      return { ...result, currency: result.billingMode === 'deepseek-peak' && config?.prices?.currency === 'CNY' ? 'CNY' : 'USD' }
+      return { ...result, currency: result.priced && result.billingMode === 'deepseek-peak' && config?.prices?.currency === 'CNY' ? 'CNY' : 'USD' }
     }
     /** 投影 token 桶 → 按当前时刻档位计价的美元成本。 */
     /**

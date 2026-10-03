@@ -22,15 +22,22 @@ Supported billing buckets: `input` / `cacheMiss`, `cachedInput` / `cacheHit` / `
 
 ### 1.2 Automatic model-name matching
 
-Manual overrides (`priceOverrides`) take priority. Automatic matching accepts exact names, normalized equivalents, and date, version or context-length suffixes. Distinct models and variants remain unpriced until added to the table or assigned manually.
+Manual overrides (`priceOverrides`) take priority. Automatic matching accepts exact names, normalized equivalents, and date, version or context-length suffixes. In explicit non-DeepSeek routes, distinct models and variants remain unpriced until added to the table or assigned manually.
 
-Normalization lowercases names, ignores spaces, hyphens, underscores and dots, and drops bracketed annotations such as `(go)`. Explicit routes use their own prices. Historical zen/opencode IDs retain Go routing; PAYG Zen uses opencode-zen. Unknown proxies may use a unique direct-API model as a reference, but scoped gateway catalogs never supply another route’s fallback price.
+Normalization uses NFKC for full-width letters, digits, punctuation and composed character forms, then lowercases names. Unicode letters and numbers remain; spaces, hyphens, underscores and dots are ignored. Only known `(go)` / `(zen)` annotations are removed, including full-width parentheses; they can combine with date and other supported suffixes. Variant information such as `(mini)` or `(thinking)` remains part of the name. Auto mode accepts recognized upstream `vendor/model` and `vendor:model` spellings. Gemini also accepts the official [Models API](https://ai.google.dev/api/models) resource form `models/gemini-…`. Multiple NFKC-equivalent candidates remain ambiguous rather than being picked by order. Exact full-ID catalog entries and manual overrides take priority; `exact` mode does not enable aliases.
+
+Explicit routes use their own prices. Historical zen/opencode IDs retain Go routing; PAYG Zen uses opencode-zen. Unknown proxies prefer exact-equivalent direct-API matches, but equally ranked cross-provider matches remain unpriced; name length never breaks a price tie. A declared vendor namespace cannot collapse into another vendor’s name. Scoped OpenRouter/Zen/Go catalogs, including legacy route aliases, never supply another route’s fallback price. Matched unpriced entries and local origins remain unpriced; the manual `__local__` zero-cost marker always wins. This matching update does not rewrite previously recorded ledger amounts.
+
+Compatibility exception: a missing/DeepSeek provider still uses the DeepSeek default price when no entry matches; this is not a successful model recognition. Exact mode does not search foreign catalogs, so only auto mode can use a matched foreign unpriced entry to block that default fallback.
 
 Examples:
 
 | Model id in the request | Match result |
 |---|---|
 | `gpt5.6 luna(go)` | `gpt-5.6-luna` (normalized-equal) |
+| `OpenAI : GPT 6.1 Sol` | `gpt-6.1-sol` in the direct `openai` route (recognized namespace) |
+| `models/gemini-3.8-flash` | `gemini-3.8-flash` in the declared route (Google / Zen / Go prices stay distinct) |
+| `gpt-6.1-sol (mini)` in `openai` | unpriced when no corresponding catalog entry exists |
 | `DeepSeek V4 Flash` | `deepseek-v4-flash` (normalized-equal) |
 | `deepseek-v4-flash-2026-08-01` | `deepseek-v4-flash` (date suffix stripped) |
 | `deepseek-chat` and other legacy aliases | never guessed; falls back to the DeepSeek default price |

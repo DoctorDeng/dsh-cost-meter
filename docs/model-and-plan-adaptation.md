@@ -22,15 +22,22 @@
 
 ### 2. 模型名自动匹配
 
-手动覆盖(`priceOverrides`)优先；自动匹配依次接受精确名称、归一化等价和日期、版本、上下文长度后缀。不同型号及变体保持未定价，直到加入价表或手动指定。
+手动覆盖(`priceOverrides`)优先；自动匹配依次接受精确名称、归一化等价和日期、版本、上下文长度后缀。明确的非 DeepSeek 渠道中，不同型号及变体保持未定价，直到加入价表或手动指定。
 
-归一化会转成小写，忽略空格、横杠、下划线和点号，并去掉括号附注（如 `(go)`）。明确渠道使用本渠道价格；历史 `zen` / `opencode` 兼容 Go，按量 Zen 选择 `opencode-zen`。未知代理只有唯一的直接 API 模型命中时才使用参考价，独立路由目录不会作为其他渠道兜底。
+归一化先用 NFKC 统一全角字母、数字、标点及组合字符，再转成小写，保留 Unicode 字母和数字，忽略空格、横杠、下划线和点号；仅移除已知渠道附注 `(go)` / `(zen)`（也支持中文括号），可与日期等后缀组合。`(mini)`、`(thinking)` 等型号信息不会被删成基础模型。自动模式接受已知上游厂商的 `厂商/模型` 和 `厂商:模型` 写法；Gemini 还接受官方 [Models API](https://ai.google.dev/api/models) 的 `models/gemini-…` 资源名。NFKC 等价的多个候选条目保持歧义，不按顺序猜价。完整 ID 的精确条目及手动覆盖优先，`exact` 模式不启用这些别名。
+
+明确渠道使用本渠道价格；历史 `zen` / `opencode` 兼容 Go，按量 Zen 选择 `opencode-zen`。未知代理按精确等价优先查直接 API 目录，同等级跨厂商命中保持未定价，不根据名字长短猜价；明确的厂商前缀也不会坍缩成其他厂商的名称。OpenRouter、Zen、Go 及其历史别名的独立路由目录不会作为其他渠道兜底。已命中的 `unpriced` 条目和本地模型来源保持未定价；`__local__` 手动零消耗指定始终优先。插件升级不会凭这次匹配调整改写已记账的历史金额。
+
+兼容例外：provider 缺失或为 DeepSeek 时，真正未命中任何条目的模型仍回退 DeepSeek 默认价，不代表已识别成功。`exact` 模式不跨厂商查找，因此只有自动模式会用已命中的第三方 `unpriced` 条目阻止该默认回退。
 
 示例:
 
 | 请求中的模型 id | 匹配结果 |
 |---|---|
 | `gpt5.6 luna(go)` | `gpt-5.6-luna`(归一化等价) |
+| `OpenAI : GPT 6.1 Sol` | `openai` 直接渠道的 `gpt-6.1-sol`（已知厂商前缀） |
+| `models/gemini-3.8-flash` | 当前明确渠道的 `gemini-3.8-flash`（保留 Google / Zen / Go 各自价格） |
+| `gpt-6.1-sol (mini)`（`openai` 渠道） | 无对应价表条目时保持未定价 |
 | `DeepSeek V4 Flash` | `deepseek-v4-flash`(归一化等价) |
 | `deepseek-v4-flash-2026-08-01` | `deepseek-v4-flash`(去日期后缀) |
 | `deepseek-chat` 等旧别名 | 不猜测,回退 DeepSeek 默认价 |
