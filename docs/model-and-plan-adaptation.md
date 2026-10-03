@@ -1,6 +1,8 @@
 # 模型与 Plan 适配说明
 
-更新时间:2026-08-18(随 v1.5.0 发布)
+更新时间:2026-10-03
+
+当前按渠道区分的目录、完整覆盖范围、历史宿主兼容和限制见 [2026-10 价格说明](provider-pricing-2026-10.md)。
 
 本文说明 dsh-cost-meter 对各厂商**模型计费**与各订阅 **Coding Plan 额度**的适配现状、匹配机制与数据来源。英文版本见 [`model-and-plan-adaptation.en.md`](./model-and-plan-adaptation.en.md)。
 
@@ -22,7 +24,7 @@
 
 手动覆盖(`priceOverrides`)优先；自动匹配依次接受精确名称、归一化等价和日期、版本、上下文长度后缀。不同型号及变体保持未定价，直到加入价表或手动指定。
 
-归一化会转成小写，忽略空格、横杠、下划线和点号，并去掉括号附注（如 `(go)`）。路由 provider（opencode、zen 等未在价格表登记的渠道）可按完整模型名跨厂商查找；DeepSeek 模型仍保留峰谷两档。
+归一化会转成小写，忽略空格、横杠、下划线和点号，并去掉括号附注（如 `(go)`）。明确渠道使用本渠道价格；历史 `zen` / `opencode` 兼容 Go，按量 Zen 选择 `opencode-zen`。未知代理只有唯一的直接 API 模型命中时才使用参考价，独立路由目录不会作为其他渠道兜底。
 
 示例:
 
@@ -37,27 +39,27 @@
 - 宿主账本入账与客户端估算**同口径**(`lib/pricing.js` 的 `matchModelId` 与 bundle 内镜像双实现);
 - **手动指定**:设置页自动列出「最近出现但未精确命中的模型」,每个模型可下拉指定任意已挂载条目(含跨 provider 与 DeepSeek 默认价),写入 `priceOverrides`(优先级最高,可移除)。
 
-### 3. 内置价格目录(90+ 模型)
+### 3. 内置价格目录(170+ 模型 ID)
 
-内置只读目录按 **厂商 → 模型家族** 分类,覆盖 14 家:
+内置只读目录按 **厂商 → 模型家族** 分类，包含 18 个第三方厂商/渠道键及独立 DeepSeek 主表:
 
 | 厂商 | 代表模型 |
 |---|---|
 | DeepSeek | V4 Flash / V4 Pro(峰谷两档 + 历史基础价)、V4 Flash Vision-Exp(实验版多模态,与 Flash 同价) |
-| OpenAI | GPT-5.6 Sol/Terra/Luna、GPT-5.5(+Pro)、5.4 全系、5.3 Codex(+Spark)、5.2、5.1 全系、GPT-5、4.1 |
-| Anthropic | Fable 5、Opus 5/4.8/4.7/4.6、Sonnet 5/4.6、Haiku 4.5 |
-| Google | Gemini 3.7/3.6/3.5 Flash、3.5 Flash Lite、3.1 Pro、3 Flash、2.5 全系 |
+| OpenAI | GPT-6 Astra/Sol/Luna、GPT-6.1 Sol、GPT-5.6 Sol/Terra/Luna、GPT-5.5(+Pro)、5.4 全系、5.3 Codex(+Spark)、5.2、5.1 全系、GPT-5、4.1 |
+| Anthropic | Fable 5.1/5、Opus 5.5/5/4.8/4.7/4.6、Sonnet 5.5/5/4.6、Haiku 4.5 |
+| Google | Gemini 3.8/3.7/3.6/3.5 Flash、3.5 Flash Lite、3.1 Pro、3 Flash、2.5 全系 |
 | xAI | Grok 4.6/4.5/4.3、Grok Build |
-| Z.ai/智谱 | GLM-5.3(未核价)/5.2/5.1 |
+| Z.ai/智谱 | GLM-5.3/Flash、5.2/5.1、4.x |
 | 阿里 Qwen | Qwen3.8 Max、3.7、3.6、3.5 Plus |
 | Kimi/Moonshot | K3、K2.7 Code、K2.6、K2.5 |
 | MiniMax | M3、M2.7、M2.5 |
 | 小米 MiMo | V2.6(Pro / Flash / Pro UltraSpeed)、V2.5(+Pro,官方标注即将下线) |
 | 腾讯混元 | Hy3 |
 | OpenRouter / Mistral / NVIDIA / Upstage | 常用模型 |
-| **OpenCode Go(订阅)** | 订阅包含的非 DeepSeek 模型的官方参考单价(DeepSeek V4 Flash/Pro 以官方主表为准,不重复收录) |
+| **OpenCode Go(订阅)** | 订阅模型的本渠道参考单价，含 Go 自己的 DeepSeek 峰谷档 |
 
-价格来源:以 **OpenCode Zen/Go 官方价目**(官方声明 cost-pass-through、与各厂原价一致)与各厂官方定价页交叉核对;无法核价的(如 GLM-5.3)标 `unpriced`,**不编造价格**。机器可读副本见 [`provider-pricing.json`](./provider-pricing.json)(由代码自动生成)。
+价格来源:以各厂直接 API 官方定价页与 **OpenCode Zen/Go 各自渠道价目** 分别核对（同名模型的渠道价可能不同）;无法确认完整计费规则的（如直接 API GPT-5.5 Pro）标 `unpriced`,**不编造价格**。机器可读副本见 [`provider-pricing.json`](./provider-pricing.json)(由代码自动生成)。
 
 ### 4. 挂载机制
 

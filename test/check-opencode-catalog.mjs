@@ -1,155 +1,138 @@
 #!/usr/bin/env node
-/**
- * OpenCode 目录对表夹具(issue #58):抓取 opencode.ai/docs/zen 与 /docs/go 两张目录页,
- * 与 lib/pricing.js DEFAULT_PROVIDER_PRICE_TABLE 中 sourceUrl 指向这两页的条目逐条比对。
- *
- * 规则(与 issue #58 报告者的脚本口径一致):
- *  - 只比对 sourceUrl 指向这两页的「已定价」条目;unpriced 条目跳过(Go 目录价不是厂商官方价,
- *    z-ai.glm-5.3 等维持不编造原则,不因页面出现价格而报错);
- *  - 模型名 → id 用页面 Endpoints 表的官方映射,分档行只取「≤ NNNK tokens」为基础档,
- *    「> NNNK tokens」「(Peak)/(Off-Peak)」等变体行跳过(长上下文档记在 notes 里,机器不可比);
- *  - 缓存读按 normalizePrice 语义折算:页面缺失时等于原价(entry.cachedInput ?? entry.input);
- *  - 「页面有价、表里没有」仅提示不判失败——目录天天上新,不应因此弄红 CI。
- *
- * 用法:node test/check-opencode-catalog.mjs(需联网,Node 18+ 原生 fetch)。退出码:0 一致 / 1 有出入。
+/** Check current provider-scoped Zen/Go endpoint prices against public source tables.
+ * No account, credential or billable API is used. Legacy vendor snapshots are not
+ * compared with a gateway they merely cite. Usage:
+ *   node test/check-opencode-catalog.mjs
+ *   node test/check-opencode-catalog.mjs --fixture=/path/to/verified-opencode-catalog.json
+ * Fixtures contain the independently captured audit.endpoints/audit.priceRows data.
  */
-import { DEFAULT_PROVIDER_PRICE_TABLE } from '../lib/pricing.js'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { DEFAULT_PROVIDER_PRICE_TABLE, normalizePrice } from '../lib/pricing.js'
 
 const PAGES = [
-  { name: 'zen', url: 'https://opencode.ai/docs/zen' },
-  { name: 'go', url: 'https://opencode.ai/docs/go' },
+  { provider: 'opencode-zen', fixtureProvider: 'opencode', url: 'https://opencode.ai/docs/zen' },
+  { provider: 'opencode-go', url: 'https://opencode.ai/docs/go' },
 ]
 const EPS = 1e-9
-const num = s => {
-  const m = String(s ?? '').trim().match(/^\$([\d,.]+)$/)
-  return m ? Number(m[1].replace(/,/g, '')) : null
-}
-const cellsOf = tr => [...tr.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map(m =>
-  // CodeQL #10 误报:这是测试里从官方价目表 HTML 抽取单元格文本的存在性提取,不是安全净化——
-  // 输入是固定受信任页面,输出只参与断言比对,不会进入任何执行/渲染路径。
-  m[1].replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()) // codeql[js/incomplete-multi-character-sanitization]
-const canon = s => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
-// 分档标注:(≤ 272K tokens)=基础档;(> 272K tokens)/(Off-Peak)/(Peak) 等为变体行。
-const tierOf = name => {
-  const m = String(name ?? '').match(/\((.+)\)\s*$/)
-  if (!m) return 'base'
-  return /\u2264/.test(m[1]) ? 'le' : 'gt'
-}
-const baseName = name => String(name ?? '').replace(/\s*\([^)]*\)\s*$/, '').trim()
-
-async function fetchPage(url) {
-  const resp = await fetch(url, { headers: { 'user-agent': 'dsh-cost-meter-check/1.0' }, signal: AbortSignal.timeout(15000) })
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`)
-  return resp.text()
+const decode = text => text.replace(/&(?:amp|lt|gt|quot|apos|nbsp|le|ge);/g, entity => ({
+  '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&nbsp;': ' ', '&le;': '≤', '&ge;': '≥',
+})[entity]).replace(/&#(?:x([0-9a-f]+)|(\d+));/gi, (_, hex, dec) => {
+  const point = parseInt(hex ?? dec, hex ? 16 : 10)
+  return point >= 0 && point <= 0x10ffff ? String.fromCodePoint(point) : ''
+})
+// Source data is compared only; stripped HTML is never executed or rendered.
+const cellsOf = row => [...row.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(match =>
+  decode(match[1].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()) // codeql[js/incomplete-multi-character-sanitization]
+const canon = text => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '')
+const rate = text => {
+  if (text === 'Free') return 0
+  if (text === '-') return undefined
+  if (!/^\$\d+(?:\.\d+)?$/.test(text)) throw new Error(`Unrecognized price ${JSON.stringify(text)}`)
+  return Number(text.slice(1))
 }
 
 function parsePage(html) {
-  const tables = [...html.matchAll(/<table[\s\S]*?<\/table>/g)].map(m => m[0])
-  const nameToId = new Map() // Endpoints 表:展示名 → 官方 Model ID
-  const prices = [] // Pricing 表:{ name, tier, input, output, cached }
-  for (const table of tables) {
-    const rows = [...table.matchAll(/<tr[\s\S]*?<\/tr>/g)].map(m => m[0]).map(cellsOf).filter(c => c.length > 0)
-    if (rows.length === 0) continue
-    const head = rows[0].map(canon)
-    const has = re => head.some(h => re.test(h))
-    const isEndpoints = has(/^model id$/) && has(/^model$/)
-    const isPricing = has(/^input$/) && has(/^output$/) && has(/^model$/) && !isEndpoints
-    if (!isEndpoints && !isPricing) continue
-    for (const row of rows.slice(1)) {
-      if (isEndpoints) {
-        // Model | Model ID | Endpoint | AI SDK Package
-        // 定价行与端点行的展示名存在连字符/空格书写差异(如 MiMo-V2.5 ↔ MiMo V2.5),
-        // 两种规范化键都注册,取值时同样两级回退。
-        if (row[0] && row[1]) {
-          const id = canon(row[1])
-          nameToId.set(canon(row[0]), id)
-          nameToId.set(canon(row[0]).replace(/-/g, ' '), id)
-        }
-      } else {
-        // Model | Input | Output | Cached Read | Cached Write
-        prices.push({
-          name: row[0],
-          tier: tierOf(row[0]),
-          input: num(row[1]),
-          output: num(row[2]),
-          cached: num(row[3]),
-          raw: [row[0], row[1], row[2], row[3]].filter(Boolean).join(' / '),
-        })
-      }
-    }
+  const endpoints = [], priceRows = []
+  for (const table of html.matchAll(/<table\b[\s\S]*?<\/table>/gi)) {
+    const rows = [...table[0].matchAll(/<tr\b[\s\S]*?<\/tr>/gi)].map(match => cellsOf(match[0])).filter(row => row.length)
+    const header = rows[0] ?? []
+    if (header.join('|') === 'Model|Model ID|Endpoint|AI SDK Package') endpoints.push(...rows.slice(1))
+    if (header.slice(0, 5).join('|') === 'Model|Input|Output|Cached Read|Cached Write') priceRows.push(...rows.slice(1).map(row => row.slice(0, 5)))
   }
-  return { nameToId, prices }
+  return { endpoints, priceRows }
 }
 
-// 页面定价行 → 基础档 Map(id → 行)。「> 变体」跳过;「≤」视作该模型的基础档。
-function priceRowsById(page) {
-  const map = new Map()
-  const unparsed = new Map() // 行存在但价格解析失败:id → 原始行文本(仅用于报错文案)
-  for (const p of page.prices) {
-    if (p.tier === 'gt') continue
-    const key = canon(baseName(p.name))
-    const id = page.nameToId.get(key) ?? page.nameToId.get(key.replace(/-/g, ' '))
-    if (!id) continue
-    if (p.input === null || p.output === null) { // Free / 免费档 / 非数值
-      if (!unparsed.has(id)) unparsed.set(id, p.raw)
-      continue
-    }
-    if (!map.has(id)) map.set(id, p)
+function priceRow(row) {
+  const display = row[0]
+  const context = display.match(/\((≤|>)\s*(\d+)K\s+tokens\)\s*$/)
+  const peak = display.match(/\((Off-Peak|Peak)\)\s*$/)
+  const match = context ?? peak
+  const name = match ? display.slice(0, match.index).trim() : display
+  const tier = peak ? peak[1] === 'Peak' ? 'peak' : 'offPeak' : context?.[1] === '>' ? 'longContext' : 'base'
+  const rates = Object.fromEntries(['input', 'output', 'cachedInput', 'cacheWrite'].map((key, i) => [key, rate(row[i + 1])]))
+  return { name, tier, aboveInputTokens: context ? Number(context[2]) * 1000 : undefined, rates, raw: row }
+}
+
+function verifyPage(page, data) {
+  const errors = [], warnings = [], models = DEFAULT_PROVIDER_PRICE_TABLE[page.provider]?.models ?? {}
+  const nameToId = new Map(data.endpoints.map(row => [canon(row[0]), row[1]]))
+  const grouped = new Map()
+  for (const row of data.priceRows) {
+    try {
+      const parsed = priceRow(row), id = nameToId.get(canon(parsed.name))
+      if (!id) { errors.push(`Price row has no endpoint ID: ${row[0]}`); continue }
+      const key = `${id}:${parsed.tier}`
+      const group = grouped.get(key) ?? { id, tier: parsed.tier, rows: [] }
+      group.rows.push(parsed); grouped.set(key, group)
+    } catch (error) { errors.push(error.message) }
   }
-  return { map, unparsed }
-}
-
-const failures = []
-const infos = []
-let checked = 0
-
-// 表内全部模型 id:判断「页面有价、表里没有」用(同一模型条目可能引用任意一张目录页,
-// 只要表里收了就算覆盖——kimi-k2.7-code 等条目 sourceUrl 指向 go 但 zen 也标价)。
-const tableIds = new Set()
-for (const group of Object.values(DEFAULT_PROVIDER_PRICE_TABLE)) {
-  for (const modelId of Object.keys(group.models)) tableIds.add(modelId.toLowerCase())
-}
-
-for (const { name, url } of PAGES) {
-  const html = await fetchPage(url)
-  const page = parsePage(html)
-  const { map: byId, unparsed: unparseableById } = priceRowsById(page)
-  const covered = new Set(byId.keys())
-  for (const [provider, group] of Object.entries(DEFAULT_PROVIDER_PRICE_TABLE)) {
-    for (const [modelId, entry] of Object.entries(group.models)) {
-      if (entry.sourceUrl !== url) continue
-      if (entry.unpriced === true) continue
-      const lowerId = modelId.toLowerCase()
-      const row = byId.get(lowerId)
-      if (row === undefined) {
-        const rawRow = unparseableById.get(lowerId)
-        failures.push(rawRow !== undefined
-          ? `${provider}/${modelId}: 找到定价行但价格无法解析(${rawRow})`
-          : `${provider}/${modelId}: 表内引用了 ${name} 目录,但页面上找不到该模型的定价行`)
+  const seen = new Set()
+  for (const group of grouped.values()) {
+    const { id, tier, rows } = group
+    seen.add(id)
+    const raw = models[id], entry = normalizePrice(raw)
+    if (!entry || entry.unpriced === true) { errors.push(`${id}: missing verified price`); continue }
+    const target = tier === 'base' ? entry : entry[tier]
+    if (!target) { errors.push(`${id}: missing ${tier}`); continue }
+    if (tier === 'longContext' && target.aboveInputTokens !== rows[0].aboveInputTokens) errors.push(`${id}: wrong context threshold`)
+    if ((tier === 'peak' || tier === 'offPeak') && raw.billingMode !== 'utc-peak') errors.push(`${id}: gateway peak row must use UTC schedule, not direct DeepSeek history`)
+    for (const [sourceKey, targetKey] of [['input', 'cacheMiss'], ['output', 'output'], ['cachedInput', 'cacheHit'], ['cacheWrite', 'cacheWrite']]) {
+      const values = rows.map(row => row.rates[sourceKey])
+      const distinct = [...new Set(values)]
+      // Go/Go Plus currently disagree for MiniMax M2.7's write cell. A dash is
+      // unspecified, not zero. Neither positive nor missing wins by table order.
+      if (distinct.length > 1) {
+        if (page.provider === 'opencode-go' && id === 'minimax-m2.7' && sourceKey === 'cacheWrite'
+          && distinct.includes(undefined) && distinct.includes(0.375)) {
+          warnings.push(`${id}: Go cache write unspecified, Go Plus $0.375; published narrative says same pricing, so write rate remains unresolved`)
+        } else errors.push(`${id}/${tier}/${sourceKey}: conflicting source rows ${distinct.map(value => value ?? 'unspecified').join(', ')}`)
         continue
       }
-      checked++
-      const expect = [
-        ['input', entry.input, row.input],
-        ['output', entry.output, row.output],
-        ['cachedInput', entry.cachedInput ?? entry.input, row.cached ?? row.input],
-      ]
-      for (const [field, mine, theirs] of expect) {
-        if (!Number.isFinite(Number(mine)) || theirs === null) continue
-        if (Math.abs(Number(mine) - theirs) > EPS) {
-          const ratio = theirs !== 0 && Number(mine) !== 0 ? `(×${(theirs / Number(mine)).toFixed(2)})` : ''
-          failures.push(`${provider}/${modelId} ${field}: 表内 ${mine} / 页面 ${theirs}${ratio}`)
-        }
-      }
+      const expected = distinct[0]
+      // Unspecified source cells cannot establish a new cache charge or discount.
+      if (expected === undefined) continue
+      if (typeof target[targetKey] !== 'number' || Math.abs(target[targetKey] - expected) > EPS) errors.push(`${id}/${tier}/${sourceKey}: ${target[targetKey] ?? 'missing'} != ${expected}`)
     }
   }
-  // 页面有价、表里没有:仅提示(免费档已由 input/output 为空过滤掉)。
-  for (const id of covered) {
-    if (!tableIds.has(id)) infos.push(`页面有价、表里没有:${id} [${name}]`)
-  }
+  for (const row of data.endpoints) if (!seen.has(row[1])) errors.push(`${row[1]}: endpoint has no parsed pricing row`)
+  for (const id of Object.keys(models)) if (!data.endpoints.some(row => row[1] === id)) warnings.push(`${id}: local snapshot not in current endpoint table; may have been retired since capture`)
+  return { endpointCount: data.endpoints.length, rowCount: grouped.size, errors, warnings }
 }
 
-for (const f of failures) console.log('  ✗ ' + f)
-for (const i of infos) console.log('  · ' + i)
-console.log(`对了 ${checked} 条(sourceUrl 指向 OpenCode 两张目录页的);退出码=${failures.length ? 1 : 0}`)
-process.exit(failures.length ? 1 : 0)
+// Small deterministic parsing sentinels run even when the online pages are unavailable.
+assert.equal(rate('Free'), 0)
+assert.equal(rate('-'), undefined)
+assert.equal(priceRow(['Model (≤ 272K tokens)', '$2', '$10', '$0.2', '$2.5']).tier, 'base')
+assert.equal(priceRow(['Model (> 256K tokens)', '$1.2', '$4.8', '$0.12', '$1.5']).aboveInputTokens, 256000)
+assert.equal(priceRow(['Model (Off-Peak)', '$0.15', '$0.60', '$0.003', '-']).tier, 'offPeak')
+assert.equal(priceRow(['Model (Peak)', '$0.30', '$1.20', '$0.006', '-']).tier, 'peak')
+const sample = parsePage('<table><tr><th>Model</th><th>Model ID</th><th>Endpoint</th><th>AI SDK Package</th></tr><tr><td>Free Model</td><td>free-model</td><td>https://example.invalid</td><td>-</td></tr></table><table><tr><th>Model</th><th>Input</th><th>Output</th><th>Cached Read</th><th>Cached Write</th></tr><tr><td>Free Model</td><td>Free</td><td>Free</td><td>Free</td><td>-</td></tr></table>')
+assert.equal(sample.endpoints[0][1], 'free-model')
+assert.equal(sample.priceRows[0][1], 'Free')
+
+const fixtureArg = process.argv.slice(2).find(arg => arg.startsWith('--fixture='))
+const fixture = fixtureArg ? JSON.parse(readFileSync(fixtureArg.slice('--fixture='.length), 'utf8')) : null
+let errorCount = 0, checked = 0
+for (const page of PAGES) {
+  try {
+    let data
+    if (fixture) {
+      const audit = fixture.audit?.[page.fixtureProvider ?? page.provider]
+      if (!audit) throw new Error(`Fixture lacks audit.${page.provider}`)
+      data = { endpoints: audit.endpoints, priceRows: audit.priceRows.map(item => item.row) }
+    } else {
+      const response = await fetch(page.url, { headers: { 'user-agent': 'dsh-cost-meter-check/2.0' }, redirect: 'error', signal: AbortSignal.timeout(20000) })
+      if (!response.ok) throw new Error(`HTTP ${response.status} for ${page.url}`)
+      data = parsePage(await response.text())
+    }
+    if (!data.endpoints.length || !data.priceRows.length) throw new Error('No endpoint or price tables parsed')
+    const result = verifyPage(page, data)
+    checked += result.endpointCount; errorCount += result.errors.length
+    console.log(`${page.provider}: ${result.endpointCount} endpoint IDs, ${result.rowCount} price tiers`)
+    for (const warning of result.warnings) console.warn(`  warning: ${warning}`)
+    for (const error of result.errors) console.error(`  mismatch: ${error}`)
+  } catch (error) { console.error(`${page.provider}: ${error.message}`); errorCount++ }
+}
+console.log(`Checked ${checked} provider-scoped models; ${errorCount} errors${fixture ? ' (captured source fixture)' : ' (live primary sources)'}`)
+process.exitCode = errorCount ? 1 : 0

@@ -679,8 +679,7 @@ assert.equal(openaiSame.priced, true, 'OpenAI 模型有价')
 assert.equal(anthropicSame.priced, true, 'Anthropic 模型有价')
 assert.equal(openaiSame.entry.cacheMiss, 2, '同名 OpenAI 模型使用自身价格')
 assert.equal(anthropicSame.entry.cacheMiss, 3, '同名 Anthropic 模型使用自身价格')
-assert.equal(unknownProvider.priced, true, '未知 provider 经跨厂商兑底按模型名命中(v1.5.2)')
-assert.equal(unknownProvider.entry.cacheMiss, 2, '跨厂商命中用目录价而非 DeepSeek 默认价')
+assert.equal(unknownProvider.priced, false, '未知 provider 同名匹配多个不同厂商时保持未定价')
 assert.equal(providerPriceEntryFor('gemini', 'no-such-model-anywhere', providerPrices).priced, false, '全库无此模型时不套价')
 const reasoningPrice = normalizePrice({ input: 1, output: 2, reasoning: 4 })
 assert.equal(reasoningPrice.reasoning, 4, 'reasoning 价格保留')
@@ -1768,19 +1767,19 @@ assert.ok(catalog.anthropic['Claude 4.5']['claude-opus-4-5'] !== undefined, 'Cla
 // 6.3.1 OpenCode Go 订阅非 DeepSeek 的 19 个模型在册,关键模型有价;DeepSeek 以官方主表为准不重复收录。
 const goModels = Object.values(catalog['opencode-go']).reduce((acc, fam) => acc.concat(Object.keys(fam)), [])
 assert.ok(goModels.length >= 19, 'OpenCode Go 目录 ≥19 个模型: ' + goModels.length)
-assert.equal(catalog['opencode-go'] && Object.values(catalog['opencode-go']).flatMap(fam => Object.keys(fam)).includes('deepseek-v4-flash'), false, 'Go 目录不重复收录 DeepSeek V4(以官方为准)')
+assert.equal(catalog['opencode-go'] && Object.values(catalog['opencode-go']).flatMap(fam => Object.keys(fam)).includes('deepseek-v4-flash'), true, 'Go 独立收录自己的 DeepSeek 参考价，不再复用直接 API 价')
 assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-luna'].input, 0.2, 'GPT-5.6 Luna 输入价')
 assert.equal(catalog['opencode-go']['GPT']['gpt-5.6-luna'].output, 1.2, 'Go 目录 GPT-5.6 Luna 输出价')
 // v1.7.5(issue #85):智谱官方已公布 GLM-5.3 定价(¥8/¥28/缓存¥2),z-ai 目录按
 // OpenCode Go 核价收录 $1.40/$0.26/$4.40;「维持 unpriced」的旧断言随之退役。
 assert.ok(catalog['z-ai']['GLM-5']['glm-5.3'].input === 1.4, 'GLM-5.3 已核价 $1.40(issue #85 补价)')
-assert.ok(catalog.google['Gemini 3.6 Flash']['gemini-3.6-flash'].output === 7.5, 'Gemini 3.6 Flash 已核价')
+assert.ok(catalog.google['Gemini 3.6 Flash']['gemini-3.6-flash'].output === 3.75, 'Gemini 3.6 Flash 已核价')
 assert.ok(catalog.anthropic['Claude Fable']['claude-fable-5'].output === 50, 'Claude Fable 5 已核价')
 // 6.3.2 OpenCode 目录价格漂移夹具(issue #58):Sol 2026-08 下旬降价六成、glm-5.3 登上 Go 目录价、三个新模型。
-assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].input, 2, 'gpt-5.6-sol 输入价已随目录更新为 $2(issue #58)')
-assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].output, 10, 'gpt-5.6-sol 输出价已更新为 $10')
-assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].cachedInput, 0.2, 'gpt-5.6-sol 缓存读已更新为 $0.20')
-assert.ok(String(catalog.openai['GPT-5.6']['gpt-5.6-sol'].notes ?? '').includes('272K'), 'Sol notes 保留长上下文档说明')
+assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].input, 4, 'gpt-5.6-sol 官方当前标准输入价 $4')
+assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].output, 20, 'gpt-5.6-sol 官方当前标准输出价 $20')
+assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].cachedInput, 0.4, 'gpt-5.6-sol 官方当前缓存读价 $0.40')
+assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].longContext.aboveInputTokens, 272000, 'Sol 长上下文档以可执行字段保留')
 assert.equal(catalog['opencode-go']['GLM']['glm-5.3'].input, 1.4, 'opencode-go.glm-5.3 按目录价补齐 $1.40(issue #58)')
 assert.equal(catalog['opencode-go']['GLM']['glm-5.3'].cachedInput, 0.26, 'opencode-go.glm-5.3 缓存读 $0.26')
 assert.ok(catalog.meta?.['Muse Spark']?.['muse-spark-1.2'] !== undefined, 'Zen 新模型 muse-spark-1.2 在册(Meta 家族)')
@@ -1824,7 +1823,7 @@ const lunaViaRouter = providerPriceEntryFor('opencode', 'gpt5.6 luna(go)', fullP
 assert.equal(lunaViaRouter.priced, true, '路由 provider 下宽泛名跨厂商命中')
 assert.equal(lunaViaRouter.entry.output, 1.2, '跨厂商命中取正确价格')
 const dsViaRouter = providerPriceEntryFor('zen', 'deepseek-v4-flash', fullPrices)
-assert.equal(dsViaRouter.billingMode, 'deepseek-peak', '路由 provider 下 DeepSeek 模型保留峰谷两档')
+assert.equal(dsViaRouter.billingMode, 'utc-peak', '历史 zen Go 路由使用本渠道 UTC 峰谷参考价；按量 Zen 用 opencode-zen')
 assert.equal(providerPriceEntryFor('opencode', 'totally-unknown-xyz', fullPrices).priced, false, '跨厂商兑底不误配未知模型')
 assert.equal(providerPriceEntryFor('openai', 'GPT-5.6 LUNA', fullPrices).priced, true, '同厂商大小写/空格差异命中')
 console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修复)断言通过')
@@ -2593,8 +2592,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 回退计价必须除汇率,否则展示金额放大汇率倍);跨厂商兑底 billingMode 与
   // 服务端 bestMode 对齐;数字分叉守卫双端同步。
   assert.ok(clientSource.includes("currency: typeof v.prices?.currency === 'string'"), '客户端 parseConfig 保留 prices.currency')
-  assert.ok(clientSource.includes("bestMode = modelsCat[h]?.billingMode === 'deepseek-peak' ? 'deepseek-peak' : 'flat'"), '客户端跨厂商兑底 billingMode 与服务端同口径')
-  assert.ok(clientSource.includes('const suffix = /^(?:[-_./:@]') && clientSource.includes('suffix.test(stripped.slice(strip(c).length))'), '客户端安全后缀匹配与 pricing.js 同步')
+  assert.ok(clientSource.includes("bestMode = priceBillingMode(modelsCat[h])"), '客户端跨厂商兑底 billingMode 与服务端同口径')
+  assert.ok(clientSource.includes('const stripped = stripIdDecor(target)') && clientSource.includes('hits.length === 1 ? hits[0] : null'), '客户端安全后缀匹配与 pricing.js 同步')
   console.log('[ok] 手动价格映射裸 DeepSeek 名兜底(宿主+客户端双端/语义保留/下拉框根因修复)通过')
 }
 
@@ -3986,15 +3985,16 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   process.env.DSH_HOME = planHome
 
   // 10.1) 分类器:别名归并、模型级覆盖、厂商级配置、auto 默认。
-  assert.equal(planProviderIdOf('zen'), 'go', 'zen 别名 → go')
-  assert.equal(planProviderIdOf('OpenCode'), 'go', 'opencode 大小写归一 → go')
+  assert.equal(planProviderIdOf('zen'), 'go', '宿主历史 zen 别名仍为 Go')
+  assert.equal(planProviderIdOf('OpenCode'), 'go', '宿主历史 opencode 大小写归一仍为 Go')
   assert.equal(planProviderIdOf('deepseek'), null, 'deepseek 非 Plan 渠道')
   assert.equal(planProviderIdOf('minimax'), 'minimax', '已知 Plan 渠道原样')
   const pbBase = { providers: { ...DEFAULT_PLAN_PROVIDER_CLASS }, models: {} }
   assert.equal(billingClassOf('minimax', 'MiniMax-M3', pbBase, new Set(['minimax'])), 'plan', 'auto+已启用 → plan')
   assert.equal(billingClassOf('minimax', 'MiniMax-M3', pbBase, new Set()), 'api', 'auto+未启用 → api')
   assert.equal(billingClassOf('openrouter', 'gpt-x', pbBase, new Set(['openrouter'])), 'api', '默认 api 类厂商不受启用影响')
-  assert.equal(billingClassOf('zen', 'claude-x', pbBase, new Set(['go'])), 'plan', 'zen 归 go 后按 go 启用态分类')
+  assert.equal(billingClassOf('zen', 'claude-x', pbBase, new Set(['go'])), 'plan', '历史 zen 归 Go 后保持既有分类')
+  assert.equal(billingClassOf('opencode-zen', 'claude-x', pbBase, new Set(['go'])), 'api', '显式 Zen 按量渠道不因 Go 启用而变成订阅')
   assert.equal(billingClassOf('deepseek', 'deepseek-v4-pro', pbBase, new Set(['minimax'])), 'api', 'deepseek 恒 api')
   const pbModelOverride = { providers: { ...pbBase.providers }, models: { 'kimi:kimi-k2.7': 'api' } }
   assert.equal(billingClassOf('kimi', 'kimi-k2.7', pbModelOverride, new Set(['kimi'])), 'api', '模型级覆盖优先(转 api)')
@@ -6753,6 +6753,8 @@ await import('./deepseek-pricing-september.mjs')
 await import('./sidebar-simple.mjs')
 await import('./sidebar-regressions.mjs')
 await import('./gpt-astra-pricing.mjs')
+await import('./pricing-model-matching.mjs')
+await import('./provider-pricing-coverage.mjs')
 await import('./subagent-billing.mjs')
 await import('./session-restart.mjs')
 await import('./native-search-billing.mjs')

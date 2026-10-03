@@ -607,6 +607,7 @@
     function normalizeClientPrice(raw) {
       const base = normalizeClientTier(raw)
       if (base === undefined) return null
+      if (raw.billingMode === 'utc-peak') base.billingMode = 'utc-peak'
       // 峰谷/历史子档必须随主档一起保留:usageSplit 回退计价与 Plan 拆分靠 tierFor
       // 取子档,剥掉会把峰时调用按基础价(= 谷价)重算、低估约一半(v1.6.9 审计修复)。
       for (const key of ['offPeak', 'peak', 'legacyBase']) {
@@ -673,6 +674,12 @@
       const base = priceAt(entry, atMs) ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
       const asTier = price => ({ cacheHit: price.cacheHit, cacheMiss: price.cacheMiss, output: price.output, reasoning: price.reasoning ?? 0,
         ...(price.cacheWrite === undefined ? {} : { cacheWrite: price.cacheWrite }), ...(price.longContext === undefined ? {} : { longContext: price.longContext }) })
+      if (base.billingMode === 'utc-peak') {
+        if (peak?.enabled !== true || !Number.isFinite(atMs)) return asTier(base)
+        const date = new Date(atMs), day = date.getUTCDay(), hour = date.getUTCHours()
+        const high = day > 0 && day < 6 && ((hour >= 1 && hour < 4) || (hour >= 6 && hour < 10))
+        return asTier((high ? base.peak : base.offPeak) ?? base)
+      }
       // 峰谷时代之前按当时的基础价计费(历史正确;与 lib/pricing.js tierFor 同分支,
       // v1.6.9 审计修复:客户端镜像此前缺该分支,分界前回放桶会按当前价重算)。
       if (Number.isFinite(atMs) && atMs < LEGACY_BASE_BOUNDARY_MS) {
@@ -770,23 +777,56 @@
      * 模型名自动匹配(与 lib/pricing.js 的 matchModelId 同逻辑;bundle 无法导入,修改时两处同步)。
      * 精确 → 归一化等价 → 去日期/版本后缀 → 安全后缀。
      */
+    function stripIdDecor(id) {
+      // Strip request decorations one at a time; candidate snapshots keep their identity.
+      return String(id).toLowerCase().replace(/[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest)$/, '')
+    }
+
+    /** Exact IDs precede unique punctuation aliases and request-only safe decorations. */
     function matchModelIdLocal(modelId, candidates) {
       if (typeof modelId !== 'string' || modelId.length === 0) return null
       const list = Array.isArray(candidates) ? candidates.filter(c => typeof c === 'string' && c.length > 0) : []
-      if (list.length === 0) return null
-      const strip = id => String(id).toLowerCase().replace(/[-@]\d{4}-?\d{2}-?\d{2}$/, '').replace(/[-@]v\d+(\.\d+)*$/, '')
       const exact = list.find(c => c === modelId)
       if (exact !== undefined) return exact
-      const canon = canonModelIdLocal(modelId)
-      if (canon.length === 0) return null
-      const byCanon = list.find(c => canonModelIdLocal(c) === canon)
-      if (byCanon !== undefined) return byCanon
-      const stripped = strip(modelId)
-      const byStripped = list.find(c => strip(c) === stripped)
-      if (byStripped !== undefined) return byStripped
-      const suffix = /^(?:[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest))+$/
-      return list.filter(c => stripped.startsWith(strip(c)) && suffix.test(stripped.slice(strip(c).length)))
-        .sort((a, b) => b.length - a.length)[0] ?? null
+      if (/[:(（]\s*(?:free|online)\b/i.test(modelId)) return null
+      let target = modelId
+      for (;;) {
+        const canon = canonModelIdLocal(target)
+        if (canon.length === 0) return null
+        const hits = list.filter(c => canonModelIdLocal(c) === canon)
+        if (hits.length > 0) return hits.length === 1 ? hits[0] : null
+        const stripped = stripIdDecor(target)
+        if (stripped === target.toLowerCase()) return null
+        target = stripped
+      }
+    }
+
+    const SCOPED_PRICE_PROVIDERS = new Set(['openrouter', 'opencode-zen', 'opencode-go'])
+    const MODEL_VENDOR_PREFIXES = {
+      openai: /^(?:gpt|o\d|codex)/i, anthropic: /^claude/i, google: /^gemini/i,
+      deepseek: /^deepseek/i, moonshot: /^kimi/i, 'z-ai': /^glm/i, xai: /^grok/i,
+      alibaba: /^qwen/i, minimax: /^minimax/i, tencent: /^(?:hunyuan|hy\d)/i,
+      xiaomi: /^mimo/i, upstage: /^solar/i, nvidia: /^nemotron/i, mistral: /^mistral/i,
+      meta: /^(?:muse|llama)/i, meituan: /^longcat/i,
+    }
+    function priceBillingMode(entry) {
+      return ['deepseek-peak', 'utc-peak'].includes(entry?.billingMode) ? entry.billingMode : 'flat'
+    }
+    // Full IDs win. Auto aliases may remove a known upstream namespace, never a routing variant.
+    function priceModelHit(modelId, models, provider, mode, prices) {
+      if (typeof modelId !== 'string') return null
+      if (Object.hasOwn(models, modelId)) return modelId
+      if (mode !== 'auto') return null
+      let target = modelId
+      const sep = target.indexOf('/')
+      if (sep > 0) {
+        const vendor = target.slice(0, sep).toLowerCase(), bare = target.slice(sep + 1)
+        if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)
+          && (vendor === provider || (provider === 'opencode-zen' || provider === 'opencode-go')
+            && (MODEL_VENDOR_PREFIXES[vendor].test(bare)
+              || matchModelIdLocal(bare, Object.keys(vendor === 'deepseek' ? prices?.models ?? {} : prices?.providers?.[vendor]?.models ?? {})) !== null))) target = bare
+      }
+      return matchModelIdLocal(target, Object.keys(models))
     }
     /**
      * 客户端价格解析(与 pricing.js providerPriceEntryFor 同口径):手动覆盖 → 精确 → 自动匹配。
@@ -798,7 +838,7 @@
     // 名单同口径;bundle 无法直接复用宿主模块,此处为镜像副本,双侧同输入同结果
     // 由 verify.mjs 漂移守卫锁定)。
     const LOCAL_PROVIDER_IDS = new Set([
-      'lmstudio', 'ollama', 'jan', 'gpt4all', 'koboldcpp', 'llamacpp', 'llama-cpp', 'localai',
+      'local', 'lmstudio', 'ollama', 'jan', 'gpt4all', 'koboldcpp', 'llamacpp', 'llama-cpp', 'localai',
       'vllm', 'sglang', 'tabbyapi', 'lmdeploy', 'oobabooga', 'text-generation-webui', 'llama-server',
     ])
     const LOCAL_MODEL_PREFIXES = [
@@ -811,6 +851,16 @@
       if (typeof provider === 'string' && LOCAL_PROVIDER_IDS.has(provider)) return true
       const model = typeof modelId === 'string' ? modelId.toLowerCase() : ''
       return LOCAL_MODEL_PREFIXES.some(prefix => model.startsWith(prefix))
+    }
+    function legacyDeepseekOverride(provider, override, prices, mode) {
+      if (provider !== 'deepseek' && !provider.includes('deepseek')
+        && typeof override === 'string' && override.length > 0 && !override.includes(':')) {
+        const dsModels = prices.models ?? {}
+        const retryHit = Object.hasOwn(dsModels, override) ? override
+          : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels)) : null)
+        if (retryHit !== null && dsModels[retryHit]?.unpriced !== true) return { entry: dsModels[retryHit], priced: true, billingMode: 'deepseek-peak', matched: true }
+      }
+      return null
     }
     function resolveClientPriceRaw(providerRaw, modelId, config) {
       const prices = config?.prices ?? {}
@@ -837,80 +887,93 @@
           return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: true, billingMode: 'deepseek-peak', matched: false }
         }
       }
+          if (['zen', 'opencode'].includes(targetProvider)) {
+        const own = priceModelHit(targetModel, prices.providers?.[targetProvider]?.models ?? {}, 'opencode-go', mode, prices)
+        if (own === null) targetProvider = 'opencode-go'
+        else targetModel = own
+      }
       // 本地推理来源零价守卫(与 pricing.js 同口径,置于覆盖之后、目录匹配之前)。
       if (isLocalOriginClient(targetProvider, targetModel)) {
         return { entry: null, priced: false, billingMode: 'flat', matched: false }
       }
+      if (targetProvider === 'openrouter') {
+        const models = prices.providers?.openrouter?.models ?? {}
+        const entry = Object.hasOwn(models, targetModel) ? models[targetModel] : null
+        return { entry, priced: entry !== null && entry.unpriced !== true, billingMode: 'flat', matched: entry !== null }
+      }
       if (targetProvider === 'deepseek' || targetProvider.includes('deepseek')) {
         const models = prices.models ?? {}
-        const hit = models[targetModel] !== undefined ? targetModel
-          : (mode === 'auto' ? matchModelIdLocal(targetModel, Object.keys(models)) : null)
-        if (hit !== null) return { entry: models[hit], priced: true, billingMode: 'deepseek-peak', matched: true }
+        const hit = priceModelHit(targetModel, models, 'deepseek', mode, prices)
+        if (hit !== null) return models[hit]?.unpriced === true
+          ? { entry: null, priced: false, billingMode: 'flat', matched: true }
+          : { entry: models[hit], priced: true, billingMode: 'deepseek-peak', matched: true }
         // 回退: provider 缺失/DeepSeek 但模型实际属于 Go 等其它目录时，避免
         // 误套 DeepSeek 默认低价(与 pricing.js 同口径，修复 Go 金额偏低)。
         if (mode === 'auto') {
           let bestEntry = null
           let bestLen = -1
+          let ambiguous = false
           let bestMode = 'flat'
           for (const [prov, table] of Object.entries(prices.providers ?? {})) {
+            if (SCOPED_PRICE_PROVIDERS.has(prov)) continue
             const modelsCat = table?.models ?? {}
-            const h = matchModelIdLocal(targetModel, Object.keys(modelsCat))
+            const h = priceModelHit(targetModel, modelsCat, prov, mode, prices)
             if (h === null || modelsCat[h]?.unpriced === true) continue
             const isExact = h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel)
             const score = (isExact ? 1000 : 0) + canonModelIdLocal(h).length
             if (score > bestLen) {
-              bestEntry = modelsCat[h]; bestLen = score
+              bestEntry = modelsCat[h]; bestLen = score; ambiguous = false
               // 与 pricing.js 同口径:命中条目自带峰谷模式时保留,否则客户端
               // 会按 flat 计与服务端入账不一致。
-              bestMode = modelsCat[h]?.billingMode === 'deepseek-peak' ? 'deepseek-peak' : 'flat'
-            }
+              bestMode = priceBillingMode(modelsCat[h])
+            } else if (score === bestLen) ambiguous = true
           }
+          if (ambiguous) return { entry: null, priced: false, billingMode: 'flat', matched: false }
           if (bestEntry !== null) return { entry: bestEntry, priced: true, billingMode: bestMode, matched: true }
         }
         return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: true, billingMode: 'deepseek-peak', matched: false }
       }
       const catalog = prices.providers?.[targetProvider]?.models ?? {}
-      const hit = catalog[targetModel] !== undefined ? targetModel
-        : (mode === 'auto' ? matchModelIdLocal(targetModel, Object.keys(catalog)) : null)
-      if (hit !== null) return { entry: catalog[hit], priced: catalog[hit]?.unpriced !== true, billingMode: 'flat', matched: true }
-      if (targetProvider === 'opencode-go') return { entry: null, priced: false, billingMode: 'flat', matched: false }
+      const hit = priceModelHit(targetModel, catalog, targetProvider, mode, prices)
+      if (hit !== null) return { entry: catalog[hit], priced: catalog[hit]?.unpriced !== true, billingMode: priceBillingMode(catalog[hit]), matched: true }
+      if (SCOPED_PRICE_PROVIDERS.has(targetProvider)) return { entry: null, priced: false, billingMode: 'flat', matched: false }
+      if (Object.hasOwn(MODEL_VENDOR_PREFIXES, targetProvider)) return { entry: null, priced: false, billingMode: 'flat', matched: false }
       // 跨厂商兑底(与 pricing.js 同口径):provider 未在价格表登记时按模型名全库查找。
       if (mode === 'auto') {
         const dsModels = prices.models ?? {}
-        const dsHit = matchModelIdLocal(targetModel, Object.keys(dsModels))
+        const dsHit = priceModelHit(targetModel, dsModels, 'deepseek', mode, prices)
         if (dsHit !== null) return { entry: dsModels[dsHit], priced: true, billingMode: 'deepseek-peak', matched: true }
         let bestEntry = null
         let bestLen = -1
+        let ambiguous = false
         let bestMode = 'flat'
         for (const [prov, table] of Object.entries(prices.providers ?? {})) {
-          if (prov === targetProvider) continue
+          if (prov === targetProvider || SCOPED_PRICE_PROVIDERS.has(prov)) continue
           const models = table?.models ?? {}
-          const h = matchModelIdLocal(targetModel, Object.keys(models))
+          const h = priceModelHit(targetModel, models, prov, mode, prices)
           if (h === null || models[h]?.unpriced === true) continue
           const isExact = h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel)
           const score = (isExact ? 1000 : 0) + canonModelIdLocal(h).length
           if (score > bestLen) {
-            bestEntry = models[h]; bestLen = score
-            bestMode = models[h]?.billingMode === 'deepseek-peak' ? 'deepseek-peak' : 'flat' // 与 pricing.js 同口径
-          }
+            bestEntry = models[h]; bestLen = score; ambiguous = false
+            bestMode = priceBillingMode(models[h]) // 与 pricing.js 同口径
+          } else if (score === bestLen) ambiguous = true
         }
+        if (ambiguous) return { entry: null, priced: false, billingMode: 'flat', matched: false }
         if (bestEntry !== null) return { entry: bestEntry, priced: true, billingMode: bestMode, matched: true }
       }
       // issue #56 镜像:v1.5.42 及之前设置页下拉框把 DeepSeek 目标存成裸名,被按
       // 「同渠道换名」解析后查无此价。此处对「裸值覆盖 + 非 DeepSeek 渠道解析失败」
       // 回退 DeepSeek 主表再查一次(仅显式条目/归一化匹配,不吃默认兜底价),
       // 与宿主计费口径保持一致,存量裸名配置自愈且不进未命中列表。
-      if (provider !== 'deepseek' && !provider.includes('deepseek')
-        && typeof override === 'string' && override.length > 0 && !override.includes(':')) {
-        const dsModels = prices.models ?? {}
-        const retryHit = dsModels[override] !== undefined ? override
-          : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels)) : null)
-        if (retryHit !== null) return { entry: dsModels[retryHit], priced: true, billingMode: 'deepseek-peak', matched: true }
-      }
       return { entry: null, priced: false, billingMode: 'flat', matched: false }
     }
     function resolveClientPrice(provider, modelId, config) {
-      const result = resolveClientPriceRaw(provider, modelId, config)
+      let result = resolveClientPriceRaw(provider, modelId, config)
+      if (!result.priced) {
+        const normalized = String(provider ?? '').trim().toLowerCase().replace(/^llm-/, '') || 'deepseek'
+        result = legacyDeepseekOverride(normalized, config?.priceOverrides?.[normalized + ':' + modelId], config?.prices ?? {}, config?.priceMatch === 'exact' ? 'exact' : 'auto') ?? result
+      }
       if (result.priced && config?.prices?.currency === 'CNY' && result.entry?.cny) {
         return { ...result, entry: result.entry.cny, currency: 'CNY' }
       }
@@ -987,20 +1050,19 @@
     }
     // 路由调用判定(与 lib/plan-billing.js 同逻辑的镜像):provider 空/deepseek
     // 且模型不在 DeepSeek 主表(canon 等价)、但在第三方目录命中 → 视为路由调用。
+    const LEGACY_GO_CANON = new Set(['grok-4.5','glm-5.3','glm-5.3-flash','glm-5.2','glm-5.1','gpt-5.6-luna','kimi-k3','kimi-k2.7-code','kimi-k2.6','mimo-v2.6-flash','mimo-v2.6-pro','mimo-v2.5','mimo-v2.5-pro','minimax-m3','minimax-m2.7','qwen3.8-max','qwen3.7-max','qwen3.7-plus','qwen3.6-plus','hy3','longcat-2.0','muse-spark-1.2-contributor'].map(canonModelIdLocal))
     function isRoutedThirdPartyCallLocal(provider, modelId, config) {
       const name = String(provider ?? '').trim().toLowerCase()
       if (name.length > 0 && name !== 'deepseek' && !name.includes('deepseek')) return false
       const canon = canonModelIdLocal(modelId)
-      if (canon.length === 0) return false
+      if (canon.length === 0 || !LEGACY_GO_CANON.has(canon)) return false
       const prices = config?.prices
       const dsModels = prices?.models ?? {}
       for (const id of Object.keys(dsModels)) {
         if (canonModelIdLocal(id) === canon) return false // DeepSeek 主表模型
       }
-      for (const table of Object.values(prices?.providers ?? {})) {
-        for (const id of Object.keys(table?.models ?? {})) {
-          if (canonModelIdLocal(id) === canon) return true
-        }
+      for (const id of Object.keys(prices?.providers?.['opencode-go']?.models ?? {})) {
+        if (canonModelIdLocal(id) === canon) return true
       }
       return false
     }
@@ -1043,7 +1105,7 @@
         const modelId = separator > 0 ? providerKey.slice(separator + 1) : providerKey
         const resolved = resolveClientPrice(provider, modelId, config)
         if (resolved.priced) {
-          const c = costOfBuckets(byModel[providerKey], tierFor(normalizeClientPrice(resolved.entry), now, { ...peak, enabled: resolved.billingMode === 'deepseek-peak' && peak.enabled }))
+          const c = costOfBuckets(byModel[providerKey], tierFor(normalizeClientPrice(resolved.entry), now, { ...peak, enabled: ['deepseek-peak', 'utc-peak'].includes(resolved.billingMode) && peak.enabled }))
           const billed = usdFromCostLocal(c, resolved.currency, config.exchangeRate)
           total += billed
           if (billingClassOfLocal(provider, modelId, config) === 'api') api += billed
