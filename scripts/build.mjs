@@ -49,10 +49,19 @@ const messagesMatch = src.match(/const MESSAGES = (\{[\s\S]*?\n    \})\s*\n/)
 if (!messagesMatch) throw new Error('client messages source not found')
 const messages = runInNewContext(`(${messagesMatch[1]})`, Object.create(null), { timeout: 1000 })
 const messageKeys = [...new Set(Object.values(messages).flatMap(dict => Object.keys(dict)))]
-const packedMessages = Object.entries(messages).map(([locale, dict]) => [locale, messageKeys.map(key => dict[key] ?? null)])
-const unpacked = Object.fromEntries(packedMessages.map(([locale, values]) => [locale, Object.fromEntries(messageKeys.map((key, i) => [key, values[i]]).filter(([, value]) => value !== null))]))
+// One separator replaces the quotes/commas around each key and translation.
+// Pick an unused ASCII character and round-trip the complete dictionaries before
+// emitting code; no wording, key, empty string or missing translation is lost.
+const dictionaryStrings = [...messageKeys, ...Object.values(messages).flatMap(Object.values)]
+const separator = ['|', '~', '^', '`'].find(char => dictionaryStrings.every(value => !value.includes(char)))
+assert.ok(separator && dictionaryStrings.every(value => !value.includes('\0')), 'dictionary needs an unused separator')
+const packedMessages = Object.entries(messages).map(([locale, dict]) => [locale, messageKeys.map(key => dict[key] ?? '\0').join(separator)])
+const unpacked = Object.fromEntries(packedMessages.map(([locale, packed]) => {
+  const values = packed.split(separator)
+  return [locale, Object.fromEntries(messageKeys.map((key, i) => [key, values[i]]).filter(([, value]) => value !== '\0'))]
+}))
 assert.deepEqual(unpacked, JSON.parse(JSON.stringify(messages)), 'dictionary packing must preserve every translation')
-src = src.replace(messagesMatch[0], () => `const MESSAGES = Object.fromEntries(${JSON.stringify(packedMessages)}.map(([locale,values])=>[locale,Object.fromEntries(${JSON.stringify(messageKeys)}.map((key,i)=>[key,values[i]]).filter(([,value])=>value!==null))]));\n`)
+src = src.replace(messagesMatch[0], () => `const messageKeys=${JSON.stringify(messageKeys.join(separator))}.split(${JSON.stringify(separator)});const MESSAGES=Object.fromEntries(${JSON.stringify(packedMessages)}.map(([locale,packed])=>{const values=packed.split(${JSON.stringify(separator)});return [locale,Object.fromEntries(messageKeys.map((key,i)=>[key,values[i]]).filter(([,value])=>value!=="\\0"))]}));\n`)
 // CSS 在源码保留逐行审阅形式；发布时先按 CSS 语法压缩，再嵌入同一客户端。
 // 不删除规则、不调整选择器优先级，所有样式仍在受字节门禁检查的 bundle 内。
 const cssMatch = src.match(/const css = (\[[\s\S]*?\]\.join\('\\n'\))/)

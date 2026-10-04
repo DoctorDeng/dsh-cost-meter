@@ -507,7 +507,7 @@ window.__ModuleLoader__.load({
         tierPeak: '峰时',
         // 余额面板
         balanceApiKey: '余额专用 API Key',
-        balanceKeyHint: '优先使用此开放平台 Key；未配置时沿用模型凭据。账号登录令牌不能查询余额。',
+        balanceKeyHint: '优先使用此开放平台 Key；未配置时读取已登录官方账号余额，其次沿用模型凭据。',
         balanceLine: '总余额 {total} · 赠送 {granted} · 充值 {toppedUp} · 更新于 {time}',
         balanceQueryFailedHint: '余额查询失败:{message}',
         balanceNotQueried: '未查询余额',
@@ -848,7 +848,7 @@ window.__ModuleLoader__.load({
         historyNoSessions: '该日无会话明细(早期数据或会话日志已清理)',
         historySessionsError: '会话明细加载失败',
         sessionRankTitle: '按会话统计(全部历史)',
-        sessionRankHint: '不按日期分组,全部历史会话;排序与条数可切换',
+        sessionRankHint: '跨天合并，子代理按开关归并。仅列选定条数，累计费用包含全部对话。',
         sessionRankEmpty: '暂无会话数据',
         sessionRankLoading: '会话排行加载中…',
         sessionRankError: '会话排行加载失败',
@@ -955,7 +955,7 @@ window.__ModuleLoader__.load({
         sourceBundled: '内置默认',
         // 语言
         languageLabel: '界面语言',
-        localeAuto: '跟随浏览器(自动)',
+        localeAuto: '跟随 DSH(自动)',
         localeZh: '简体中文',
         localeEn: 'English',
         sectionLabel: '费用',
@@ -1039,7 +1039,7 @@ window.__ModuleLoader__.load({
         tierOffPeak: 'Off-peak',
         tierPeak: 'Peak',
         balanceApiKey: 'Balance API key',
-        balanceKeyHint: 'This Open Platform key takes priority over model credentials. Account-login tokens cannot query balances.',
+        balanceKeyHint: 'This Open Platform key takes priority; otherwise the signed-in official account balance is read, then model credentials.',
         balanceLine: 'Total {total} · Granted {granted} · Topped-up {toppedUp} · Updated {time}',
         balanceQueryFailedHint: 'Balance query failed: {message}',
         balanceNotQueried: 'Balance not queried',
@@ -1379,7 +1379,7 @@ window.__ModuleLoader__.load({
         historyNoSessions: 'No session details for this day (early data or session logs cleaned)',
         historySessionsError: 'Failed to load session details',
         sessionRankTitle: 'By session (all history)',
-        sessionRankHint: 'All historical sessions, not grouped by date; sort and row count are switchable',
+        sessionRankHint: 'Days combined; subagents follow settings. Selected rows shown; cumulative costs include every conversation.',
         sessionRankEmpty: 'No session data yet',
         sessionRankLoading: 'Loading session ranking…',
         sessionRankError: 'Failed to load session ranking',
@@ -1485,7 +1485,7 @@ window.__ModuleLoader__.load({
         sourceOfficial: 'Official docs',
         sourceBundled: 'Bundled',
         languageLabel: 'Language',
-        localeAuto: 'Follow browser (auto)',
+        localeAuto: 'Follow DSH (auto)',
         localeZh: 'Simplified Chinese',
         localeEn: 'English',
         sectionLabel: 'Cost',
@@ -1501,10 +1501,15 @@ window.__ModuleLoader__.load({
       return lang.toLowerCase().startsWith('zh') ? 'zh' : 'en'
     }
 
-    /** 解析生效语言:显式 zh/en 直接采用;auto/缺失 → 浏览器探测。 */
-    function resolveLocale(configLocale) {
-      if (configLocale === 'zh' || configLocale === 'en') return configLocale
-      return detectBrowserLocale()
+    /** 显式插件语言优先;auto 使用当前 DSH 语言,旧宿主回退浏览器。 */
+    function supportedLocale(value) {
+      const lang = typeof value === 'string' ? value.toLowerCase().split(/[-_]/)[0] : ''
+      return lang === 'zh' || lang === 'en' ? lang : null
+    }
+    function resolveLocale(config) {
+      const value = typeof config === 'string' ? config : config?.locale
+      if (value === 'zh' || value === 'en') return value
+      return supportedLocale(config?.activeLocale) || detectBrowserLocale()
     }
 
     /** 构造按当前语言取文案的函数 t(key, vars)。 */

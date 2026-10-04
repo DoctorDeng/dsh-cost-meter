@@ -16,7 +16,7 @@
         props.api.loadStatistics().then(page => { if (active) setPage(() => page) }, e => { if (active) setError(String(e.message ?? e)) })
         return () => { active = false }
       }, [props.api, retry])
-      if (Page) return el(Page, { ...props, formatMoneyUsd, formatTokens })
+      if (Page) return el(Page, { ...props, formatMoneyUsd, formatTokens, resolveLocale })
       return el('p', { role: error ? 'alert' : 'status' }, error || '…', error ? el('button', { className: 'cm-btn', onClick: () => setRetry(n => n + 1) }, '↻') : null)
     }
 
@@ -28,7 +28,7 @@
       useEffect(() => { if (open) dialog.current?.showModal() }, [open])
       useEffect(() => { setOpenedId(null) }, [props.sessionId, hidden])
       if (!props.sessionId || hidden) return null
-      const en = resolveLocale(state?.config.locale) === 'en'
+      const en = resolveLocale(state?.config) === 'en'
       const label = en ? 'Conversation cost details' : '本会话费用明细'
       return el(Fragment, null,
         el('button', { type: 'button', className: 'cm-btn cm-stat-entry cm-stat-' + (props.entryPosition || 'dock'), title: label, 'aria-label': label, 'aria-haspopup': 'dialog', onClick: () => setOpenedId(props.sessionId) }, en ? 'Cost details' : '费用明细'),
@@ -66,7 +66,7 @@
     // 历史记录折叠面板(issue #22):三角展开/收起,内部为按天表格(日期行再展开会话明细)。
     function HistoryPanel(props) {
       const { state, api } = props
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const [open, setOpen] = useState(false)
       return el('div', { className: 'cm-budget' },
         el('div', { className: 'cm-budget-head' },
@@ -76,7 +76,7 @@
 
     function HistoryTable(props) {
       const { state, api } = props
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       // 点击日期行展开当日会话明细(issue #22):按需经 getDaySessions 拉取并缓存。
       const [openDate, setOpenDate] = useState(null)
       const [cache, setCache] = useState({})
@@ -146,7 +146,7 @@
     // 按会话统计(issue #22 不分日期视角):全部历史会话排行,默认收起、展开时按需拉取;排序可切换。
     function SessionRankPanel(props) {
       const { state, api } = props
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const [open, setOpen] = useState(false)
       const [limit, setLimit] = useState(100)
       // 排序模式:cost-desc / cost-asc / time-desc / time-asc / recent(实时顺序)。
@@ -233,7 +233,7 @@
 
     function TodaySessions(props) {
       const { state } = props
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const sessions = state.today.sessions ?? []
       if (sessions.length === 0) return el('p', { className: 'cm-empty' }, t('noSessionsToday'))
       const showId = state.config?.showSessionId === true
@@ -385,7 +385,7 @@
       })()
       const peakText = (previewConfig.peakWindows?.length ?? 0) > 0
         ? t('peakSummary', {
-          windows: previewConfig.peakWindows.map(w => w.start + ':00-' + w.end + ':00').join(resolveLocale(previewConfig.locale) === 'zh' ? '、' : ', '),
+          windows: previewConfig.peakWindows.map(w => w.start + ':00-' + w.end + ':00').join(resolveLocale(previewConfig) === 'zh' ? '、' : ', '),
           time: previewConfig.peakEffectiveAt || t('unknown'),
           status: peakStatusText,
         })
@@ -959,7 +959,7 @@
       const { state, config, t } = props
       const [open, setOpen] = useState(false)
       const [granularity, setGranularity] = useState('daily')
-      const locale = resolveLocale(config?.locale)
+      const locale = resolveLocale(config)
       const planStats = state?.planStats
       const providers = planStats !== null && planStats !== undefined && typeof planStats.providers === 'object' ? planStats.providers : {}
       const providerIds = Object.keys(providers).sort()
@@ -1412,7 +1412,7 @@
               el('span', { className: 'cm-hint' }, t('customBalanceAllowedHostsHint'))),
             jsonField('extract', 'customBalanceExtract', 8)))
       return el(QuotaCard, {
-        name: `#${index + 1} · ` + (resolveCustomBalanceLabel(entry, resolveLocale(config?.locale)) || t('customBalanceTitle')),
+        name: `#${index + 1} · ` + (resolveCustomBalanceLabel(entry, resolveLocale(config)) || t('customBalanceTitle')),
         enabled, saved: JSON.stringify(entry) === JSON.stringify(config.customBalances?.[index]) ? config.customBalances[index] : null, busy, open, statusNode: preview, configNode: configFields, errorMsg: msg,
         onToggle: value => setField('enabled', value),
         onRefresh: doRefresh,
@@ -1823,7 +1823,7 @@
       const state = props.state ?? costStore?.state
       if (!state) return null
       const config = state.config
-      const locale = resolveLocale(config?.locale)
+      const locale = resolveLocale(config)
       const t = props.t ?? makeT(locale)
       const history = Array.isArray(state.history) ? state.history : []
       if (history.length === 0) {
@@ -1933,7 +1933,7 @@
               baselineRef.current = state.config
               draftBaseRef.current = state.config
             }
-            return dirty ? prev : JSON.parse(json)
+            return dirty ? { ...prev, activeLocale: state.config.activeLocale } : JSON.parse(json)
           })
           savedRef.current = json
         }
@@ -1961,6 +1961,7 @@
           const base = draftBaseRef.current ?? baselineRef.current
           if (base !== null && typeof base === 'object') {
             for (const key of Object.keys(draft)) {
+              if (key === 'activeLocale') continue
               if (JSON.stringify(draft[key]) !== JSON.stringify(base[key])) patch[key] = draft[key]
             }
           }
@@ -1987,7 +1988,7 @@
       }, [costStore?.status, costStore?.error])
 
       // 语言跟随当前草稿(切换语言立即生效),草稿为空时用已保存配置。
-      const locale = resolveLocale((draft ?? state?.config)?.locale)
+      const locale = resolveLocale({ ...(draft ?? state?.config), activeLocale: costStore?.locale })
       const t = makeT(locale)
 
       if (costStore === undefined || state === null) {
@@ -2678,10 +2679,17 @@
       ctx.effect(() => () => { unmount() }, 'cost-meter: remote contribution')
       const costMeter = ctx.get('remote.costMeter')
       if (costMeter === undefined) return
-      const store = makeStore({ status: 'loading', error: null, state: null })
+      const readLocale = () => {
+        try { return supportedLocale(ctx.get('locale')?.getSnapshot?.().active) }
+        catch { return null }
+      }
+      const store = makeStore({ status: 'loading', error: null, state: null }, snapshot => {
+        const locale = readLocale() || supportedLocale(snapshot.state?.meta?.locale) || detectBrowserLocale()
+        return { ...snapshot, locale, ...(snapshot.state ? { state: { ...snapshot.state, config: { ...snapshot.state.config, activeLocale: locale } } } : {}) }
+      })
 
       // RPC 层错误兜底文案(按当前配置语言)。
-      const rpcT = () => makeT(resolveLocale(store.getSnapshot().state?.config?.locale))
+      const rpcT = () => makeT(resolveLocale(store.getSnapshot().state?.config || { activeLocale: store.getSnapshot().locale }))
 
       const call = async (method, args) => {
         const result = await costMeter[method](...(args ?? []))
@@ -2704,8 +2712,7 @@
           if (!active) return
           retrySeconds = 1
           store.set({ status: 'ready', error: null, state })
-          // locale=auto 始终动态跟随当前浏览器语言,不要把探测结果持久化成 en/zh。
-          // 否则用户切换浏览器语言后,旧的固定配置会继续覆盖浏览器语言。
+          // activeLocale 只属于本客户端快照,持久化配置始终保留 auto。
         } catch (error) {
           if (!active) return
           if (prev.state === null) lastPoll = Date.now()
@@ -2725,6 +2732,18 @@
         if (!document.hidden && Date.now() - lastPoll >= (seconds || 60) * 1000) void reload()
       }, 1000)
       ctx.effect(() => () => { active = false; clearInterval(pollTimer) }, 'cost-meter: poll timer')
+      const refreshLocale = () => { if (active && ctx.fiber?.uid !== null) store.set(store.getSnapshot()) }
+      const bindLocale = child => child.effect(() => {
+        refreshLocale()
+        const stop = child.get('locale')?.subscribe?.(refreshLocale)
+        return () => { stop?.(); refreshLocale() }
+      }, 'cost-meter: DSH locale')
+      // Native bootstrap may provide locale after this plugin; inject observes arrival/removal.
+      if (typeof ctx.inject === 'function') ctx.inject(['locale'], bindLocale)
+      else if (readLocale()) bindLocale(ctx)
+      ctx.effect(() => ctx.on('locale/change', refreshLocale), 'cost-meter: locale change')
+      window.addEventListener?.('languagechange', refreshLocale)
+      ctx.effect(() => () => window.removeEventListener?.('languagechange', refreshLocale), 'cost-meter: browser locale')
       const onVisible = () => { if (document.visibilityState === 'visible') void reload() }
       document.addEventListener('visibilitychange', onVisible)
       ctx.effect(() => () => { document.removeEventListener('visibilitychange', onVisible) }, 'cost-meter: visibility reload')
@@ -2745,7 +2764,8 @@
         },
         reload,
         updateConfig: async patch => {
-          const state = await call('updateConfig', [patch])
+          const { activeLocale: _local, ...savedPatch } = patch
+          const state = await call('updateConfig', [savedPatch])
           store.set({ status: 'ready', error: null, state })
           return state
         },
@@ -2895,7 +2915,7 @@
         const showBalance = (balanceDisplay === 'sidebar' || balanceDisplay === 'both') && state?.config?.hideOfficialBalance !== true
         const footer = showToday || showBalance || state?.config?.codexQuotaEnabled === true || state?.config?.sidebarModels?.enabled === true
         const cornerEnabled = state?.config?.corner?.enabled === true || state?.config?.sidebarModels?.dock === true
-        const sectionLocale = resolveLocale(state?.config?.locale)
+        const sectionLocale = resolveLocale(state?.config || { activeLocale: store.getSnapshot().locale })
         const usagePosition = state?.config?.usage?.position ?? 'cost'
         if (position !== lastPosition) {
           registerSession(position)
@@ -2932,7 +2952,8 @@
       sync()
       const stopSync = store.subscribe(sync)
 
-      return () => { stopSync() }
+      ctx.effect(() => () => { stopSync() }, 'cost-meter: slot sync')
+      return stopSync
     }
 
     exports.apply = apply

@@ -22,14 +22,15 @@ window.__ModuleLoader__.load({
     const bucketSpec = Object.fromEntries(fields.map(key => [key, number]))
     const buckets = object(bucketSpec)
     const costRow = object({ provider: string, model: string, bucket: string, tokens: number, rate: number, cost: number, priced: boolean, plan: boolean })
-    const callRow = object({ kind: string, turn: nullableNumber, step: nullableNumber, provider: string, model: string, atMs: number, cost: number, apiCost: number, plan: boolean, priced: boolean, longContext: boolean, rows: array(costRow) })
+    const sessionId = v => string(v ?? '')
+    const callRow = object({ sessionId, kind: string, turn: nullableNumber, step: nullableNumber, provider: string, model: string, atMs: number, cost: number, apiCost: number, plan: boolean, priced: boolean, longContext: boolean, rows: array(costRow) })
     const parseStatistics = object({ from: string, to: string, retainedFrom: string, retainedTo: string, totals: buckets,
       days: array(object({ ...bucketSpec, date: string })), models: array(object({ ...bucketSpec, key: string, provider: string, model: string, priced: boolean })),
       sessions: array(object({ ...bucketSpec, id: string, title: string })), providers: array(string), modelOptions: array(string),
       sessionCount: number, offset: number, unassignedCost: number, unmodeledCost: number })
-    const parseDetail = object({ found: boolean, cost: number, apiCost: number, rows: array(costRow), calls: array(callRow), totalCalls: number, offset: number, recorded: buckets,
-      kinds: array(object({ ...bucketSpec, kind: string, unpriced: boolean })), turns: array(object({ ...bucketSpec, turn: nullableNumber, unpriced: boolean })), totalTurns: number, turnOffset: number,
-      stepShares: object(Object.fromEntries(['cost', 'calls'].map(key => [key, array(object({ ...bucketSpec, turn: nullableNumber, step: nullableNumber, other: boolean, unpriced: boolean }))]))) })
+    const parseDetail = object({ found: boolean, cost: number, apiCost: number, rows: array(costRow), calls: array(callRow), totalCalls: number, offset: number, recorded: buckets, agents: v => array(object({ ...bucketSpec, id: string, title: string }))(v ?? []),
+      kinds: array(object({ ...bucketSpec, kind: string, unpriced: boolean })), turns: array(object({ ...bucketSpec, sessionId, turn: nullableNumber, unpriced: boolean })), totalTurns: number, turnOffset: number,
+      stepShares: object(Object.fromEntries(['cost', 'calls'].map(key => [key, array(object({ ...bucketSpec, sessionId, turn: nullableNumber, step: nullableNumber, other: boolean, unpriced: boolean }))]))) })
     const parseInspection = object({ found: boolean, turn: number, input: string, inputTruncated: boolean, totalTools: number, offset: number,
       tools: array(object({ seq: number, step: nullableNumber, name: string, callId: string, atMs: number, arguments: string, result: string, truncated: boolean, status: string })) })
     const parseInspectionQuery = value => {
@@ -154,6 +155,9 @@ window.__ModuleLoader__.load({
       if (result.loading) return el('p', { className: 'cm-stat-empty', role: 'status' }, text('正在读取本对话的用量明细…', 'Loading this conversation’s usage records…'))
       if (result.error) return el('p', { className: 'cm-stat-error', role: 'alert' }, result.error)
       if (!detail.found) return el('p', { className: 'cm-stat-note' }, text('没有可用的调用日志。上方账本统计仍然有效；明细不会按零费用处理。', 'Call logs are unavailable. The ledger totals above remain valid; missing details do not mean zero cost.'))
+      const agentName = id => !id || id === query.sessionId ? text('主会话', 'Main conversation') : text('子代理 ', 'Subagent ') + ((detail.agents ?? []).find(row => row.id === id)?.title || id).slice(0, 80)
+      const turnKey = row => JSON.stringify([row.sessionId || query.sessionId, row.turn])
+      const turnLabel = row => ((detail.agents?.length ?? 0) > 1 ? agentName(row.sessionId) + ' · ' : '') + turnName(row.turn)
       const visible = row => basis === 'total' || (basis === 'plan' ? row.plan : !row.plan)
       const parts = Object.keys(names).map(bucket => {
         const rows = detail.rows.filter(r => r.bucket === bucket && visible(r))
@@ -167,9 +171,10 @@ window.__ModuleLoader__.load({
         el('tbody', null, rows.map((row, i) => el('tr', { key: i }, el('td', null, name(row)), el('td', null, row.calls),
           el('td', null, [row.input, row.cacheRead + row.cacheWrite, row.output].map(formatTokens).join(' / ')), el('td', null, money(row.apiCost) + (row.unpriced ? ' + ?' : '')), el('td', null, money(Math.max(0, row.cost - row.apiCost)) + (row.unpriced ? ' + ?' : '')))))))
       return el('section', { className: 'cm-stat-panel' },
-        el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('单对话费用明细', 'Conversation cost details')), el('span', { className: 'cm-stat-sub' }, text('只统计本对话自身的调用', 'Own calls only; child conversations are separate'))),
+        el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('单对话费用明细', 'Conversation cost details')), el('span', { className: 'cm-stat-sub' }, (detail.agents?.length ?? 0) > 1 ? text('包含子代理及其后代', 'Includes subagents and their descendants') : text('本会话自身的调用', 'Own conversation calls'))),
         el('details', { className: 'cm-stat-help' }, el('summary', null, text('统计口径', 'How these amounts are calculated')), el('p', null, text('明细按日志中的调用时间、用量和当前配置的历史价格规则计算。上方汇总采用已入账金额；调整价格后两者可能不同。', 'Details use logged usage and call times with the currently configured historical price rules. The summary above uses recorded ledger amounts; changing prices can produce a difference.'))),
         mismatch ? el('p', { className: 'cm-stat-note' }, text('账本与可用明细不同：账本 ', 'Ledger and available details differ: ledger ') + money(recorded) + ' / ' + detail.recorded.calls + text(' 次；明细 ', ' calls; details ') + money(cost) + ' / ' + detail.totalCalls + text(' 次。', ' calls.')) : null,
+        (detail.agents?.length ?? 0) > 1 ? summaryTable(text('主会话与子代理 · 账本费用', 'Main conversation and subagents · ledger costs'), detail.agents, row => agentName(row.id)) : null,
         el('div', { className: 'cm-stat-shares' },
           el(ShareChart, { title: text('费用构成', 'Cost composition'), rows: parts.map(row => ({ label: names[row.bucket], value: row.cost, unpriced: row.unpriced })), total: cost, format: money, text }),
           el(ShareChart, { title: text('调用类型占比 · 次数', 'Call type share · count'), rows: detail.kinds.map(row => ({ label: kinds[row.kind] ?? row.kind, value: row.calls })), total: detail.totalCalls, format: n => n.toLocaleString() + text(' 次', ' calls'), text })),
@@ -177,7 +182,7 @@ window.__ModuleLoader__.load({
           el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('各步骤占比', 'Share by step')),
             el('div', { className: 'cm-stat-periods' }, ...[['cost', text('费用', 'Cost')], ['calls', text('调用次数', 'Calls')]].map(([id, title]) => button(title, () => setShareMetric(id), { key: id, 'aria-pressed': shareMetric === id })))),
           el(ShareChart, { title: shareMetric === 'cost' ? text('费用占比 · 全部调用', 'Cost share · all calls') : text('调用次数占比 · 全部调用', 'Call count share · all calls'),
-            rows: (detail.stepShares?.[shareMetric] ?? []).map(row => ({ label: row.other ? text('其余步骤合计', 'All other steps') : turnName(row.turn) + (row.step == null ? '' : text(' · 步骤 ', ' · step ') + row.step),
+            rows: (detail.stepShares?.[shareMetric] ?? []).map(row => ({ label: row.other ? text('其余步骤合计', 'All other steps') : turnLabel(row) + (row.step == null ? '' : text(' · 步骤 ', ' · step ') + row.step),
               value: shareMetric === 'cost' ? amount(row, basis) : row.calls, unpriced: shareMetric === 'cost' && row.unpriced, other: row.other })),
             total: shareMetric === 'cost' ? cost : detail.totalCalls, format: shareMetric === 'cost' ? money : n => n.toLocaleString(), text, columns: true }),
           el('p', { className: 'cm-stat-sub', style: { marginTop: 12 } }, text('分母包含所选范围的全部调用，跨页合计。显示前 12 项，其余合并；无步骤编号的调用单列。工具本身不额外算作模型调用。', 'Shares use all calls in the selected range, across pages. Top 12 entries are shown; the rest are combined. Missing step IDs remain explicit. Tools are not counted as extra model calls.'))),
@@ -188,28 +193,28 @@ window.__ModuleLoader__.load({
         el('p', { className: 'cm-stat-sub', style: { marginTop: 10 } }, text('推理 Token 可能包含在输出中；单价为 0 时不另收推理费。未定价用量显示 ?。', 'Reasoning tokens may overlap output; a zero reasoning rate adds no separate charge. Unpriced usage is marked ?.')),
         summaryTable(text('按调用类型统计', 'Cost by call type'), detail.kinds, row => kinds[row.kind] ?? row.kind)),
         el('section', { className: 'cm-stat-turns' }, el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('按轮次统计', 'Cost by turn')), el('span', { className: 'cm-stat-sub' }, text('展开查看输入和工具调用', 'Expand to inspect input and tool calls'))),
-          detail.turns.map(row => el('div', { key: row.turn ?? 'unknown', className: 'cm-stat-turn' },
-            el('button', { type: 'button', className: 'cm-stat-turn-toggle', disabled: row.turn == null, 'aria-expanded': row.turn != null && expandedTurn === row.turn,
-              onClick: () => setExpandedTurn(n => n === row.turn ? null : row.turn) },
-              el('span', null, (row.turn == null ? '' : expandedTurn === row.turn ? '⌄ ' : '› ') + turnName(row.turn)),
+          detail.turns.map(row => el('div', { key: turnKey(row), className: 'cm-stat-turn' },
+            el('button', { type: 'button', className: 'cm-stat-turn-toggle', disabled: row.turn == null, 'aria-expanded': row.turn != null && expandedTurn === turnKey(row),
+              onClick: () => setExpandedTurn(n => n === turnKey(row) ? null : turnKey(row)) },
+              el('span', null, (row.turn == null ? '' : expandedTurn === turnKey(row) ? '⌄ ' : '› ') + turnLabel(row)),
               el('span', null, row.calls + text(' 次调用', ' calls') + ' · ' + formatTokens(tokens(row)) + ' tok · ' + money(amount(row, basis)) + (row.unpriced ? ' + ?' : ''))),
-            row.turn != null && expandedTurn === row.turn ? el(TurnInspection, { key: row.turn, api, sessionId: query.sessionId, turn: row.turn, revision, text }) : null))),
+            row.turn != null && expandedTurn === turnKey(row) ? el(TurnInspection, { key: turnKey(row), api, sessionId: row.sessionId || query.sessionId, turn: row.turn, revision, text }) : null))),
         el('p', { className: 'cm-stat-sub' }, text('轮次沿用日志编号；未记录轮次的调用单列。每轮包含其全部调用，跨调用分页也不会拆分。', 'Turn numbers come from the log; calls without one are listed separately. Each turn includes all its calls, across call pages.')),
         el(Pager, { offset: turnOffset, count: detail.totalTurns, size: 25, onChange: n => { setTurnOffset(n); setExpandedTurn(null) }, text }),
         el('div', { style: { marginTop: 24 } }, el(Chart, { rows: detail.calls.map((call, i) => ({ label: '#' + (offset + i + 1), index: i, value: amount(call, basis) })), money, text,
           label: text('逐次调用费用 · 当前页', 'Cost per call · current page'), onSelect: row => { setSelected(row.index); document.getElementById('cm-stat-call-' + row.index)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } })),
         detail.calls.map((call, i) => el('details', { key: i, id: 'cm-stat-call-' + i, className: 'cm-stat-call', open: selected === i, onToggle: event => { if (!event.currentTarget.open && selected === i) setSelected(-1) } },
-          el('summary', null, '#' + (offset + i + 1) + ' · ' + turnName(call.turn) + (call.step == null ? '' : text(' / 步骤 ', ' / step ') + call.step) + ' · ' + (kinds[call.kind] ?? call.kind) + ' · ' + call.provider + ' / ' + call.model + ' · ' + (call.plan ? 'Plan ' : 'API ') + (call.priced ? money(call.cost) : '?') + (call.longContext ? text(' · 长上下文价', ' · long-context rate') : '')),
+          el('summary', null, '#' + (offset + i + 1) + ' · ' + turnLabel(call) + (call.step == null ? '' : text(' / 步骤 ', ' / step ') + call.step) + ' · ' + (kinds[call.kind] ?? call.kind) + ' · ' + call.provider + ' / ' + call.model + ' · ' + (call.plan ? 'Plan ' : 'API ') + (call.priced ? money(call.cost) : '?') + (call.longContext ? text(' · 长上下文价', ' · long-context rate') : '')),
           el('p', { className: 'cm-stat-sub' }, new Date(call.atMs).toLocaleString()), call.rows.map(formula))),
         el(Pager, { offset, count: detail.totalCalls, size: 50, onChange: n => { setOffset(n); setSelected(-1) }, text }))
     }
 
-    function Statistics({ state, api, sessionId = '', formatMoneyUsd, formatTokens }) {
-      const en = state.config.locale === 'en' || state.config.locale === 'auto' && !/^zh\b/i.test(navigator.language)
+    function Statistics({ state, api, sessionId = '', formatMoneyUsd, formatTokens, resolveLocale }) {
+      const en = resolveLocale ? resolveLocale(state.config) === 'en' : (state.config.locale === 'en' || state.config.locale !== 'zh' && (state.config.activeLocale || state.meta?.locale || (typeof navigator !== 'undefined' && /^zh/i.test(navigator.language) ? 'zh' : 'en')) === 'en')
       const text = (zh, english) => en ? english : zh
       const [period, setPeriod] = useState(sessionId ? 'all' : 'week'), [custom, setCustom] = useState(null)
       const [scope, setScope] = useState({ id: sessionId, title: sessionId }), [provider, setProvider] = useState(''), [model, setModel] = useState('')
-      const [basis, setBasis] = useState(sessionId ? 'total' : 'api'), [offset, setOffset] = useState(0), [revision, setRevision] = useState(0), [showModels, setShowModels] = useState(false)
+      const [basis, setBasis] = useState(state.config.showTotalWithPlan ? 'total' : 'api'), [offset, setOffset] = useState(0), [revision, setRevision] = useState(0), [showModels, setShowModels] = useState(false)
       const today = state.meta.dayKey || new Date().toISOString().slice(0, 10)
       const from = period === 'all' ? '' : period === 'custom' ? custom?.from || today : shiftDate(today, period === 'week' ? -6 : period === 'month' ? -29 : 0)
       const to = period === 'custom' ? custom?.to || today : today
@@ -261,7 +266,7 @@ window.__ModuleLoader__.load({
               el('p', { className: 'cm-stat-note' }, text('这里展示 Token 数量占比，不是费用占比。缓存写入计入输入分母，不算缓存命中。', 'These are token shares, not cost shares. Cache writes count as input, not cache hits.')),
               el('p', { className: 'cm-stat-sub' }, text('单独上报的推理 Token：', 'Reported reasoning tokens: ') + formatTokens(top.reasoning))))),
           !scope.id ? el('section', { className: 'cm-stat-panel' },
-            el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('对话费用排行', 'Cost by conversation')), el('span', { className: 'cm-stat-sub' }, text('点击对话查看明细 · 子代理分别计入，不重复相加', 'Select a conversation for details · each agent counted once'))),
+            el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('对话费用排行', 'Cost by conversation')), el('span', { className: 'cm-stat-sub' }, state.config.includeSubagentCost ? text('点击查看明细 · 包含子代理，每笔费用只计一次', 'Select for details · includes subagents, each call counted once') : text('点击对话查看明细', 'Select a conversation for details'))),
             el('div', { className: 'cm-stat-scroll' }, el('table', { className: 'cm-stat-table' }, el('thead', null, el('tr', null, ...[text('对话', 'Conversation'), text('调用', 'Calls'), 'API', text('Plan 等值', 'Plan equivalent'), text('缓存命中', 'Cache hits')].map(v => el('th', { key: v }, v)))),
               el('tbody', null, data.sessions.map(row => el('tr', { key: row.id }, el('td', null, el('button', { type: 'button', title: row.id, onClick: () => chooseScope({ id: row.id, title: row.title }) }, row.title)), el('td', null, row.calls.toLocaleString()), el('td', null, money(row.apiCost)), el('td', null, money(Math.max(0, row.cost - row.apiCost))), el('td', null, pct(row.cacheRead, row.input + row.cacheRead + row.cacheWrite))))))),
             data.unassignedCost > 1e-8 ? el('p', { className: 'cm-stat-note' }, text('未关联对话的费用：', 'Cost not linked to a conversation: ') + money(data.unassignedCost)) : null,

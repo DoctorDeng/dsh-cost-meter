@@ -77,12 +77,15 @@ owner.dispose()
 const english = mount(ui.Statistics, { ...props, sessionId: 's2', state: { ...props.state, config: { ...config, locale: 'en' } } })
 assert.equal(requests.at(-1).query.sessionId, 's2')
 assert.equal(requests.at(-1).query.from, '', 'single-conversation entry defaults to its entire retained history')
-assert.equal(requests.at(-1).query.basis, 'total', 'Plan users see component costs immediately, with the equivalent-value label')
+assert.equal(requests.at(-1).query.basis, 'api', 'single-conversation defaults to the same cost basis as the sidebar')
 assert.match(text(english.tree), /Cost statistics/)
 requests.at(-1).resolve(stat); await flush()
 const singleNodes = nodes(english.tree)
 assert.ok(singleNodes.findIndex(n => n.type === ui.SessionDetail) < singleNodes.findIndex(n => n.props.label?.startsWith('Cost over time')), 'conversation detail appears before general overview charts')
 english.dispose()
+const withPlan = mount(ui.Statistics, { ...props, sessionId: 's2', state: { ...props.state, config: { ...config, showTotalWithPlan: true } } })
+assert.equal(requests.at(-1).query.basis, 'total', 'global Plan display preference also applies to detail entry')
+withPlan.dispose()
 
 const detailRequests = []
 const detailApi = { getSessionBilling: query => new Promise((resolve, reject) => detailRequests.push({ query, resolve, reject })) }
@@ -115,6 +118,18 @@ detailRequests.at(-1).resolve(detail); await flush()
 const pager = nodes(detailOwner.tree).find(n => n.props.size === 50)
 pager.props.onChange(50); detailOwner.render()
 assert.equal(detailRequests.at(-1).query.offset, 50)
+detailRequests.at(-1).resolve({ ...detail,
+  agents: [{ id: 's1', title: 'Main', ...stat.totals }, { id: 'child', title: 'Research agent', ...stat.totals }],
+  turns: [detail.turns[0], { ...detail.turns[0], sessionId: 'child' }],
+  calls: [{ ...call, sessionId: 'child' }],
+}); await flush()
+assert.match(text(detailOwner.tree), /Includes subagents and their descendants/)
+assert.match(text(detailOwner.tree), /Subagent Research agent/)
+nodes(detailOwner.tree).filter(n => n.props.className === 'cm-stat-turn-toggle')[1].props.onClick(); detailOwner.render()
+const childInspection = nodes(detailOwner.tree).filter(n => n.type === ui.TurnInspection)
+assert.equal(childInspection.length, 1, 'Identical main/child turn numbers do not expand together')
+assert.equal(childInspection[0].props.sessionId, 'child', 'Expanded child turn reads that child, not the main conversation')
+nodes(detailOwner.tree).find(n => n.props.size === 50).props.onChange(0); detailOwner.render()
 detailRequests.at(-1).resolve({ found: false }); await flush()
 assert.match(text(detailOwner.tree), /missing details do not mean zero cost/)
 detailOwner.dispose()

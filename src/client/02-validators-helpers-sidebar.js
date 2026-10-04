@@ -435,6 +435,7 @@
         // 扩展价格表目录(宿主只读下发;缺失时 UI 自动隐藏目录面板)。
         priceCatalog: v.priceCatalog !== null && typeof v.priceCatalog === 'object' && !Array.isArray(v.priceCatalog) ? v.priceCatalog : null,
         meta: {
+          ...(supportedLocale(v.meta?.locale) ? { locale: supportedLocale(v.meta.locale) } : {}),
           now: typeof v.meta?.now === 'number' ? v.meta.now : Date.now(),
           timezoneOffsetMinutes: typeof v.meta?.timezoneOffsetMinutes === 'number' ? v.meta.timezoneOffsetMinutes : 0,
           timezone: typeof v.meta?.timezone === 'string' ? v.meta.timezone : '',
@@ -607,6 +608,7 @@
     function normalizeClientPrice(raw) {
       const base = normalizeClientTier(raw)
       if (base === undefined) return null
+      if (raw.billingMode === 'utc-peak') base.billingMode = 'utc-peak'
       // 峰谷/历史子档必须随主档一起保留:usageSplit 回退计价与 Plan 拆分靠 tierFor
       // 取子档,剥掉会把峰时调用按基础价(= 谷价)重算、低估约一半(v1.6.9 审计修复)。
       for (const key of ['offPeak', 'peak', 'legacyBase']) {
@@ -673,6 +675,12 @@
       const base = priceAt(entry, atMs) ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
       const asTier = price => ({ cacheHit: price.cacheHit, cacheMiss: price.cacheMiss, output: price.output, reasoning: price.reasoning ?? 0,
         ...(price.cacheWrite === undefined ? {} : { cacheWrite: price.cacheWrite }), ...(price.longContext === undefined ? {} : { longContext: price.longContext }) })
+      if (base.billingMode === 'utc-peak') {
+        if (peak?.enabled !== true || !Number.isFinite(atMs)) return asTier(base)
+        const date = new Date(atMs), day = date.getUTCDay(), hour = date.getUTCHours()
+        const high = day > 0 && day < 6 && ((hour >= 1 && hour < 4) || (hour >= 6 && hour < 10))
+        return asTier((high ? base.peak : base.offPeak) ?? base)
+      }
       // 峰谷时代之前按当时的基础价计费(历史正确;与 lib/pricing.js tierFor 同分支,
       // v1.6.9 审计修复:客户端镜像此前缺该分支,分界前回放桶会按当前价重算)。
       if (Number.isFinite(atMs) && atMs < LEGACY_BASE_BOUNDARY_MS) {
@@ -758,35 +766,71 @@
     }
     /**
      * 模型名归一化(与 lib/pricing.js 的 canonModelId 同逻辑;bundle 无法导入,修改时两处同步):
-     * 小写,去括号附注(如 (go)),只保留字母数字——大小写/空格/横杠/点号等差异全部忽略。
+     * NFKC 全角/兼容字符归一化后转小写,仅去已知渠道附注 (go)/(zen),只保留 Unicode 字母数字——大小写/空格/横杠/点号等差异全部忽略。
      */
+    function modelNameText(id) {
+      return String(id ?? '').normalize('NFKC').toLowerCase().replace(/[(（]\s*(?:go|zen)\s*[)）]/g, ' ').trim()
+    }
     function canonModelIdLocal(id) {
-      return String(id ?? '').toLowerCase()
-        .replace(/\([^)]*\)/g, ' ')
-        .replace(/（[^）]*）/g, ' ')
-        .replace(/[^a-z0-9]+/g, '')
+      return modelNameText(id).replace(/[^\p{L}\p{N}]+/gu, '')
     }
     /**
      * 模型名自动匹配(与 lib/pricing.js 的 matchModelId 同逻辑;bundle 无法导入,修改时两处同步)。
      * 精确 → 归一化等价 → 去日期/版本后缀 → 安全后缀。
      */
-    function matchModelIdLocal(modelId, candidates) {
+    function stripIdDecor(id) {
+      // Strip request decorations one at a time; candidate snapshots keep their identity.
+      return modelNameText(id).replace(/[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest)$/, '')
+    }
+
+    /** Exact IDs precede unique punctuation aliases and request-only safe decorations. */
+    function matchModelIdLocal(modelId, candidates, exactId = modelId) {
       if (typeof modelId !== 'string' || modelId.length === 0) return null
       const list = Array.isArray(candidates) ? candidates.filter(c => typeof c === 'string' && c.length > 0) : []
-      if (list.length === 0) return null
-      const strip = id => String(id).toLowerCase().replace(/[-@]\d{4}-?\d{2}-?\d{2}$/, '').replace(/[-@]v\d+(\.\d+)*$/, '')
-      const exact = list.find(c => c === modelId)
+      const exact = list.find(c => c === exactId)
       if (exact !== undefined) return exact
-      const canon = canonModelIdLocal(modelId)
-      if (canon.length === 0) return null
-      const byCanon = list.find(c => canonModelIdLocal(c) === canon)
-      if (byCanon !== undefined) return byCanon
-      const stripped = strip(modelId)
-      const byStripped = list.find(c => strip(c) === stripped)
-      if (byStripped !== undefined) return byStripped
-      const suffix = /^(?:[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest))+$/
-      return list.filter(c => stripped.startsWith(strip(c)) && suffix.test(stripped.slice(strip(c).length)))
-        .sort((a, b) => b.length - a.length)[0] ?? null
+      let target = modelId.normalize('NFKC').trim()
+      if (/[:(（]\s*(?:free|online)\b/i.test(target)) return null
+      for (;;) {
+        const canon = canonModelIdLocal(target)
+        if (canon.length === 0) return null
+        const hits = list.filter(c => canonModelIdLocal(c) === canon)
+        if (hits.length > 0) return hits.length === 1 ? hits[0] : null
+        const stripped = stripIdDecor(target)
+        if (stripped === target.toLowerCase()) return null
+        target = stripped
+      }
+    }
+
+    const SCOPED_PRICE_PROVIDERS = new Set(['openrouter', 'opencode-zen', 'opencode-go', 'zen', 'opencode'])
+    const MODEL_VENDOR_PREFIXES = {
+      openai: /^(?:gpt|o\d|codex)/i, anthropic: /^claude/i, google: /^gemini/i,
+      deepseek: /^deepseek/i, moonshot: /^kimi/i, 'z-ai': /^glm/i, xai: /^grok/i,
+      alibaba: /^qwen/i, minimax: /^minimax/i, tencent: /^(?:hunyuan|hy\d)/i,
+      xiaomi: /^mimo/i, upstage: /^solar/i, nvidia: /^nemotron/i, mistral: /^mistral/i,
+      meta: /^(?:muse|llama)/i, meituan: /^longcat/i,
+    }
+    function priceBillingMode(entry) {
+      return ['deepseek-peak', 'utc-peak'].includes(entry?.billingMode) ? entry.billingMode : 'flat'
+    }
+    // Full IDs win. Auto aliases may remove a known upstream namespace, never a routing variant.
+    // Gemini API model resource names use models/{model}: https://ai.google.dev/api/models
+    function priceModelHit(modelId, models, provider, mode, prices) {
+      if (typeof modelId !== 'string') return null
+      if (Object.hasOwn(models, modelId)) return modelId
+      if (mode !== 'auto') return null
+      let target = modelId.normalize('NFKC').trim().replace(/^models\/(?=gemini)/i, 'google/')
+      const sep = target.search(/[/:]/)
+      if (sep > 0) {
+        const vendor = target.slice(0, sep).trim().toLowerCase(), bare = target.slice(sep + 1).trim()
+        if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)
+          && (vendor === provider || (provider === 'opencode-zen' || provider === 'opencode-go')
+            && (MODEL_VENDOR_PREFIXES[vendor].test(bare)
+              || matchModelIdLocal(bare, Object.keys(vendor === 'deepseek' ? prices?.models ?? {} : prices?.providers?.[vendor]?.models ?? {})) !== null))) target = bare
+        else if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)) return null
+      }
+      // Formatting a request must not create a literal hit that bypasses alias collisions.
+      return matchModelIdLocal(target, Object.keys(models), modelId)
     }
     /**
      * 客户端价格解析(与 pricing.js providerPriceEntryFor 同口径):手动覆盖 → 精确 → 自动匹配。
@@ -798,7 +842,7 @@
     // 名单同口径;bundle 无法直接复用宿主模块,此处为镜像副本,双侧同输入同结果
     // 由 verify.mjs 漂移守卫锁定)。
     const LOCAL_PROVIDER_IDS = new Set([
-      'lmstudio', 'ollama', 'jan', 'gpt4all', 'koboldcpp', 'llamacpp', 'llama-cpp', 'localai',
+      'local', 'lmstudio', 'ollama', 'jan', 'gpt4all', 'koboldcpp', 'llamacpp', 'llama-cpp', 'localai',
       'vllm', 'sglang', 'tabbyapi', 'lmdeploy', 'oobabooga', 'text-generation-webui', 'llama-server',
     ])
     const LOCAL_MODEL_PREFIXES = [
@@ -809,8 +853,18 @@
     ]
     function isLocalOriginClient(provider, modelId) {
       if (typeof provider === 'string' && LOCAL_PROVIDER_IDS.has(provider)) return true
-      const model = typeof modelId === 'string' ? modelId.toLowerCase() : ''
+      const model = typeof modelId === 'string' ? modelNameText(modelId) : ''
       return LOCAL_MODEL_PREFIXES.some(prefix => model.startsWith(prefix))
+    }
+    function legacyDeepseekOverride(provider, override, prices, mode) {
+      if (provider !== 'deepseek' && !provider.includes('deepseek')
+        && typeof override === 'string' && override.length > 0 && override !== '__local__' && !override.includes(':')) {
+        const dsModels = prices.models ?? {}
+        const retryHit = Object.hasOwn(dsModels, override) ? override
+          : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels)) : null)
+        if (retryHit !== null && dsModels[retryHit]?.unpriced !== true) return { entry: dsModels[retryHit], priced: true, billingMode: 'deepseek-peak', matched: true }
+      }
+      return null
     }
     function resolveClientPriceRaw(providerRaw, modelId, config) {
       const prices = config?.prices ?? {}
@@ -834,87 +888,95 @@
           targetModel = override
         }
         if (targetProvider === 'deepseek' && targetModel === '__default__') {
-          return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: true, billingMode: 'deepseek-peak', matched: false }
+          return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: prices.default?.unpriced !== true, billingMode: 'deepseek-peak', matched: false }
         }
+      }
+          if (['zen', 'opencode'].includes(targetProvider)) {
+        const own = priceModelHit(targetModel, prices.providers?.[targetProvider]?.models ?? {}, 'opencode-go', mode, prices)
+        if (own === null) targetProvider = 'opencode-go'
+        else targetModel = own
       }
       // 本地推理来源零价守卫(与 pricing.js 同口径,置于覆盖之后、目录匹配之前)。
       if (isLocalOriginClient(targetProvider, targetModel)) {
         return { entry: null, priced: false, billingMode: 'flat', matched: false }
       }
+      if (targetProvider === 'openrouter') {
+        const models = prices.providers?.openrouter?.models ?? {}
+        const entry = Object.hasOwn(models, targetModel) ? models[targetModel] : null
+        return { entry, priced: entry !== null && entry.unpriced !== true, billingMode: 'flat', matched: entry !== null }
+      }
       if (targetProvider === 'deepseek' || targetProvider.includes('deepseek')) {
         const models = prices.models ?? {}
-        const hit = models[targetModel] !== undefined ? targetModel
-          : (mode === 'auto' ? matchModelIdLocal(targetModel, Object.keys(models)) : null)
-        if (hit !== null) return { entry: models[hit], priced: true, billingMode: 'deepseek-peak', matched: true }
+        const hit = priceModelHit(targetModel, models, 'deepseek', mode, prices)
+        if (hit !== null) return models[hit]?.unpriced === true
+          ? { entry: null, priced: false, billingMode: 'flat', matched: true }
+          : { entry: models[hit], priced: true, billingMode: 'deepseek-peak', matched: true }
         // 回退: provider 缺失/DeepSeek 但模型实际属于 Go 等其它目录时，避免
         // 误套 DeepSeek 默认低价(与 pricing.js 同口径，修复 Go 金额偏低)。
         if (mode === 'auto') {
           let bestEntry = null
           let bestLen = -1
+          let ambiguous = false
           let bestMode = 'flat'
           for (const [prov, table] of Object.entries(prices.providers ?? {})) {
+            if (SCOPED_PRICE_PROVIDERS.has(prov)) continue
             const modelsCat = table?.models ?? {}
-            const h = matchModelIdLocal(targetModel, Object.keys(modelsCat))
-            if (h === null || modelsCat[h]?.unpriced === true) continue
-            const isExact = h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel)
-            const score = (isExact ? 1000 : 0) + canonModelIdLocal(h).length
+            const h = priceModelHit(targetModel, modelsCat, prov, mode, prices)
+            if (h === null) continue
+            const score = +(h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel))
             if (score > bestLen) {
-              bestEntry = modelsCat[h]; bestLen = score
+              bestEntry = modelsCat[h]; bestLen = score; ambiguous = false
               // 与 pricing.js 同口径:命中条目自带峰谷模式时保留,否则客户端
               // 会按 flat 计与服务端入账不一致。
-              bestMode = modelsCat[h]?.billingMode === 'deepseek-peak' ? 'deepseek-peak' : 'flat'
-            }
+              bestMode = priceBillingMode(modelsCat[h])
+            } else if (score === bestLen) ambiguous = true
           }
-          if (bestEntry !== null) return { entry: bestEntry, priced: true, billingMode: bestMode, matched: true }
+          if (ambiguous) return { entry: null, priced: false, billingMode: 'flat', matched: false }
+          if (bestEntry !== null) return { entry: bestEntry, priced: bestEntry.unpriced !== true, billingMode: bestMode, matched: true }
         }
-        return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: true, billingMode: 'deepseek-peak', matched: false }
+        return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: prices.default?.unpriced !== true, billingMode: 'deepseek-peak', matched: false }
       }
       const catalog = prices.providers?.[targetProvider]?.models ?? {}
-      const hit = catalog[targetModel] !== undefined ? targetModel
-        : (mode === 'auto' ? matchModelIdLocal(targetModel, Object.keys(catalog)) : null)
-      if (hit !== null) return { entry: catalog[hit], priced: catalog[hit]?.unpriced !== true, billingMode: 'flat', matched: true }
-      if (targetProvider === 'opencode-go') return { entry: null, priced: false, billingMode: 'flat', matched: false }
+      const hit = priceModelHit(targetModel, catalog, targetProvider, mode, prices)
+      if (hit !== null) return { entry: catalog[hit], priced: catalog[hit]?.unpriced !== true, billingMode: priceBillingMode(catalog[hit]), matched: true }
+      if (SCOPED_PRICE_PROVIDERS.has(targetProvider)) return { entry: null, priced: false, billingMode: 'flat', matched: false }
+      if (Object.hasOwn(MODEL_VENDOR_PREFIXES, targetProvider)) return { entry: null, priced: false, billingMode: 'flat', matched: false }
       // 跨厂商兑底(与 pricing.js 同口径):provider 未在价格表登记时按模型名全库查找。
       if (mode === 'auto') {
-        const dsModels = prices.models ?? {}
-        const dsHit = matchModelIdLocal(targetModel, Object.keys(dsModels))
-        if (dsHit !== null) return { entry: dsModels[dsHit], priced: true, billingMode: 'deepseek-peak', matched: true }
         let bestEntry = null
         let bestLen = -1
+        let ambiguous = false
         let bestMode = 'flat'
-        for (const [prov, table] of Object.entries(prices.providers ?? {})) {
-          if (prov === targetProvider) continue
+        for (const [prov, table] of [['deepseek', { models: prices.models ?? {} }], ...Object.entries(prices.providers ?? {})]) {
+          if (prov === targetProvider || SCOPED_PRICE_PROVIDERS.has(prov)) continue
           const models = table?.models ?? {}
-          const h = matchModelIdLocal(targetModel, Object.keys(models))
-          if (h === null || models[h]?.unpriced === true) continue
-          const isExact = h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel)
-          const score = (isExact ? 1000 : 0) + canonModelIdLocal(h).length
+          const h = priceModelHit(targetModel, models, prov, mode, prices)
+          if (h === null) continue
+          const score = +(h === targetModel || canonModelIdLocal(h) === canonModelIdLocal(targetModel))
           if (score > bestLen) {
-            bestEntry = models[h]; bestLen = score
-            bestMode = models[h]?.billingMode === 'deepseek-peak' ? 'deepseek-peak' : 'flat' // 与 pricing.js 同口径
-          }
+            bestEntry = models[h]; bestLen = score; ambiguous = false
+            bestMode = prov === 'deepseek' ? 'deepseek-peak' : priceBillingMode(models[h]) // 与 pricing.js 同口径
+          } else if (score === bestLen) ambiguous = true
         }
-        if (bestEntry !== null) return { entry: bestEntry, priced: true, billingMode: bestMode, matched: true }
+        if (ambiguous) return { entry: null, priced: false, billingMode: 'flat', matched: false }
+        if (bestEntry !== null) return { entry: bestEntry, priced: bestEntry.unpriced !== true, billingMode: bestMode, matched: true }
       }
       // issue #56 镜像:v1.5.42 及之前设置页下拉框把 DeepSeek 目标存成裸名,被按
       // 「同渠道换名」解析后查无此价。此处对「裸值覆盖 + 非 DeepSeek 渠道解析失败」
       // 回退 DeepSeek 主表再查一次(仅显式条目/归一化匹配,不吃默认兜底价),
       // 与宿主计费口径保持一致,存量裸名配置自愈且不进未命中列表。
-      if (provider !== 'deepseek' && !provider.includes('deepseek')
-        && typeof override === 'string' && override.length > 0 && !override.includes(':')) {
-        const dsModels = prices.models ?? {}
-        const retryHit = dsModels[override] !== undefined ? override
-          : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels)) : null)
-        if (retryHit !== null) return { entry: dsModels[retryHit], priced: true, billingMode: 'deepseek-peak', matched: true }
-      }
       return { entry: null, priced: false, billingMode: 'flat', matched: false }
     }
     function resolveClientPrice(provider, modelId, config) {
-      const result = resolveClientPriceRaw(provider, modelId, config)
+      let result = resolveClientPriceRaw(provider, modelId, config)
+      if (!result.priced) {
+        const normalized = String(provider ?? '').trim().toLowerCase().replace(/^llm-/, '') || 'deepseek'
+        result = legacyDeepseekOverride(normalized, config?.priceOverrides?.[normalized + ':' + modelId], config?.prices ?? {}, config?.priceMatch === 'exact' ? 'exact' : 'auto') ?? result
+      }
       if (result.priced && config?.prices?.currency === 'CNY' && result.entry?.cny) {
         return { ...result, entry: result.entry.cny, currency: 'CNY' }
       }
-      return { ...result, currency: result.billingMode === 'deepseek-peak' && config?.prices?.currency === 'CNY' ? 'CNY' : 'USD' }
+      return { ...result, currency: result.priced && result.billingMode === 'deepseek-peak' && config?.prices?.currency === 'CNY' ? 'CNY' : 'USD' }
     }
     /** 投影 token 桶 → 按当前时刻档位计价的美元成本。 */
     /**
@@ -987,20 +1049,19 @@
     }
     // 路由调用判定(与 lib/plan-billing.js 同逻辑的镜像):provider 空/deepseek
     // 且模型不在 DeepSeek 主表(canon 等价)、但在第三方目录命中 → 视为路由调用。
+    const LEGACY_GO_CANON = new Set(['grok-4.5','glm-5.3','glm-5.3-flash','glm-5.2','glm-5.1','gpt-5.6-luna','kimi-k3','kimi-k2.7-code','kimi-k2.6','mimo-v2.6-flash','mimo-v2.6-pro','mimo-v2.5','mimo-v2.5-pro','minimax-m3','minimax-m2.7','qwen3.8-max','qwen3.7-max','qwen3.7-plus','qwen3.6-plus','hy3','longcat-2.0','muse-spark-1.2-contributor'].map(canonModelIdLocal))
     function isRoutedThirdPartyCallLocal(provider, modelId, config) {
       const name = String(provider ?? '').trim().toLowerCase()
       if (name.length > 0 && name !== 'deepseek' && !name.includes('deepseek')) return false
       const canon = canonModelIdLocal(modelId)
-      if (canon.length === 0) return false
+      if (canon.length === 0 || !LEGACY_GO_CANON.has(canon)) return false
       const prices = config?.prices
       const dsModels = prices?.models ?? {}
       for (const id of Object.keys(dsModels)) {
         if (canonModelIdLocal(id) === canon) return false // DeepSeek 主表模型
       }
-      for (const table of Object.values(prices?.providers ?? {})) {
-        for (const id of Object.keys(table?.models ?? {})) {
-          if (canonModelIdLocal(id) === canon) return true
-        }
+      for (const id of Object.keys(prices?.providers?.['opencode-go']?.models ?? {})) {
+        if (canonModelIdLocal(id) === canon) return true
       }
       return false
     }
@@ -1043,7 +1104,7 @@
         const modelId = separator > 0 ? providerKey.slice(separator + 1) : providerKey
         const resolved = resolveClientPrice(provider, modelId, config)
         if (resolved.priced) {
-          const c = costOfBuckets(byModel[providerKey], tierFor(normalizeClientPrice(resolved.entry), now, { ...peak, enabled: resolved.billingMode === 'deepseek-peak' && peak.enabled }))
+          const c = costOfBuckets(byModel[providerKey], tierFor(normalizeClientPrice(resolved.entry), now, { ...peak, enabled: ['deepseek-peak', 'utc-peak'].includes(resolved.billingMode) && peak.enabled }))
           const billed = usdFromCostLocal(c, resolved.currency, config.exchangeRate)
           total += billed
           if (billingClassOfLocal(provider, modelId, config) === 'api') api += billed
@@ -1128,8 +1189,8 @@
 
     // ── 客户端状态存储 ──────────────────────────────────────────────────────
 
-    function makeStore(initial) {
-      let snapshot = initial
+    function makeStore(initial, decorate = value => value) {
+      let snapshot = decorate(initial)
       const listeners = new Set()
       return {
         getSnapshot: () => snapshot,
@@ -1138,6 +1199,7 @@
           return () => { listeners.delete(fn) }
         },
         set: next => {
+          next = decorate(next)
           if (next === snapshot) return
           snapshot = next
           for (const fn of [...listeners]) fn()
@@ -1271,19 +1333,18 @@
     }
 
     function mergeSessionUsage(projection, snapshot, include, config) {
-      const tokens = v => ['input', 'output', 'cacheRead', 'cacheWrite'].reduce((n, k) => n + (v?.[k] ?? 0), 0)
-      const base = snapshot?.found && tokens(snapshot.own) >= tokens(projection) ? snapshot.own : projection
+      // The ledger owns retained spending; old/inherited projection tokens do not.
+      const base = snapshot ? snapshot.own : projection
       if (!include || !snapshot?.subagentCount) return base
       const extra = snapshot.subagents, out = { ...base }
-      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'cost']) out[key] = (base?.[key] ?? 0) + (extra?.[key] ?? 0)
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost']) out[key] = (base?.[key] ?? 0) + (extra?.[key] ?? 0)
       out.apiCost = recordedApiCost(base, config) + moneyCostOf(extra)
       for (const key of ['byModel', 'byProviderModel']) {
         out[key] = { ...base?.[key] }
         for (const [id, row] of Object.entries(extra?.[key] ?? {})) {
           const combined = { ...out[key][id] }
-          for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'cost']) combined[field] = (combined[field] ?? 0) + (row[field] ?? 0)
-          // 桶内分类可能来自投影，未带 apiCost；不保留只覆盖主会话的旧派生值。
-          delete combined.apiCost
+          combined.apiCost = moneyCostOf(combined) + moneyCostOf(row)
+          for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost']) combined[field] = (combined[field] ?? 0) + (row[field] ?? 0)
           out[key][id] = combined
         }
       }
@@ -1349,7 +1410,7 @@
         return () => { active = false }
       }, [sessionId, start, end, pricingKey, config?.hideTurnCost])
       if (!config || config.hideTurnCost || start == null || end == null) return null
-      const en = resolveLocale(config.locale) === 'en'
+      const en = resolveLocale(config) === 'en'
       const names = en ? { input: 'Input', output: 'Output', cacheRead: 'Cache read', cacheWrite: 'Cache write', reasoning: 'Reasoning' } : { input: '输入', output: '输出', cacheRead: '缓存读取', cacheWrite: '缓存写入', reasoning: '推理' }
       const money = n => formatMoneyUsd(n, { ...config, decimals: Math.max(8, config.decimals ?? 2) })
       const kinds = en ? { model: 'Model call', compaction: 'Context compaction', search: 'Native search' } : { model: '模型调用', compaction: '上下文压缩', search: '原生搜索' }
@@ -1371,7 +1432,7 @@
     function SessionCost(props) {
       const { usage, config } = useSessionUsage(props)
       if (!usage || !config || (billedInput(usage) + (usage?.output ?? 0)) === 0) return null
-      const t = makeT(resolveLocale(config.locale))
+      const t = makeT(resolveLocale(config))
       const { cost, planPart } = sessionCostParts(usage, config)
       const detail = [
         t('sessionCostTitle'),
@@ -1401,7 +1462,7 @@
       const cache = (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0)
       const output = usage.output ?? 0
       if (input + cache + output === 0) return null
-      const t = makeT(resolveLocale(config.locale))
+      const t = makeT(resolveLocale(config))
       const { cost, planPart } = sessionCostParts(usage, config)
       // 缓存写入属于输入分母，但不是缓存命中；无输入时显示未知。
       const hitRate = billedInput(usage) > 0 ? ((usage.cacheRead ?? 0) / billedInput(usage) * 100).toFixed(1) + '%' : '—'
@@ -1442,9 +1503,8 @@
 
     // issue #36:官方余额进度条的「当日已用」只统计会扣 DeepSeek 开放平台余额的调用
     // (byProviderModel 中 provider 前缀为官方渠道的条目:账本记账时未标注 provider 的
-    // 'deepseek' 与 profile 内置官方路由实际落账的 'deepseek-official';宿主包装路由
-    // llm- 前缀与裸名同义,一并剥离——与 lib/store.js officialCostOfDay 同口径,v1.6.9
-    // 审计修复此前漏计 deepseek-official 键的问题);
+    // 'deepseek'、API Key 路由 'deepseek-official' 与 Desktop 登录账号路由
+    // 'deepseek-account';宿主 llm- 前缀与裸名同义，一并剥离，与服务端同口径)。
     // Coding Plan / 自定义 Provider 等渠道的费用只体现在各自的额度条/余额条上。
     // 账本无按渠道拆分的旧数据(byProviderModel 缺失/为空)退回全量,保持升级前行为。
     function todayOfficialUsd(state) {
@@ -1456,7 +1516,7 @@
         const idx = key.indexOf(':')
         let provider = idx >= 0 ? key.slice(0, idx) : key
         if (provider.startsWith('llm-')) provider = provider.slice(4)
-        if (provider !== 'deepseek' && provider !== 'deepseek-official') continue
+        if (!/^deepseek(?:-official|-account)?$/.test(provider)) continue
         sum += Number(value?.cost) || 0
       }
       return sum
@@ -1465,15 +1525,10 @@
     function todayUsedInBalanceCurrency(state, config, mode, custom, entryCfg = null) {
       // 官方模式只取 deepseek 渠道费用;自定义 Provider 余额无渠道映射,维持全量(与既有行为一致)。
       const usd = mode === 'official' ? todayOfficialUsd(state) : Number(state.today?.cost) || 0
-      if (mode === 'custom') {
-        const unit = customBalanceUnitOf(config, custom, entryCfg)
-        if (unit === 'USD') return usd
-        // 积分是不可由美元花费换算的计数(抵扣率因模型而异),按 0 处理,
-        // 绝不把汇率折算结果冒充积分显示在「当日已用」段。
-        if (unit === 'CREDITS') return 0
-        const rate = Number(config?.exchangeRate)
-        return usd * (Number.isFinite(rate) && rate > 0 ? rate : 1)
-      }
+      const unit = mode === 'custom' ? customBalanceUnitOf(config, custom, entryCfg) : state.balance?.currency
+      if (unit === 'USD') return usd
+      // 积分不能由美元花费换算。
+      if (unit === 'CREDITS') return 0
       const rate = Number(config?.exchangeRate)
       return usd * (Number.isFinite(rate) && rate > 0 ? rate : 1)
     }
@@ -1590,7 +1645,7 @@
     function BalanceRowContent(props) {
       const { state, wide, api } = props
       const balance = state.balance
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const refresh = useClickRefresh(api ? () => api.refreshBalance() : null)
       if (!balance || balance.status === 'off') return null
       if (balance.status === 'error') {
@@ -1618,7 +1673,7 @@
       const { state, wide, api } = props
       const config = state.config
       const balance = state.balance
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const refresh = useClickRefresh(api ? () => api.refreshBalance() : null)
       if (!balance || balance.status !== 'ok') return null
       const segments = segmentsForOfficialBalance(state, config)
@@ -1707,7 +1762,7 @@
     }
 
     function customBalanceBoxBody(state, config, t, custom, entryCfg) {
-      const label = resolveCustomBalanceLabel(entryCfg ?? config.customBalance ?? {}, resolveLocale(config?.locale))
+      const label = resolveCustomBalanceLabel(entryCfg ?? config.customBalance ?? {}, resolveLocale(config))
       const remaining = formatCustomBalanceMoney(custom.remaining, config, custom, entryCfg)
       const segments = segmentsForCustomBalance(state, config, custom, entryCfg)
       return {
@@ -1747,7 +1802,7 @@
     function CustomBalanceBox(props) {
       const { state, wide, api } = props
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const visible = visibleCustomEntries(state, config)
       if (visible.length === 0) return null
       return el(Fragment, null, visible.map(({ index, entry, snapshot }) =>
@@ -1770,7 +1825,7 @@
     function CustomBalanceRowContent(props) {
       const { state, wide, api } = props
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const visible = visibleCustomEntries(state, config)
       if (visible.length === 0) return null
       return el(Fragment, null, visible.map(({ index, entry, snapshot }) =>
@@ -1783,7 +1838,7 @@
       const custom = snapshot ?? emptyCustomSnapshot(index)
       if (custom.status === 'off') return null
       const refresh = useClickRefresh(api ? () => api.refreshCustomBalance(index) : null)
-      const label = resolveCustomBalanceLabel(entry ?? config.customBalance ?? {}, resolveLocale(config?.locale))
+      const label = resolveCustomBalanceLabel(entry ?? config.customBalance ?? {}, resolveLocale(config))
       if (custom.status === 'error') {
         return el(Tooltip, { label: [custom.message || t('unknownError'), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
           el('div', { className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
@@ -1801,7 +1856,7 @@
       const state = costStore?.state
       if (!state) return null
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const corner = config.corner ?? { enabled: false, goRolling: true, goWeekly: true, goMonthly: true, budget: true }
       const goQuota = state.goQuota
       const goOk = config?.goQuota?.enabled !== false && goQuota?.status === 'ok'
@@ -1978,7 +2033,7 @@
           // 预览系统通知:遵循 Web 通知开关与授权,标题加预览标记。
           const cfg = costStore?.state?.config
           if (cfg?.peakAlertWebNotify === true && window.Notification && Notification.permission === 'granted') {
-            const pt = makeT(resolveLocale(cfg.locale))
+            const pt = makeT(resolveLocale(cfg))
             try {
               new Notification(pt(kind === 'peak' ? 'peakAlertTitlePeak' : 'peakAlertTitleOffPeak') + pt('peakAlertPreviewTag'),
                 { body: pt('peakAlertBody', { time: pt('countdownMinute', { m: 2 }), phase: pt(kind === 'peak' ? 'peakAlertPhasePeak' : 'peakAlertPhaseOffPeak') }) })
@@ -2006,7 +2061,7 @@
         const aheadMs = (Number.isFinite(mins) && mins >= 1 ? mins : 2) * 60000
         if (now < wv.nextAtMs - aheadMs || now >= wv.nextAtMs) return
         if (lastPeakNotifyAtMs === wv.nextAtMs) return
-        const t = makeT(resolveLocale(config.locale))
+        const t = makeT(resolveLocale(config))
         lastPeakNotifyAtMs = wv.nextAtMs
         try {
           new Notification(
@@ -2041,7 +2096,7 @@
         intoPeak = preview === 'peak'
         dismiss = () => setPreview(null)
       } else return null
-      const t = makeT(resolveLocale(config.locale))
+      const t = makeT(resolveLocale(config))
       const position = config.peakAlertPosition === 'center' ? 'cm-peak-alert-center' : 'cm-peak-alert-corner'
       return el('div', { className: 'cm-peak-alert ' + position + ' ' + (intoPeak ? 'cm-peak-alert-peak' : 'cm-peak-alert-offpeak'), role: 'alert' },
         el('div', { className: 'cm-peak-alert-badge' }, t(intoPeak ? 'peakAlertBadgePeak' : 'peakAlertBadgeOffPeak')),
@@ -2278,7 +2333,7 @@
     function GoQuotaBox(props) {
       const { state, wide } = props
       const goQuota = state.goQuota
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       if (!goQuota || goQuota.status !== 'ok') return null
       const mainKey = state.config?.goQuota?.main === 'weekly' || state.config?.goQuota?.main === 'monthly' ? state.config.goQuota.main : 'rolling'
       if (goQuota[mainKey] === null || typeof goQuota[mainKey]?.percent !== 'number') return null
@@ -2412,7 +2467,7 @@
     function MiniMaxPlanBox(props) {
       const { state, wide, api } = props
       const live = state.codingPlans?.minimax
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const refresh = useClickRefresh(api ? () => api.refreshCodingPlan('minimax') : null)
       if (!live || live.status !== 'ok') return null
       const { five, seven } = miniMaxWindowsOf(live.windows)
@@ -2504,7 +2559,7 @@
     function CodexPlanBox(props) {
       const hoverProps = useQuotaHoverRefresh()
       const { state, wide } = props
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const enabled = state.config?.codexQuotaEnabled === true && state.config?.codexQuotaSidebar !== false
       const snap = useCodexQuota(enabled)
       const refresh = useClickRefresh(() => fetchCodexQuota(true, enabled))
@@ -2549,7 +2604,7 @@
       const hoverProps = useQuotaHoverRefresh()
       const { id, state, wide, api } = props
       const live = state.codingPlans?.[id]
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const refresh = useClickRefresh(api ? () => api.refreshCodingPlan(id) : null)
       const rowDef = CODING_PLAN_ROWS.find(r => r.id === id)
       if (!rowDef || !live || live.status !== 'ok') return null
@@ -2615,7 +2670,7 @@
     function GatewayQuotaBox(props) {
       const hoverProps = useQuotaHoverRefresh()
       const { source, snapshot, state, wide, api } = props
-      const t = makeT(resolveLocale(state.config?.locale))
+      const t = makeT(resolveLocale(state.config))
       const [selection, setSelection] = useState(() => ({ source: source.id, id: readGatewayAccountLS(source.id) }))
       const refresh = useClickRefresh(api ? () => api.refreshGatewayQuota(source.id) : null)
       const direction = barDirectionOf(state.config, 'plan')
@@ -2734,7 +2789,7 @@
       const config = state.config
       const strip = config.quotaStrip ?? { enabled: false, budget: true, go: true, plans: true }
       if (strip.enabled !== true) return null
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const chips = []
       // 预算 chip:与预算图框同口径(≥80% 预警、≥100% 超支);点击 reload 重取状态(issue #52)。
       if (strip.budget !== false) {
@@ -2903,7 +2958,7 @@
       const [dismissed, setDismissed] = useState(false)
       const config = store?.state?.config
       if (!config || dismissed || simpleGuideSeen(config)) return null
-      const t = makeT(resolveLocale(config.locale))
+      const t = makeT(resolveLocale(config))
       const dismiss = () => {
         setDismissed(true)
         try { window.localStorage.setItem(SIMPLE_GUIDE_KEY, '1') } catch (_) { /* 本次页面仍可关闭 */ }
@@ -2940,7 +2995,7 @@
       const config = state.config
       if (!simpleGuideSeen(config)) return null
       if (config.quotaStrip?.promptSeen === true) return null
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const choose = enabled => {
         if (busyRef.current === true) return
         busyRef.current = true
@@ -2990,7 +3045,7 @@
       // 点掉一张露出另一张,视觉上像「点了没反应」。等横条引导处理完(promptSeen)再出现。
       if (!simpleGuideSeen(config)) return null
       if (config.quotaStrip?.promptSeen !== true) return null
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const dismiss = () => {
         if (busyRef.current === true) return
         // 乐观消失:点击立即隐藏,落盘确认失败才恢复可见(避免宿主渲染时序让卡片看起来「点不掉」)。
@@ -3017,7 +3072,7 @@
       const { state, wide } = props
       const today = state.today
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const todayValue = sidebarTodayValue(today, config, t)
       const budget = config.budget ?? { enabled: false, amount: 100, period: 'month' }
       const rate = Number(config.exchangeRate)
@@ -3217,7 +3272,7 @@
       const wide = !!props.wide
       if (!state) return null
       const config = state.config
-      const t = makeT(resolveLocale(config?.locale))
+      const t = makeT(resolveLocale(config))
       const showBalance = (config.balance?.display === 'sidebar' || config.balance?.display === 'both')
         && config.hideOfficialBalance !== true
       // 多配置形态(v1.7.0,issue #79):可见性逐条判定(可见条目集由

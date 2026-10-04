@@ -94,6 +94,17 @@ import {
 } from '../lib/coding-plans.js'
 import { extractByRule } from '../lib/custom-balance.js'
 
+// Fixture credentials must never reach live APIs. Tests override this guard with
+// explicit in-process mocks; the optional public pricing smoke is read-only opt-in.
+const defaultFetch = globalThis.fetch
+globalThis.fetch = async (url, init) => {
+  const address = new URL(typeof url === 'string' || url instanceof URL ? url : url.url)
+  if (address.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(address.hostname)) return defaultFetch(url, init)
+  if (process.env.DSH_TEST_LIVE_PRICING === '1' && String(url) === 'https://api-docs.deepseek.com/quick_start/pricing' && init === undefined) return defaultFetch(url)
+  throw new Error('Regression network request requires an explicit in-process mock')
+}
+process.on('exit', () => { globalThis.fetch = defaultFetch })
+
 // 每个验证进程使用独立临时目录，双时区同时执行时不互相删除账本。
 const suiteRoot = mkdtempSync(join(osTmpdir(), 'cm-verify-'))
 const tmpdir = () => suiteRoot
@@ -668,8 +679,7 @@ assert.equal(openaiSame.priced, true, 'OpenAI 模型有价')
 assert.equal(anthropicSame.priced, true, 'Anthropic 模型有价')
 assert.equal(openaiSame.entry.cacheMiss, 2, '同名 OpenAI 模型使用自身价格')
 assert.equal(anthropicSame.entry.cacheMiss, 3, '同名 Anthropic 模型使用自身价格')
-assert.equal(unknownProvider.priced, true, '未知 provider 经跨厂商兑底按模型名命中(v1.5.2)')
-assert.equal(unknownProvider.entry.cacheMiss, 2, '跨厂商命中用目录价而非 DeepSeek 默认价')
+assert.equal(unknownProvider.priced, false, '未知 provider 同名匹配多个不同厂商时保持未定价')
 assert.equal(providerPriceEntryFor('gemini', 'no-such-model-anywhere', providerPrices).priced, false, '全库无此模型时不套价')
 const reasoningPrice = normalizePrice({ input: 1, output: 2, reasoning: 4 })
 assert.equal(reasoningPrice.reasoning, 4, 'reasoning 价格保留')
@@ -1763,19 +1773,19 @@ assert.ok(catalog.anthropic['Claude 4.5']['claude-opus-4-5'] !== undefined, 'Cla
 // 6.3.1 OpenCode Go 订阅非 DeepSeek 的 19 个模型在册,关键模型有价;DeepSeek 以官方主表为准不重复收录。
 const goModels = Object.values(catalog['opencode-go']).reduce((acc, fam) => acc.concat(Object.keys(fam)), [])
 assert.ok(goModels.length >= 19, 'OpenCode Go 目录 ≥19 个模型: ' + goModels.length)
-assert.equal(catalog['opencode-go'] && Object.values(catalog['opencode-go']).flatMap(fam => Object.keys(fam)).includes('deepseek-v4-flash'), false, 'Go 目录不重复收录 DeepSeek V4(以官方为准)')
+assert.equal(catalog['opencode-go'] && Object.values(catalog['opencode-go']).flatMap(fam => Object.keys(fam)).includes('deepseek-v4-flash'), true, 'Go 独立收录自己的 DeepSeek 参考价，不再复用直接 API 价')
 assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-luna'].input, 0.2, 'GPT-5.6 Luna 输入价')
 assert.equal(catalog['opencode-go']['GPT']['gpt-5.6-luna'].output, 1.2, 'Go 目录 GPT-5.6 Luna 输出价')
 // v1.7.5(issue #85):智谱官方已公布 GLM-5.3 定价(¥8/¥28/缓存¥2),z-ai 目录按
 // OpenCode Go 核价收录 $1.40/$0.26/$4.40;「维持 unpriced」的旧断言随之退役。
 assert.ok(catalog['z-ai']['GLM-5']['glm-5.3'].input === 1.4, 'GLM-5.3 已核价 $1.40(issue #85 补价)')
-assert.ok(catalog.google['Gemini 3.6 Flash']['gemini-3.6-flash'].output === 7.5, 'Gemini 3.6 Flash 已核价')
+assert.ok(catalog.google['Gemini 3.6 Flash']['gemini-3.6-flash'].output === 3.75, 'Gemini 3.6 Flash 已核价')
 assert.ok(catalog.anthropic['Claude Fable']['claude-fable-5'].output === 50, 'Claude Fable 5 已核价')
 // 6.3.2 OpenCode 目录价格漂移夹具(issue #58):Sol 2026-08 下旬降价六成、glm-5.3 登上 Go 目录价、三个新模型。
-assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].input, 2, 'gpt-5.6-sol 输入价已随目录更新为 $2(issue #58)')
-assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].output, 10, 'gpt-5.6-sol 输出价已更新为 $10')
-assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].cachedInput, 0.2, 'gpt-5.6-sol 缓存读已更新为 $0.20')
-assert.ok(String(catalog.openai['GPT-5.6']['gpt-5.6-sol'].notes ?? '').includes('272K'), 'Sol notes 保留长上下文档说明')
+assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].input, 4, 'gpt-5.6-sol 官方当前标准输入价 $4')
+assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].output, 20, 'gpt-5.6-sol 官方当前标准输出价 $20')
+assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].cachedInput, 0.4, 'gpt-5.6-sol 官方当前缓存读价 $0.40')
+assert.equal(catalog.openai['GPT-5.6']['gpt-5.6-sol'].longContext.aboveInputTokens, 272000, 'Sol 长上下文档以可执行字段保留')
 assert.equal(catalog['opencode-go']['GLM']['glm-5.3'].input, 1.4, 'opencode-go.glm-5.3 按目录价补齐 $1.40(issue #58)')
 assert.equal(catalog['opencode-go']['GLM']['glm-5.3'].cachedInput, 0.26, 'opencode-go.glm-5.3 缓存读 $0.26')
 assert.ok(catalog.meta?.['Muse Spark']?.['muse-spark-1.2'] !== undefined, 'Zen 新模型 muse-spark-1.2 在册(Meta 家族)')
@@ -1819,7 +1829,7 @@ const lunaViaRouter = providerPriceEntryFor('opencode', 'gpt5.6 luna(go)', fullP
 assert.equal(lunaViaRouter.priced, true, '路由 provider 下宽泛名跨厂商命中')
 assert.equal(lunaViaRouter.entry.output, 1.2, '跨厂商命中取正确价格')
 const dsViaRouter = providerPriceEntryFor('zen', 'deepseek-v4-flash', fullPrices)
-assert.equal(dsViaRouter.billingMode, 'deepseek-peak', '路由 provider 下 DeepSeek 模型保留峰谷两档')
+assert.equal(dsViaRouter.billingMode, 'utc-peak', '历史 zen Go 路由使用本渠道 UTC 峰谷参考价；按量 Zen 用 opencode-zen')
 assert.equal(providerPriceEntryFor('opencode', 'totally-unknown-xyz', fullPrices).priced, false, '跨厂商兑底不误配未知模型')
 assert.equal(providerPriceEntryFor('openai', 'GPT-5.6 LUNA', fullPrices).priced, true, '同厂商大小写/空格差异命中')
 console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修复)断言通过')
@@ -1901,7 +1911,7 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
   // 旧 v3 checkpoint(ver 不匹配)隔离——宿主 ver 检查拒绝旧行并全量 refold,
   // 不会对旧结构 state 调用 parse。
   const projRow = { ver: def.stateVersion, seq: events.length, val: structuredClone(projState) }
-  assert.equal(projRow.ver, 10, 'stateVersion 为 10（重放旧 checkpoint，修复重启误扣历史）')
+  assert.equal(projRow.ver, 11, 'stateVersion 为 11（重放旧 checkpoint，按 Provider 去重）')
   usageProjectionStateSchema.parse(projRow.val)
   // ⑤ issue #43 崩溃点复现对照:缺 stateSchema 的定义(fork 0.2.0 场景)在
   // restore 路径抛出与 issue 报错完全一致的 TypeError。
@@ -2390,7 +2400,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(scheduled >= 1, '清洗后调度落盘')
   // 投影与启动接线:源码结构断言(投影无独立运行时入口,行为经宿主重放自愈)。
   const indexSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-  assert.ok(indexSource.includes('stateVersion: 10'), '投影 stateVersion 10:触发宿主重放，包含普通重启费用修复')
+  assert.ok(indexSource.includes('stateVersion: 11'), '投影 stateVersion 11:按 Provider 去重并重放旧 checkpoint')
   assert.ok(indexSource.includes("if (event.type === 'session')") && indexSource.includes('createdAt') && indexSource.includes('seedLength'), '投影记录会话创建时刻与 seedLength(旧宿主兼容+多 end-seed 延迟扣除)')
   assert.ok(indexSource.includes("if (event.type === 'session/end-seed')"), '投影识别 session/end-seed fork 种子边界(issue #55)')
   assert.ok(indexSource.includes('isSeedBySeq') && indexSource.includes('isSeedByLength') && indexSource.includes('seedEndSeq'), '投影按 seq/length/time 三重过滤种子段(issue #55/#61)')
@@ -2588,8 +2598,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 回退计价必须除汇率,否则展示金额放大汇率倍);跨厂商兑底 billingMode 与
   // 服务端 bestMode 对齐;数字分叉守卫双端同步。
   assert.ok(clientSource.includes("currency: typeof v.prices?.currency === 'string'"), '客户端 parseConfig 保留 prices.currency')
-  assert.ok(clientSource.includes("bestMode = modelsCat[h]?.billingMode === 'deepseek-peak' ? 'deepseek-peak' : 'flat'"), '客户端跨厂商兑底 billingMode 与服务端同口径')
-  assert.ok(clientSource.includes('const suffix = /^(?:[-_./:@]') && clientSource.includes('suffix.test(stripped.slice(strip(c).length))'), '客户端安全后缀匹配与 pricing.js 同步')
+  assert.ok(clientSource.includes("bestMode = priceBillingMode(modelsCat[h])"), '客户端跨厂商兑底 billingMode 与服务端同口径')
+  assert.ok(clientSource.includes('const stripped = stripIdDecor(target)') && clientSource.includes('hits.length === 1 ? hits[0] : null'), '客户端安全后缀匹配与 pricing.js 同步')
   console.log('[ok] 手动价格映射裸 DeepSeek 名兜底(宿主+客户端双端/语义保留/下拉框根因修复)通过')
 }
 
@@ -3141,7 +3151,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     assert.equal(r.ref.granted, 0, '重置后基准为归零快照')
     // 归零后的下一次拉取:纯充值余额消费,total 差值恢复对账。
     const zBase = r.ref
-    r = reconcileBalanceDelta(zBase, { ...bal(17.8, 0, 17.8), currency: 'CNY' }, 1.2 / 7.2, day, t1, { exchangeRate: 7.2 })
+    r = reconcileBalanceDelta(zBase, { ...bal(17.8, 0, 17.8), currency: 'CNY' }, zBase.ledgerCost + 1.2 / 7.2, day, t1, { exchangeRate: 7.2 })
     assert.equal(r.event.kind, 'ok', '赠送清零后继续按充值余额对账')
   }
   // granted 维持剩余(消费走赠送但未清零):不影响 total 口径对账(旧行为保留)。
@@ -3200,8 +3210,6 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     3,
     '官方渠道含 deepseek-official 键(go 网关不计入)',
   )
-  const storeSrcRecon = readFileSync(join(import.meta.dirname, '..', 'lib', 'store.js'), 'utf8')
-  assert.ok(storeSrcRecon.includes("provider !== 'deepseek' && provider !== 'deepseek-official'"), 'officialCostOfDay 双官方键判定在源码中')
   // Ledger.todayOfficialCost():今日键聚合;纯 Plan/自定义渠道用户为 0;无今日记录为 0。
   const cfg36 = sanitizeConfig({})
   const todayKey36 = localDayKey(Date.now())
@@ -3220,7 +3228,6 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const cliSrc36 = readClientSource()
   assert.ok(cliSrc36.includes('function todayOfficialUsd(state)'), 'client.js 定义 todayOfficialUsd')
   assert.ok(cliSrc36.includes("mode === 'official' ? todayOfficialUsd(state) : Number(state.today?.cost) || 0"), '官方余额分支使用官方渠道费用,自定义分支维持全量')
-  assert.ok(cliSrc36.includes("if (provider !== 'deepseek' && provider !== 'deepseek-official') continue"), 'client 端按官方渠道前缀过滤(含 deepseek-official,v1.6.9 审计修复)')
   assert.ok(cliSrc36.includes("if (provider.startsWith('llm-')) provider = provider.slice(4)"), 'client 端剥离 llm- 包装路由前缀(与 officialCostOfDay 同口径)')
   console.log('[ok] 官方渠道费用拆分(纯函数/Ledger 聚合/对账与进度条接线/旧数据退回)通过')
 }
@@ -3981,15 +3988,16 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   process.env.DSH_HOME = planHome
 
   // 10.1) 分类器:别名归并、模型级覆盖、厂商级配置、auto 默认。
-  assert.equal(planProviderIdOf('zen'), 'go', 'zen 别名 → go')
-  assert.equal(planProviderIdOf('OpenCode'), 'go', 'opencode 大小写归一 → go')
+  assert.equal(planProviderIdOf('zen'), 'go', '宿主历史 zen 别名仍为 Go')
+  assert.equal(planProviderIdOf('OpenCode'), 'go', '宿主历史 opencode 大小写归一仍为 Go')
   assert.equal(planProviderIdOf('deepseek'), null, 'deepseek 非 Plan 渠道')
   assert.equal(planProviderIdOf('minimax'), 'minimax', '已知 Plan 渠道原样')
   const pbBase = { providers: { ...DEFAULT_PLAN_PROVIDER_CLASS }, models: {} }
   assert.equal(billingClassOf('minimax', 'MiniMax-M3', pbBase, new Set(['minimax'])), 'plan', 'auto+已启用 → plan')
   assert.equal(billingClassOf('minimax', 'MiniMax-M3', pbBase, new Set()), 'api', 'auto+未启用 → api')
   assert.equal(billingClassOf('openrouter', 'gpt-x', pbBase, new Set(['openrouter'])), 'api', '默认 api 类厂商不受启用影响')
-  assert.equal(billingClassOf('zen', 'claude-x', pbBase, new Set(['go'])), 'plan', 'zen 归 go 后按 go 启用态分类')
+  assert.equal(billingClassOf('zen', 'claude-x', pbBase, new Set(['go'])), 'plan', '历史 zen 归 Go 后保持既有分类')
+  assert.equal(billingClassOf('opencode-zen', 'claude-x', pbBase, new Set(['go'])), 'api', '显式 Zen 按量渠道不因 Go 启用而变成订阅')
   assert.equal(billingClassOf('deepseek', 'deepseek-v4-pro', pbBase, new Set(['minimax'])), 'api', 'deepseek 恒 api')
   const pbModelOverride = { providers: { ...pbBase.providers }, models: { 'kimi:kimi-k2.7': 'api' } }
   assert.equal(billingClassOf('kimi', 'kimi-k2.7', pbModelOverride, new Set(['kimi'])), 'api', '模型级覆盖优先(转 api)')
@@ -4841,7 +4849,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   {
     const clientSrc = readClientSource()
     const sliceStart = clientSrc.indexOf('function priceEntryFor(modelId, table)')
-    const sliceEnd = clientSrc.indexOf('function makeStore(initial)')
+    const sliceEnd = clientSrc.indexOf('function makeStore(initial,')
     const todayStart = clientSrc.indexOf('function todayOfficialUsd(state)')
     const todayEnd = clientSrc.indexOf('function todayUsedInBalanceCurrency(')
     assert.ok(sliceStart > 0 && sliceEnd > sliceStart && todayStart > 0 && todayEnd > todayStart, '客户端计费助手区段定位成功(函数改名时同步本测试)')
@@ -4961,7 +4969,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   {
     const clientSrcTz = readClientSource()
     const sliceStartTz = clientSrcTz.indexOf('function priceEntryFor(modelId, table)')
-    const sliceEndTz = clientSrcTz.indexOf('function makeStore(initial)')
+    const sliceEndTz = clientSrcTz.indexOf('function makeStore(initial,')
     assert.ok(sliceStartTz > 0 && sliceEndTz > sliceStartTz, '客户端助手区段定位成功')
     const CTz = new Function(clientSrcTz.slice(sliceStartTz, sliceEndTz) + '\nreturn { formatTzOffset, timezoneMismatchOf }')()
     assert.equal(CTz.formatTzOffset(480), 'UTC+8', 'formatTzOffset 整小时')
@@ -5286,7 +5294,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 {
   const clientSrc11 = readClientSource()
   const sliceStart11 = clientSrc11.indexOf('function priceEntryFor(modelId, table)')
-  const sliceEnd11 = clientSrc11.indexOf('function makeStore(initial)')
+  const sliceEnd11 = clientSrc11.indexOf('function makeStore(initial,')
   assert.ok(sliceStart11 > 0 && sliceEnd11 > sliceStart11, '客户端价格区段定位成功')
   const C11 = new Function(clientSrc11.slice(sliceStart11, sliceEnd11) + '\nreturn { resolveClientPrice, isLocalOriginClient }')()
   const prices11m = sanitizeConfig({}).prices
@@ -5699,7 +5707,7 @@ await import('./typert-codecs.mjs')
   writeFileSync(join(root81, 'storages', 'cost-meter', 'ledger.json'), JSON.stringify({
     version: 1,
     config: sanitizeConfig({ balance: { reconcile: true }, exchangeRate: 7.2 }),
-    balanceRef: { date: todayKey81, total: 100, granted: 1, topped: 99, currency: 'CNY', at: Date.now() - 3600_000 },
+    balanceRef: { date: todayKey81, total: 100, granted: 1, topped: 99, currency: 'CNY', at: Date.now() - 3600_000, ledgerCost: 0 },
     days: {
       [todayKey81]: {
         date: todayKey81, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, calls: 1,
@@ -5761,7 +5769,7 @@ await import('./typert-codecs.mjs')
 {
   const clientSrc163 = readClientSource()
   const sliceStart163 = clientSrc163.indexOf('function priceEntryFor(modelId, table)')
-  const sliceEnd163 = clientSrc163.indexOf('function makeStore(initial)')
+  const sliceEnd163 = clientSrc163.indexOf('function makeStore(initial,')
   assert.ok(sliceStart163 > 0 && sliceEnd163 > sliceStart163, '客户端可测区段定位成功')
   const C163 = new Function(clientSrc163.slice(sliceStart163, sliceEnd163) + '\nreturn { cacheUnreportedOf }')()
   // 疑似未上报:≥3 次调用、非缓存输入 ≥100k、缓存读恒 0。
@@ -6033,60 +6041,78 @@ function m_costOf85(entry, tokens) {
 //       (customVarStatus 下发)。
 {
   const prevStateHome = process.env.DSH_HOME
-  const varRoot = join(tmpdir(), `cm-cb-var-${Date.now()}`)
-  mkdirSync(join(varRoot, 'storages', 'cost-meter'), { recursive: true })
-  writeFileSync(join(varRoot, 'storages', 'cost-meter', 'ledger.json'), JSON.stringify({ version: 1, config: {
-    customBalances: [{
-      enabled: true,
-      label: 'relay',
-      display: 'settings',
-      request: { url: 'https://relay.example.com/api/user/self', method: 'GET', headers: { Authorization: 'Bearer {{MY_RELAY_KEY}}' } },
-      extract: { remaining: 'data.quota_remain' },
-      allowedHosts: ['relay.example.com'],
-    }],
-  }, days: {} }))
-  process.env.DSH_HOME = varRoot
-  const store86 = { MY_RELAY_KEY: false }
-  const varCreds = {
-    async describe(ref) { return { configured: store86[String(ref)] === true, writable: true, source: store86[String(ref)] === true ? 'env' : '' } },
-    async set(ref, value) { store86[String(ref)] = value.length > 0 },
-    async unset(ref) { delete store86[String(ref)] },
+  const prevVarFetch = globalThis.fetch
+  const varCleanups = []
+  let varRequests = 0
+  // Credential fixtures must never reach a real relay or reuse environment credentials.
+  globalThis.fetch = async url => {
+    assert.equal(String(url), 'https://relay.example.com/api/user/self')
+    varRequests++
+    return Response.json({ data: { quota_remain: 42 } })
   }
-  const provided86 = {}
-  const { apply } = await import('../lib/index.js')
-  apply({
-    on: () => () => {},
-    effect: () => {},
-    inject: () => {},
-    provide: (k, v) => { provided86[k] = v },
-    logger: console,
-    get: key => (key === 'credentials' ? varCreds : key === 'settings' ? { get: () => ({}) } : undefined),
-  })
-  const svc = provided86.costMeter
-  // ① getState:customVarStatus 下发(未配置)。
-  const st1 = await svc.getState()
-  assert.equal(st1.customVarStatus?.MY_RELAY_KEY?.configured, false, 'customVarStatus 下发未配置状态')
-  assert.equal(st1.config.customBalances[0].request.headers.Authorization, 'Bearer {{MY_RELAY_KEY}}', '占位符头原样下发')
-  // ② setCredential customVar:合法名写入 + 状态翻转。
-  const setOk = await svc.setCredential('customVar:MY_RELAY_KEY', 'sk-var-PLAINTEXT-0003')
-  assert.equal(setOk.ok, true, 'customVar 写入成功')
-  const st2 = await svc.getState()
-  assert.equal(st2.customVarStatus?.MY_RELAY_KEY?.configured, true, '写入后 customVarStatus 翻转为已配置')
-  // ③ 非法名 / 内置冲突名 / 缺名拒绝。
-  const bad1 = await svc.setCredential('customVar:lower_case', 'x')
-  assert.equal(bad1.ok, false, '小写变量名拒绝')
-  const bad2 = await svc.setCredential('customVar:CUSTOM_BALANCE_KEY_X', 'x')
-  assert.equal(bad2.ok, false, '保留前缀名拒绝')
-  const bad3 = await svc.setCredential('customVar:OPENCODE_GO_API_KEY', 'x')
-  assert.equal(bad3.ok, false, '与内置密钥同名拒绝(须走 goQuota 目标)')
-  const bad4 = await svc.setCredential('customVar:', 'x')
-  assert.equal(bad4.ok, false, '空变量名拒绝')
-  // ④ clearCredential customVar:移除 + 状态回落。
-  const clr = await svc.clearCredential('customVar:MY_RELAY_KEY')
-  assert.equal(clr.ok, true, 'customVar 移除成功')
-  const st3 = await svc.getState()
-  assert.equal(st3.customVarStatus?.MY_RELAY_KEY?.configured, false, '移除后状态回落未配置')
-  process.env.DSH_HOME = prevStateHome
+  try {
+    const varRoot = join(tmpdir(), `cm-cb-var-${Date.now()}`)
+    mkdirSync(join(varRoot, 'storages', 'cost-meter'), { recursive: true })
+    writeFileSync(join(varRoot, 'storages', 'cost-meter', 'ledger.json'), JSON.stringify({ version: 1, config: {
+      balance: { display: 'off' }, goQuota: { enabled: false },
+      customBalances: [{
+        enabled: true,
+        label: 'relay',
+        display: 'settings',
+        request: { url: 'https://relay.example.com/api/user/self', method: 'GET', headers: { Authorization: 'Bearer {{MY_RELAY_KEY}}' } },
+        extract: { remaining: 'data.quota_remain' },
+        allowedHosts: ['relay.example.com'],
+      }],
+    }, days: {} }))
+    process.env.DSH_HOME = varRoot
+    const store86 = { MY_RELAY_KEY: false }
+    const varCreds = {
+      async resolve(ref) { return String(ref) === 'MY_RELAY_KEY' ? { value: 'TEST_CUSTOM_VAR_KEY' } : undefined },
+      async describe(ref) { return { configured: store86[String(ref)] === true, writable: true, source: store86[String(ref)] === true ? 'env' : '' } },
+      async set(ref, value) { store86[String(ref)] = value.length > 0 },
+      async unset(ref) { delete store86[String(ref)] },
+    }
+    const provided86 = {}
+    const { apply } = await import('../lib/index.js')
+    apply({
+      on: () => () => {},
+      effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') varCleanups.push(cleanup) },
+      inject: () => {},
+      provide: (k, v) => { provided86[k] = v },
+      logger: console,
+      get: key => (key === 'credentials' ? varCreds : key === 'settings' ? { get: () => ({}) } : undefined),
+    })
+    const svc = provided86.costMeter
+    // ① getState:customVarStatus 下发(未配置)。
+    const st1 = await svc.getState()
+    assert.equal(st1.customVarStatus?.MY_RELAY_KEY?.configured, false, 'customVarStatus 下发未配置状态')
+    assert.equal(st1.config.customBalances[0].request.headers.Authorization, 'Bearer {{MY_RELAY_KEY}}', '占位符头原样下发')
+    // ② setCredential customVar:合法名写入 + 状态翻转。
+    const setOk = await svc.setCredential('customVar:MY_RELAY_KEY', 'sk-var-PLAINTEXT-0003')
+    assert.equal(setOk.ok, true, 'customVar 写入成功')
+    const st2 = await svc.getState()
+    assert.equal(st2.customVarStatus?.MY_RELAY_KEY?.configured, true, '写入后 customVarStatus 翻转为已配置')
+    // ③ 非法名 / 内置冲突名 / 缺名拒绝。
+    const bad1 = await svc.setCredential('customVar:lower_case', 'x')
+    assert.equal(bad1.ok, false, '小写变量名拒绝')
+    const bad2 = await svc.setCredential('customVar:CUSTOM_BALANCE_KEY_X', 'x')
+    assert.equal(bad2.ok, false, '保留前缀名拒绝')
+    const bad3 = await svc.setCredential('customVar:OPENCODE_GO_API_KEY', 'x')
+    assert.equal(bad3.ok, false, '与内置密钥同名拒绝(须走 goQuota 目标)')
+    const bad4 = await svc.setCredential('customVar:', 'x')
+    assert.equal(bad4.ok, false, '空变量名拒绝')
+    // ④ clearCredential customVar:移除 + 状态回落。
+    const clr = await svc.clearCredential('customVar:MY_RELAY_KEY')
+    assert.equal(clr.ok, true, 'customVar 移除成功')
+    const st3 = await svc.getState()
+    assert.equal(st3.customVarStatus?.MY_RELAY_KEY?.configured, false, '移除后状态回落未配置')
+    assert.ok(varRequests > 0, '自定义余额请求由本地 mock 处理')
+  } finally {
+    for (const cleanup of varCleanups.reverse()) cleanup()
+    globalThis.fetch = prevVarFetch
+    if (prevStateHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = prevStateHome
+  }
   console.log('[ok] customVar 凭据目标 e2e(写入/校验/移除/状态下发,issue #86)通过')
 }
 
@@ -6711,6 +6737,7 @@ await import('./cache-lifecycle.mjs')
 await import('./core-boundaries.mjs')
 await import('./go-credentials.mjs')
 await import('./balance-credentials.mjs')
+await import('./account-balance.mjs')
 await import('./qwen-cli.mjs')
 await import('./bailian-cli.mjs')
 await import('./minimax-endpoint.mjs')
@@ -6729,7 +6756,10 @@ await import('./deepseek-pricing-september.mjs')
 await import('./sidebar-simple.mjs')
 await import('./sidebar-regressions.mjs')
 await import('./gpt-astra-pricing.mjs')
+await import('./pricing-model-matching.mjs')
+await import('./provider-pricing-coverage.mjs')
 await import('./subagent-billing.mjs')
+await import('./billing-integrity.mjs')
 await import('./session-restart.mjs')
 await import('./native-search-billing.mjs')
 await import('./native-search-fetch.mjs')
@@ -6745,4 +6775,7 @@ await import('./model-quota-cards.mjs')
 await import('./mimo-quota.mjs')
 await import('./mimo-enable-flow.mjs')
 await import('./mimo-v26-pricing.mjs')
+await import('./host-locale.mjs')
+await import('./host-locale-client.mjs')
+await import('./conversation-totals.mjs')
 console.log('[ok] 全部验证通过')

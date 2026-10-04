@@ -6,11 +6,11 @@
 
 **Session cost tracking plugin for the DeepSeek Harness web GUI (bilingual UI)**
 
-Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; weekends and Chinese public holidays are off-peak all day, with separate labels) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 90+ model price catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / Volcano Ark / Qwen / Xiaomi MiMo) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
+Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; weekends and Chinese public holidays are off-peak all day, with separate labels) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 170+ model-ID catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / Volcano Ark / Qwen / Xiaomi MiMo) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
 
-[![version](https://img.shields.io/badge/version-1.8.6-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.8.10-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.8.6** fixes transparent backgrounds in conversation cost details when using skins that style dialogs through `[role=dialog]`. See the [release notes](docs/release-notes/v1.8.6.md).
+**v1.8.10** aligns cumulative totals, conversation badges and rankings, including subagent spending. See the [release notes](docs/release-notes/v1.8.10.md).
 
 Desktop users: follow the [Desktop installation instructions](docs/install-troubleshooting.md#desktop-安装与更新) for the application's own CLI and `desktop` Profile.
 
@@ -54,7 +54,7 @@ Desktop users: follow the [Desktop installation instructions](docs/install-troub
 | Peak/off-peak hours display | Settings / budget / today | Shows UTC peak hours 01:00–04:00 and 06:00–10:00 with the current tier; weekends and configured Chinese public holidays (Beijing dates) are off-peak all day, with separate labels; expanded view shows a period strip and countdown, collapsed view shows a vertical bar; independently toggleable |
 | Peak/off-peak switch popup alert | Global overlay | A full-width bracketed popup appears when the next tier switch is within the configured lead time (default 2 minutes, 1–30), with an alert-colored badge distinguishing entering peak vs off-peak; position selectable (**bottom-right / screen center**), alert type selectable (entering peak / entering off-peak / both), one alert per switch point; optionally **sends a browser (system) notification** (so you still get alerted when the page is backgrounded; requires granting notification permission); configured in the peak pricing panel in Settings, with a **one-click popup preview** (rendered by the real component — copy, position and notifications exactly as they will fire) |
 | Official price sync | Settings page | Fetches and parses the official pricing page, applies with one click; the **official price currency** is selectable (USD · English page / CNY · Chinese page) — CNY prices are booked at the display exchange rate and match the official CNY bill when displayed in CNY |
-| UI language | Settings → Display settings | Simplified Chinese / English / Follow browser (auto); switches instantly and auto-saves |
+| UI language | Settings → Display settings | Simplified Chinese / English / Follow DSH (auto); switches instantly and auto-saves |
 | Hide official balance / hide today's cost | Settings → Display settings | Two independent toggles: when on, the matching UI blocks (sidebar balance row & panels / today's cost row, budget details, overview today card) **are not rendered at all**; token and call-count stats stay visible — safe for screen sharing and screenshots |
 | AI price sync | [prompt](docs/AI-PRICE-SYNC-PROMPT.en.md) | DeepSeek official sync; other providers use the verified official price catalog and manual configuration |
 | Model & Plan adaptation guide | [adaptation doc](docs/model-and-plan-adaptation.en.md) | Adaptation matrix for per-model billing and the Coding Plan vendors, the auto-matching mechanism and price sources ([中文](docs/model-and-plan-adaptation.md)) |
@@ -171,10 +171,10 @@ Connects to a local or LAN-deployed [CLIProxyAPI](https://github.com/router-for-
 
 The plugin UI (session badge, sidebar balance row & budget box, and the entire Settings page) supports **Simplified Chinese** and **English**:
 
-- Language options: **Simplified Chinese** / **English** / **Follow browser (auto)**;
-- Default is “Follow browser”: the browser language is auto-detected (`zh*` → Chinese, otherwise English), and the detected value is written back into the config so server-side messages (balance query, price sync, etc.) match the UI language;
+- Language options: **Simplified Chinese** / **English** / **Follow DSH (auto)**;
+- Default is “Follow DSH”: auto uses DSH’s active language and updates live, including the statistics screen and Settings sidebar label. Older hosts without the locale face use the saved DSH preference when available, then the browser language (`zh*` → Chinese, otherwise English). Auto stays `auto` in the saved config;
 - Switch it under **Settings → Cost → Display settings → Language** — the whole plugin UI updates instantly and auto-saves; the section label in the Settings sidebar switches too (费用 / Cost);
-- Server-generated notices (balance refresh, official price sync, config validation errors, …) are also output in the current language.
+- An explicit Chinese/English plugin choice overrides DSH for both UI and server-generated notices. In auto mode, the Host reads DSH’s saved language preference; without an observable preference it retains the Chinese compatibility fallback. Browser/native-only provisional choices and different clients’ languages cannot be inferred by the Host, so notices may differ in those cases.
 
 ## Screenshots & walkthrough
 
@@ -320,22 +320,22 @@ On Node.js 20, use `npm install -g pnpm@10` instead. See [pnpm installation and 
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.8.6`** — review the script before running):
+**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.8.10`** — review the script before running):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.6/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.10/install.ps1 | iex
 ```
 
 **Or a plain command line** (the machine must already have pnpm and git; also pinned to the tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.6
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.10
 ```
 
 Without git, use the GitHub tag archive:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.6.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.10.tar.gz
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):
@@ -387,7 +387,7 @@ DSH `0.2.0-rc.1` passes packed installation, Web startup, shared-module checks, 
 
 If Plugin Hub reports only `diagnostics: .../.plugin-manager/logs/operation-.../pnpm.log`, that line does not identify the failed package or command. Open the named `pnpm.log` and include the first actual error when reporting the failure; remove credentials and private paths before sharing it. Git URL and npm-name installation on DSH `0.2.0-rc.1` are covered by isolated Windows checks, but an individual machine's failure still requires its diagnostic log.
 
-Balance HTTP 401 in account-login mode: configure a dedicated Open Platform API key under **Settings → Cost → Account balance**. See [credential priority and storage](docs/balance-credentials.md).
+Account-mode balance: in DSH Desktop a signed-in official account is read without any API key; if you still get HTTP 401, save a dedicated Open Platform key under **Settings → Cost → Account balance**. See [credential sources and priority](docs/balance-credentials.md).
 
 ### Update / Uninstall
 

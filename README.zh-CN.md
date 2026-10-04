@@ -6,11 +6,11 @@
 
 **DeepSeek Harness 会话费用统计插件(界面中英双语)**
 
-本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;周末与中国法定假日全天按谷价,分别标注) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 90+ 模型价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 / 千问 / 小米 MiMo 十一家,含 Volcano Ark AK/SK 签名与 MiMo 控制台 Cookie 查询) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
+本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;周末与中国法定假日全天按谷价,分别标注) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 170+ 模型 ID 价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 / 千问 / 小米 MiMo 十一家,含 Volcano Ark AK/SK 签名与 MiMo 控制台 Cookie 查询) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
 
-[![version](https://img.shields.io/badge/version-1.8.6-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.8.10-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.8.6** 修复启用皮肤后单会话费用明细弹窗及内部控件背景透明的问题，使皮肤的 `[role=dialog]` 样式正常生效。详见[更新说明](docs/release-notes/v1.8.6.md)。
+**v1.8.10** 统一累计费用、会话徽章和对话排行，修复历史日总额与各对话费用相加不一致的问题，并统一子代理费用统计。详见[更新说明](docs/release-notes/v1.8.10.md)。
 
 桌面端用户请按 [Desktop 安装说明](docs/install-troubleshooting.md#desktop-安装与更新)，使用应用自带的 CLI 和 `desktop` Profile。
 
@@ -55,7 +55,7 @@
 | 峰谷计价时段显示 | 设置页 / 预算 / 今日费用 | 显示 UTC 峰时段 01:00–04:00、06:00–10:00 与当前档位；周末和已配置的中国法定假日（北京日期）全天按谷价计费并分别标注；展开态显示时段条与倒计时，收起态显示竖向条，可单独开关 |
 | 峰/谷切换弹窗提醒 | 全局浮层 | 距进入峰/谷时段不足设定提前量(默认 2 分钟,1-30 可配)时全屏色条徽标弹窗(提醒色区分进入峰/谷);弹窗位置可选**右下角 / 屏幕中心**,提醒类型可选(进入峰 / 进入谷 / 峰和谷),同一切换点只提醒一次;可选**同步发送浏览器(系统)通知**(页面最小化也能收到,需授权通知权限);设置页峰谷计价面板内配置,并可**一键预览弹窗效果**(真实组件渲染,文案/位置/通知与实际触发完全一致) |
 | 官方价格同步 | 设置页 | 抓取解析官方定价页,一键应用;可选**官方价格币种**(美元·英文官方页 / 人民币·中文官方页),人民币价按展示汇率折算入账、展示人民币时与官方账单一致 |
-| 界面语言 | 设置页 → 显示设置 | 简体中文 / English / 跟随浏览器(自动);切换即时生效并自动保存 |
+| 界面语言 | 设置页 → 显示设置 | 简体中文 / English / 跟随 DSH(自动);切换即时生效并自动保存 |
 | 隐藏官方余额 / 隐藏今日消耗 | 设置页 → 显示设置 | 两个独立开关:开启后对应 UI 区块(侧边栏余额行与面板 / 今日费用行、预算明细、概览今日卡片等)**整体不再渲染**,token 与调用次数统计不受影响,共享屏幕/截图防泄露 |
 | AI 价格同步 | [提示词](docs/AI-PRICE-SYNC-PROMPT.md) | DeepSeek 官方同步;其他 provider 使用已核对的官方价格目录与手动配置 |
 | 模型与 Plan 适配说明 | [适配文档](docs/model-and-plan-adaptation.md) | 各厂商模型计费与各 Coding Plan 的适配矩阵、自动匹配机制与价格来源([English](docs/model-and-plan-adaptation.en.md)) |
@@ -170,10 +170,10 @@ CLIProxyAPI 网关来源卡片可勾选「只显示 Gemini 额度」，仅影响
 
 插件界面(会话徽章、侧边栏余额与预算图框、设置页全部文案)支持**简体中文**与**English**:
 
-- 语言可选 **简体中文** / **English** / **跟随浏览器(自动)**;
-- 默认「跟随浏览器」:自动探测浏览器语言(`zh*` → 中文,其余 → 英文),并把探测结果写回配置,服务端消息(余额查询、价格同步等)与界面语言保持一致;
+- 语言可选 **简体中文** / **English** / **跟随 DSH(自动)**;
+- 默认「跟随 DSH」:自动采用 DSH 当前语言，切换后即时更新统计页、设置导航等界面。旧宿主没有语言服务时，优先使用可读取的 DSH 已保存语言，再回退浏览器语言(`zh*` → 中文,其余 → 英文)。配置中的 `auto` 保持不变，不写回探测结果;
 - 在 **设置 → 费用 → 显示设置 → 界面语言** 中切换,切换后整个插件界面即时生效并自动保存;设置页左侧的分节标签也随之切换(费用 / Cost);
-- 服务端返回的提示(余额刷新、官方价格同步、配置校验错误等)同样按当前语言输出。
+- 显式选择中文或英文时，插件界面和服务端提示都采用该选择。自动模式下，宿主读取 DSH 已保存语言；没有可观察的语言偏好时，保留中文兼容回退。仅存在于浏览器或原生初始化中的临时语言，以及不同客户端各自的语言，宿主无法推断，这些情况下提示可能与界面不同。
 
 ## 图文演示
 
@@ -320,22 +320,22 @@ Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安�
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.8.6`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.8.10`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.6/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.10/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.6
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.10
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.6.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.10.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):
@@ -387,7 +387,7 @@ DSH `0.2.0-rc.1` 已通过安装包安装、Web 启动、模块复用、合成�
 
 如果插件市场仅显示 `diagnostics: .../.plugin-manager/logs/operation-.../pnpm.log`，这行信息无法指出失败的包或命令。请打开所指的 `pnpm.log`，反馈其中第一条实际错误；分享前删去凭据及私人路径。DSH `0.2.0-rc.1` 的 Git 地址和 npm 包名安装已在隔离 Windows 环境通过；特定机器上的失败仍需要该机器的诊断日志。
 
-账号模式下余额返回 HTTP 401：请在「设置 → 费用 → 官方账户余额」保存独立的开放平台 API Key。凭据优先级和存储说明见[余额专用凭据](docs/balance-credentials.md)。
+账号模式余额：DSH 桌面版登录官方账号后无需 API Key，插件直接读取账号钱包；若仍报 HTTP 401，请在「设置 → 费用 → 官方账户余额」保存独立的开放平台 API Key。凭据来源、优先级和存储说明见[余额凭据来源](docs/balance-credentials.md)。
 
 ### 更新 / 卸载
 

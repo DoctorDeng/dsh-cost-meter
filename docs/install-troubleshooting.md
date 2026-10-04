@@ -11,7 +11,7 @@
 
    使用已下载的本仓库脚本时，执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Profile desktop`。脚本默认仍安装到 `web`，桌面端需要明确传参。
 
-3. 重新打开 Desktop，在「设置 → 费用」确认插件已加载。使用账号登录模式时，在「官方账户余额」保存独立的开放平台 API Key；登录推理令牌不能查询开放平台余额。详情见[余额专用凭据](balance-credentials.md)。
+3. 重新打开 Desktop，在「设置 → 费用」确认插件已加载。使用账号登录模式且已登录官方账号时，插件直接读取账号钱包，无需额外配置；若仍报 401，请在「官方账户余额」保存独立的开放平台 API Key。详情见[余额凭据来源](balance-credentials.md)。
 
 Windows Desktop 0.2.0-rc.2 的实际应用运行时已完成隔离验证：自带 CLI 安装发布包、`desktop` Profile 启动、宿主依赖复用、合成用量入账以及余额凭据保存、查询、清除均通过。验证使用临时 `DSH_HOME` 和合成凭据，未改动日常 Profile；余额 HTTP 响应为模拟数据，未执行真实账户查询或 Electron 窗口交互测试。
 
@@ -49,7 +49,7 @@ DSH Desktop 0.2.0-rc.2 在 `pnpm add` 成功后，通过 `package.json` 的依�
 
 ## English
 
-For Desktop, launch the application once to initialize its profile, install its `dsh` command, reopen your terminal, then fully quit the application. Use the **Desktop-supplied CLI** to run `dsh plugin --profile desktop add dsh-cost-meter@1.8.5`, or pass `-Profile desktop` to the downloaded `install.ps1`. Desktop includes its own pnpm. If another CLI shadows it, use the full path to Desktop's `resources/runtime/cli/bin/dsh.cmd`. Restart Desktop and open **Settings → Cost**. For account-login mode, save an Open Platform key in the balance panel.
+For Desktop, launch the application once to initialize its profile, install its `dsh` command, reopen your terminal, then fully quit the application. Use the **Desktop-supplied CLI** to run `dsh plugin --profile desktop add dsh-cost-meter@1.8.5`, or pass `-Profile desktop` to the downloaded `install.ps1`. Desktop includes its own pnpm. If another CLI shadows it, use the full path to Desktop's `resources/runtime/cli/bin/dsh.cmd`. Restart Desktop and open **Settings → Cost**. In account-login mode a signed-in official account is read directly; save an Open Platform key in the balance panel only if the balance still reports HTTP 401.
 
 The installed Windows Desktop 0.2.0-rc.2 runtime passed isolated package installation, profile startup, shared dependencies, synthetic billing and balance credential save/query/clear checks. These checks used a temporary home and mocked balance responses, without changing the daily profile or exercising the Electron window.
 

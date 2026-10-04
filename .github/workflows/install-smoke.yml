@@ -32,6 +32,7 @@ jobs:
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-statistics-client/node_modules"
           node test/statistics-remote-registration.mjs
+          node test/host-locale-client.mjs
 
   native-search-rc2:
     runs-on: ubuntu-latest

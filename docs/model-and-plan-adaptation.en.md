@@ -1,6 +1,8 @@
 # Model & Plan Adaptation Guide
 
-Updated: 2026-08-18 (released with v1.5.0)
+Updated: 2026-10-03
+
+Current provider-scoped catalog, exact coverage, routing compatibility and limitations: [October 2026 pricing guide](provider-pricing-2026-10.md).
 
 This document describes how dsh-cost-meter adapts **per-model billing** across vendors and **Coding Plan quotas** for subscriptions, including the matching mechanism and data sources. For the Chinese version see [`model-and-plan-adaptation.md`](./model-and-plan-adaptation.md).
 
@@ -20,15 +22,22 @@ Supported billing buckets: `input` / `cacheMiss`, `cachedInput` / `cacheHit` / `
 
 ### 1.2 Automatic model-name matching
 
-Manual overrides (`priceOverrides`) take priority. Automatic matching accepts exact names, normalized equivalents, and date, version or context-length suffixes. Distinct models and variants remain unpriced until added to the table or assigned manually.
+Manual overrides (`priceOverrides`) take priority. Automatic matching accepts exact names, normalized equivalents, and date, version or context-length suffixes. In explicit non-DeepSeek routes, distinct models and variants remain unpriced until added to the table or assigned manually.
 
-Normalization lowercases names, ignores spaces, hyphens, underscores and dots, and drops bracketed annotations such as `(go)`. Router providers (opencode, zen and other unregistered channels) can search across vendors by the complete model name. DeepSeek models retain their peak/off-peak tiers.
+Normalization uses NFKC for full-width letters, digits, punctuation and composed character forms, then lowercases names. Unicode letters and numbers remain; spaces, hyphens, underscores and dots are ignored. Only known `(go)` / `(zen)` annotations are removed, including full-width parentheses; they can combine with date and other supported suffixes. Variant information such as `(mini)` or `(thinking)` remains part of the name. Auto mode accepts recognized upstream `vendor/model` and `vendor:model` spellings. Gemini also accepts the official [Models API](https://ai.google.dev/api/models) resource form `models/gemini-…`. Multiple NFKC-equivalent candidates remain ambiguous rather than being picked by order. Exact full-ID catalog entries and manual overrides take priority; `exact` mode does not enable aliases.
+
+Explicit routes use their own prices. Historical zen/opencode IDs retain Go routing; PAYG Zen uses opencode-zen. Unknown proxies prefer exact-equivalent direct-API matches, but equally ranked cross-provider matches remain unpriced; name length never breaks a price tie. A declared vendor namespace cannot collapse into another vendor’s name. Scoped OpenRouter/Zen/Go catalogs, including legacy route aliases, never supply another route’s fallback price. Matched unpriced entries and local origins remain unpriced; the manual `__local__` zero-cost marker always wins. This matching update does not rewrite previously recorded ledger amounts.
+
+Compatibility exception: a missing/DeepSeek provider still uses the DeepSeek default price when no entry matches; this is not a successful model recognition. Exact mode does not search foreign catalogs, so only auto mode can use a matched foreign unpriced entry to block that default fallback.
 
 Examples:
 
 | Model id in the request | Match result |
 |---|---|
 | `gpt5.6 luna(go)` | `gpt-5.6-luna` (normalized-equal) |
+| `OpenAI : GPT 6.1 Sol` | `gpt-6.1-sol` in the direct `openai` route (recognized namespace) |
+| `models/gemini-3.8-flash` | `gemini-3.8-flash` in the declared route (Google / Zen / Go prices stay distinct) |
+| `gpt-6.1-sol (mini)` in `openai` | unpriced when no corresponding catalog entry exists |
 | `DeepSeek V4 Flash` | `deepseek-v4-flash` (normalized-equal) |
 | `deepseek-v4-flash-2026-08-01` | `deepseek-v4-flash` (date suffix stripped) |
 | `deepseek-chat` and other legacy aliases | never guessed; falls back to the DeepSeek default price |
@@ -37,27 +46,27 @@ Examples:
 - The host ledger and the client estimate use the **same matching logic** (`matchModelId` in `lib/pricing.js` mirrored inside the bundle);
 - **Manual pinning**: Settings lists "recently seen models without an exact match"; each can be pinned to any mounted entry (including cross-provider and the DeepSeek default price), stored in `priceOverrides` (highest priority, removable).
 
-### 1.3 Built-in price catalog (90+ models)
+### 1.3 Built-in price catalog (170+ model IDs)
 
-The built-in read-only catalog is grouped by **vendor → model family**, covering 14 vendors:
+The built-in read-only catalog is grouped by **vendor → model family**, containing 18 third-party vendor/route keys plus the separate DeepSeek table:
 
 | Vendor | Representative models |
 |---|---|
 | DeepSeek | V4 Flash / V4 Pro (peak/off-peak tiers + historical base price), V4 Flash Vision-Exp (experimental multimodal, priced at Flash parity) |
-| OpenAI | GPT-5.6 Sol/Terra/Luna, GPT-5.5 (+Pro), 5.4 family, 5.3 Codex (+Spark), 5.2, 5.1 family, GPT-5, 4.1 |
-| Anthropic | Fable 5, Opus 5/4.8/4.7/4.6, Sonnet 5/4.6, Haiku 4.5 |
-| Google | Gemini 3.7/3.6/3.5 Flash, 3.5 Flash Lite, 3.1 Pro, 3 Flash, 2.5 family |
+| OpenAI | GPT-6 Astra/Sol/Luna, GPT-6.1 Sol, GPT-5.6 Sol/Terra/Luna, GPT-5.5 (+Pro), 5.4 family, 5.3 Codex (+Spark), 5.2, 5.1 family, GPT-5, 4.1 |
+| Anthropic | Fable 5.1/5, Opus 5.5/5/4.8/4.7/4.6, Sonnet 5.5/5/4.6, Haiku 4.5 |
+| Google | Gemini 3.8/3.7/3.6/3.5 Flash, 3.5 Flash Lite, 3.1 Pro, 3 Flash, 2.5 family |
 | xAI | Grok 4.6/4.5/4.3, Grok Build |
-| Z.ai / Zhipu | GLM-5.3 (unpriced)/5.2/5.1 |
+| Z.ai / Zhipu | GLM-5.3/Flash, 5.2/5.1, 4.x |
 | Alibaba Qwen | Qwen3.8 Max, 3.7, 3.6, 3.5 Plus |
 | Kimi / Moonshot | K3, K2.7 Code, K2.6, K2.5 |
 | MiniMax | M3, M2.7, M2.5 |
 | Xiaomi MiMo | V2.6 (Pro / Flash / Pro UltraSpeed), V2.5 (+Pro, officially marked as retiring soon) |
 | Tencent Hunyuan | Hy3 |
 | OpenRouter / Mistral / NVIDIA / Upstage | common models |
-| **OpenCode Go (subscription)** | official reference prices for the non-DeepSeek models included in the subscription (DeepSeek V4 Flash/Pro follow the official main table and are not duplicated) |
+| **OpenCode Go (subscription)** | subscription reference prices, including Go-specific DeepSeek peak/off-peak tiers |
 
-Price sources: cross-checked against the **OpenCode Zen/Go official price list** (officially stated as cost-pass-through, identical to each vendor's own prices) and each vendor's official pricing pages; entries without a verifiable price (e.g. GLM-5.3) are marked `unpriced` — **prices are never invented**. A machine-readable copy is [`provider-pricing.json`](./provider-pricing.json) (auto-generated from code).
+Price sources: cross-checked against each direct vendor's official API prices and the **separate OpenCode Zen/Go route price lists** (route prices may differ); entries without a verified complete billing rule (e.g. direct API GPT-5.5 Pro) are marked `unpriced` — **prices are never invented**. A machine-readable copy is [`provider-pricing.json`](./provider-pricing.json) (auto-generated from code).
 
 ### 1.4 Mounting
 
