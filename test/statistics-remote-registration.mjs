@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import vm from 'node:vm'
 import { sanitizeConfig } from '../lib/store.js'
+import { TYPERT } from '../lib/typert.host.js'
 import { billingStatistics } from '../lib/billing-statistics.js'
 import { getSessionBilling } from '../lib/turn-cost.js'
 import { getTurnInspection } from '../lib/turn-inspection.js'
@@ -59,6 +60,7 @@ class Connection extends Service {
       call: async (channel, endpoint, payload) => {
         assert.equal(channel, '/api'); calls.push([endpoint, payload.args])
         if (endpoint === 'costMeter/getState') return { ok: true, value: state }
+        if (endpoint === 'costMeter/loginCodingPlan') return { ok: true, value: { ok: false, message: 'synthetic login response', state } }
         if (endpoint === 'costMeter/getBillingStatistics') return { ok: true, value: billingStatistics(ledger, payload.args.query) }
         if (endpoint === 'costMeter/getSessionBilling') return { ok: true, value: await getSessionBilling(ledger, { get: () => ({ get: () => ({ snapshotEvents: () => [] }) }) }, payload.args.query) }
         if (endpoint === 'costMeter/getTurnInspection') return { ok: true, value: await getTurnInspection({ get: () => ({ get: () => ({ snapshotEvents: () => [] }) }) }, payload.args.query) }
@@ -118,7 +120,12 @@ try {
     await assert.rejects(api.getBillingStatistics({ ...query, turnOffset: -1 }), /Invalid statistics query/)
     assert.equal(calls.length, count, 'strict input validation runs before transport')
     assert.equal((await api.getTurnInspection({ sessionId: 'selected', turn: 1 })).found, false)
-    assert.equal(client.typert.remotes.list().filter(d => d.namespace === 'costMeter').length, 19, 'all main and statistics methods coexist exactly once')
+    assert.equal((await first.api.loginCodingPlan('qwen')).message, 'synthetic login response')
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/loginCodingPlan', { provider: 'qwen' }], 'login RPC reaches the real gateway with its provider parameter')
+    const expectedMethods = TYPERT.invocations.filter(d => d.namespace === 'costMeter').map(d => d.method).sort()
+    const actualMethods = Array.from(client.typert.remotes.list().filter(d => d.namespace === 'costMeter'), d => d.method).sort()
+    assert.deepEqual(actualMethods, expectedMethods, 'all main and statistics methods coexist exactly once')
+    assert.equal(new Set(actualMethods).size, actualMethods.length, 'no duplicate methods in the real registry')
     await first.fiber.dispose()
     assert.equal(client.typert.remotes.list().filter(d => d.namespace === 'costMeter').length, 0, 'unload withdraws both contributions')
     assert.equal(timers.size, 0)
