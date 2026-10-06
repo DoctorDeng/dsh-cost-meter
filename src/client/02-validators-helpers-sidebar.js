@@ -131,6 +131,7 @@
         hideOfficialBalance: v.hideOfficialBalance === true,
         hideTodayCost: v.hideTodayCost === true,
         ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost'], value => value === true),
+        sessionCostCompact: v.sessionCostCompact === true,
         sidebarTodayMetric: v.sidebarTodayMetric === 'tokens' ? 'tokens' : 'cost',
         showTotalWithPlan: v.showTotalWithPlan === true,
         sidebarSimple: v.sidebarSimple === true,
@@ -1488,6 +1489,14 @@
       const { cost, planPart } = sessionCostParts(usage, config)
       // 缓存写入属于输入分母，但不是缓存命中；无输入时显示未知。
       const hitRate = billedInput(usage) > 0 ? ((usage.cacheRead ?? 0) / billedInput(usage) * 100).toFixed(1) + '%' : '—'
+      // 紧凑模式只留金额;完整分项仍在悬停 title 与「费用明细」弹窗。
+      if (config.sessionCostCompact === true) {
+        return el('div', { className: 'cm-root', title: modelCostDetail(usage, config) },
+          t(planPart > 0 ? 'sessionLineSplitCompact' : 'sessionLineCompact', {
+            amount: formatMoneyUsd(cost, config),
+            planAmount: formatMoneyUsd(planPart, config),
+          }))
+      }
       return el('div', { className: 'cm-root', title: modelCostDetail(usage, config) },
         t(planPart > 0 ? 'sessionLineSplit' : 'sessionLine', {
           amount: formatMoneyUsd(cost, config),

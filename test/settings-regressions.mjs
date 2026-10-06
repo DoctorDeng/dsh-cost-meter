@@ -64,7 +64,7 @@ const button = (tree, label) => nodes(tree).find(node => node.type === 'button' 
 const rowFor = (tree, model) => nodes(tree).find(node => node.props.className === 'cm-match-row' && textOf(node).includes(model))
 const roundTrip = config => ui.parseConfig(sanitizeConfig(config), 'config')
 assert.equal(roundTrip({}).codexQuotaSidebar, true, 'old configs retain the sidebar card')
-for (const key of ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost']) {
+for (const key of ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact']) {
   assert.equal(roundTrip({})[key], false)
   for (const enabled of [true, false]) {
     const patch = applyConfigPatch(sanitizeConfig({}), { [key]: enabled })
@@ -214,7 +214,7 @@ for (const locale of ['zh', 'en']) {
   section()
   assert.equal(current.config.codexQuotaSidebar, false, 'checkbox auto-save persists in both locales')
   assert.equal(codexSidebarInput().props.checked, false)
-  for (const key of ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost']) {
+  for (const key of ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact']) {
     const checkbox = () => nodes(section()).find(n => n.type === 'label' && textOf(n) === t(key))?.children.find(n => n?.type === 'input')
     for (const checked of [true, false]) {
       checkbox().props.onChange({ target: { checked } }); section()
