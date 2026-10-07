@@ -1489,23 +1489,20 @@
       const { cost, planPart } = sessionCostParts(usage, config)
       // 缓存写入属于输入分母，但不是缓存命中；无输入时显示未知。
       const hitRate = billedInput(usage) > 0 ? ((usage.cacheRead ?? 0) / billedInput(usage) * 100).toFixed(1) + '%' : '—'
-      // 紧凑模式只留金额;完整分项仍在悬停 title 与「费用明细」弹窗。
-      if (config.sessionCostCompact === true) {
-        return el('div', { className: 'cm-root', title: modelCostDetail(usage, config) },
-          t(planPart > 0 ? 'sessionLineSplitCompact' : 'sessionLineCompact', {
-            amount: formatMoneyUsd(cost, config),
-            planAmount: formatMoneyUsd(planPart, config),
-          }))
+      const values = {
+        amount: formatMoneyUsd(cost, config),
+        planAmount: formatMoneyUsd(planPart, config),
+        hitRate,
+        input: formatTokens(input),
+        cache: formatTokens(cache),
+        output: formatTokens(output),
       }
-      return el('div', { className: 'cm-root', title: modelCostDetail(usage, config) },
-        t(planPart > 0 ? 'sessionLineSplit' : 'sessionLine', {
-          amount: formatMoneyUsd(cost, config),
-          planAmount: formatMoneyUsd(planPart, config),
-          hitRate,
-          input: formatTokens(input),
-          cache: formatTokens(cache),
-          output: formatTokens(output),
-        }))
+      const fullLine = t(planPart > 0 ? 'sessionLineSplit' : 'sessionLine', values)
+      const modelDetail = modelCostDetail(usage, config)
+      const compact = config.sessionCostCompact === true
+      // 紧凑模式只留金额;悬停保留完整费用行和模型分项。
+      return el('div', { className: 'cm-root', title: compact ? [fullLine, modelDetail].filter(Boolean).join('; ') : modelDetail },
+        compact ? t(planPart > 0 ? 'sessionLineSplitCompact' : 'sessionLineCompact', values) : fullLine)
     }
 
     // ── 侧边栏:余额行 + 预算图框/今日徽章(纵向堆叠,位于设置按钮上方) ──────
