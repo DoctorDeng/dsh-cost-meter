@@ -20,6 +20,43 @@
       return el('p', { role: error ? 'alert' : 'status' }, error || '…', error ? el('button', { className: 'cm-btn', onClick: () => setRetry(n => n + 1) }, '↻') : null)
     }
 
+    /**
+     * 费用明细弹窗的定位与尺寸。
+     *
+     * 两个必须处理的宿主事实:
+     * 1. DSH 桌面版(Windows)把关闭/最小化/全屏按钮画在**视口顶部 40px 的覆盖层**里
+     *    (preload 设 --dsh-windows-titlebar-height: 40px)。原生 modal <dialog> 默认
+     *    inset:0 + margin:auto 在整个视口居中,顶部会钻进这条标题栏压住按钮(实测
+     *    11–35px,窗口越小越严重)。这里把居中基准下移到标题栏下方。
+     * 2. DSH 没有全局 box-sizing 重置,产品页面里的 <dialog> 是 content-box,于是
+     *    max-height:90vh 只约束内容盒,外框实际高 0.9vh+48(padding)+2(border),
+     *    比预期更高。故显式 border-box。
+     *
+     * 用 --dsh-frame-chrome-top 而不是 --dsh-windows-titlebar-height:前者是 DSH 的
+     * 派生变量,全屏时被宿主置 0(不留空隙),纯 Web 下未定义、由回退值 0px 兜底;
+     * 后者全屏时仍是 40px,会白留一条空隙。
+     */
+    const STAT_DIALOG_GAP = 16
+    const STAT_DIALOG_STYLE = {
+      width: 'min(1160px,94vw)',
+      // 横向同样留边距:content-box 下 min(1160px,94vw) 的实际宽度会多出 padding+border,
+      // 视口 < 833px 时曾横向溢出(520px 窗口溢出 19px)。
+      maxWidth: `calc(100vw - ${STAT_DIALOG_GAP * 2}px)`,
+      // 可用高度 = 视口 - 标题栏 - 上下各一个间距。
+      maxHeight: `calc(100vh - var(--dsh-frame-chrome-top, 0px) - ${STAT_DIALOG_GAP * 2}px)`,
+      // 居中基准从「整个视口」下移到「标题栏下方」,配合 margin:auto 仍保持居中。
+      inset: 'var(--dsh-frame-chrome-top, 0px) 0 0 0',
+      margin: 'auto',
+      // 内容超高时由弹窗自身滚动,不裁切、不溢出。
+      overflow: 'auto',
+      boxSizing: 'border-box',
+      padding: 24,
+      borderRadius: 16,
+      border: '1px solid var(--dsw-alias-border-l1)',
+      color: 'var(--dsw-alias-label-primary)',
+      background: 'var(--dsw-alias-bg-base,#fff)',
+    }
+
     function SessionStatisticsButton(props) {
       const snapshot = props.useCost?.(s => s), state = snapshot?.state
       const [openedId, setOpenedId] = useState(null), dialog = React.useRef(null)
@@ -32,7 +69,7 @@
       const label = en ? 'Conversation cost details' : '本会话费用明细'
       return el(Fragment, null,
         el('button', { type: 'button', className: 'cm-btn cm-stat-entry cm-stat-' + (props.entryPosition || 'dock'), title: label, 'aria-label': label, 'aria-haspopup': 'dialog', onClick: () => setOpenedId(props.sessionId) }, en ? 'Cost details' : '费用明细'),
-        open ? el('dialog', { ref: dialog, role: 'dialog', 'aria-label': label, onCancel: () => setOpenedId(null), style: { width: 'min(1160px,94vw)', maxHeight: '90vh', padding: 24, borderRadius: 16, border: '1px solid var(--dsw-alias-border-l1)', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base,#fff)' } },
+        open ? el('dialog', { ref: dialog, role: 'dialog', 'aria-label': label, onCancel: () => setOpenedId(null), style: STAT_DIALOG_STYLE },
           el('button', { type: 'button', className: 'cm-btn', autoFocus: true, 'aria-label': en ? 'Close' : '关闭', onClick: () => setOpenedId(null), style: { float: 'right' } }, '×'),
           state ? el(BillingStatistics, { key: props.sessionId, state, api: props.api, sessionId: props.sessionId }) : el('p', { role: snapshot?.error ? 'alert' : 'status' }, snapshot?.error || (en ? 'Loading…' : '加载中…'), el('button', { type: 'button', className: 'cm-btn', onClick: () => props.api.reload() }, en ? 'Retry' : '重试'))) : null)
     }
