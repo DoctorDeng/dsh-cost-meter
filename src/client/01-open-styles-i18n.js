@@ -38,6 +38,14 @@ window.__ModuleLoader__.load({
 
     const css = [
       '/* dsh-cost-meter: 会话费用徽章与设置页 */',
+      // 费用明细弹窗定位(见 03 片段 STAT_DIALOG_CLASS 注释)。写成样式表规则而非内联样式:
+      // 皮肤能用 [role=dialog] 覆盖(issue #219),且 @property 注册后非法宿主变量整体退回
+      // initial-value,不会让 calc()/inset 在计算值阶段整条失效。
+      '@property --cm-dialog-top{syntax:"<length>";inherits:true;initial-value:0px}',
+      '.cm-stat-dialog{--cm-dialog-top:var(--dsh-frame-chrome-top,var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px)));inset:var(--cm-dialog-top) 0 0 0;margin:auto;width:min(1160px,94vw);max-width:calc(100vw - 32px);max-height:calc(100vh - var(--cm-dialog-top) - 32px);overflow:auto;box-sizing:border-box;padding:24px;border-radius:16px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base,#fff)}',
+      // 旧宿主(≤0.1.7)没有 --dsh-frame-chrome-top:全屏时回退链只能命中不随全屏变化的
+      // --dsh-windows-titlebar-height(40px),会白留一条 40px 空隙。新宿主由 chrome-top 归 0。
+      '[data-fullscreen] .cm-stat-dialog{--cm-dialog-top:0px}',
       '.cm-root{flex:0 1 auto;min-width:0;max-width:100%;text-align:center;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-chip{display:inline-flex;align-items:center;gap:4px;max-width:180px;padding:0 8px;height:22px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-size:12px;line-height:22px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-foot{display:flex;align-items:center;gap:6px;height:32px;padding:0 8px;border-radius:8px;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden}',

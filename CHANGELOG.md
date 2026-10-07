@@ -4,8 +4,13 @@
 
 - 修复费用明细弹窗压住 DSH 窗口标题栏（关闭/最小化/全屏按钮区）的问题：弹窗改为在标题栏**下方**的可用区域居中，并显式使用 `border-box`。此前原生 `<dialog>` 在整个视口居中、顶部钻进 Windows 桌面版顶部 40px 的标题栏覆盖层，实测 1920×1080 压 11px、1280×800 压 25px、900×600 压 35px（三枚窗口按钮被遮挡 84–88%，几乎点不到）。
 - 顶部避让量采用四级回退 `var(--dsh-frame-chrome-top, var(--dsh-frame-top-clearance, var(--dsh-windows-titlebar-height, 0px)))`，逐级递补以覆盖不同宿主版本与平台：`--dsh-frame-chrome-top` 由 DSH ≥0.2.0 在 Windows 定义、全屏时归 0（CI 矩阵里的 0.1.7-rc.2 等旧宿主**没有**该变量，不回退到它修复会在这些宿主上静默失效）；`--dsh-frame-top-clearance` 覆盖 macOS 红绿灯区 48px；Windows 标题栏高由 preload 注入的 `--dsh-windows-titlebar-height` 兜底 —— 旧宿主在 Windows 下只有这一级保证存在。纯 Web 四级全缺失，回退 0px，行为与修复前一致。
-- 同时修掉窄窗口横向溢出：`width:min(1160px,94vw)` 在 DSH 的 content-box 环境下实际宽度多出 padding+border，视口 < 833px 时溢出（520px 窗口溢出 19px）；新增 `max-width:calc(100vw - 32px)`。弹窗整体比之前小一圈，并保留内容自身滚动。
-- 新增 `test/statistics-dialog-titlebar.mjs` 浏览器回归：覆盖 Windows 桌面版三种视口、全屏、纯 Web、旧宿主（无 chrome-top，只有 preload 高度）两种视口、macOS 两种视口共 9 种环境 130 条断言，断言「与标题栏零重叠、关闭按钮可点、不横向溢出、不越出视口底部、内容确实溢出且可滚动」。已用三次负向验证确认断言非空过：还原旧样式复现 24.9px 重叠；把顶部避让降级为只认 `chrome-top`、以及只回退到 `top-clearance`（缺第四级）时，旧宿主档位都以 24.0px 重叠失败。
+- 同时修掉窄窗口横向溢出：DSH 产品页面没有全局 `box-sizing` 重置，`<dialog>` 是 content-box，`width:min(1160px,94vw)` 的实际宽度要多出 padding+border，窄窗口下横向溢出（520px 窗口溢出约 18px）。改为显式 `box-sizing:border-box`（实测溢出由它消掉），并补 `max-width:calc(100vw - 32px)` 把 UA 默认上限 `calc(100% - 38px)` 抬到左右各留 16px，与 `max-height` 的语义对齐。弹窗整体比之前小一圈，并保留内容自身滚动。
+- 弹窗样式由内联改为样式表规则 `.cm-stat-dialog`：内联 `inset`/`margin` 的优先级高于作者样式表，会盖掉皮肤对 `[role=dialog]` 的定位规则，而 v1.8.6 补 `role="dialog"` 的本意正是让皮肤能接管这个弹窗的样式（#219）。
+- 顶部避让量注册为 `<length>` 自定义属性（`@property --cm-dialog-top`）：`var()` 的 fallback 只在变量**未定义**时生效，宿主变量一旦被定义成空值或非法值，`calc(100vh - …)` 会在计算值阶段整条失效（IACVT），弹窗失去高度上限、被内容撑到视口外且无法滚动 —— 比修复前更差。注册后非法值整体退回 `initial-value: 0px`，仍是一份可用兜底。
+- 补 `[data-fullscreen] .cm-stat-dialog{--cm-dialog-top:0px}`：旧宿主（≤0.1.7）没有 `--dsh-frame-chrome-top`，全屏时回退链只能命中不随全屏变化的 preload 高度（40px），会白留一条 40px 空隙。新宿主本就由 `chrome-top` 归零，这条是旧宿主兜底。
+- 新增 `test/statistics-dialog-titlebar.mjs` 浏览器回归：覆盖 Windows 桌面版（含高/短内容两档）、全屏、纯 Web、旧宿主（无 chrome-top，只有 preload 高度）、旧宿主全屏、macOS 共 18 个档位、242 条断言，断言「与标题栏零重叠、关闭按钮可点、不横向溢出、不越出视口底部、高度上限真的生效、内容确实溢出且可滚动」，并强制高/短内容两档分别命中「顶满」与「可用区居中」两条布局分支。
+- 该回归改为「机器可判定」：断言结果经 `POST /report` 回传，Node 进程据此决定退出码（全通过 0、有失败 1、超时 1），失败时逐条打印档位与原因；不再只写进页面 DOM 文本。同时移除了三条恒真的空断言（`waitFor` 成功后再断言元素非空、UA 默认值即 `auto` 的 `overflow` 断言），并修正了按渲染高度反推布局分支的亚像素误判。
+- 已用负向验证确认断言非空过：还原旧样式复现 24.0px 重叠（23 条失败）；移除全屏归零规则后旧宿主全屏档复现 40px 空隙（3 条失败）。
 
 ## [1.8.12] - 2026-10-05
 

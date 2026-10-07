@@ -23,51 +23,27 @@
     /**
      * 费用明细弹窗的定位与尺寸。
      *
-     * 两个必须处理的宿主事实:
-     * 1. DSH 桌面版(Windows)把关闭/最小化/全屏按钮画在**视口顶部 40px 的覆盖层**里
-     *    (preload 设 --dsh-windows-titlebar-height: 40px)。原生 modal <dialog> 默认
-     *    inset:0 + margin:auto 在整个视口居中,顶部会钻进这条标题栏压住按钮(实测
-     *    11–35px,窗口越小越严重)。这里把居中基准下移到标题栏下方。
-     * 2. DSH 没有全局 box-sizing 重置,产品页面里的 <dialog> 是 content-box,于是
-     *    max-height:90vh 只约束内容盒,外框实际高 0.9vh+48(padding)+2(border),
-     *    比预期更高。故显式 border-box。
+     * 样式写在 01 片段的 .cm-stat-dialog 规则里,**不用内联样式**。三个理由:
      *
-     * 顶部避让量用四级回退,兼容新旧宿主与两个平台。四级都是「视口顶部被宿主遮挡的
-     * 高度」的合法来源,逐级递补:某一级不存在就落到下一级,多一级只会更保守。
-     *   --dsh-frame-chrome-top      DSH ≥0.2.0:Windows 为标题栏高,**全屏时由宿主置 0**
-     *                               (不留空隙);darwin 未定义,落到下一级。
-     *   --dsh-frame-top-clearance   darwin 的红绿灯区(48px);DSH ≥0.2.0 的 Windows 也由
-     *                               它派生自标题栏高。但旧宿主(≤0.1.7)在 Windows 下不保证
-     *                               有它,所以它不能当成 Windows 的最后一道兜底。
-     *   --dsh-windows-titlebar-height  Windows 标题栏高(Electron preload 注入的 40px)。
-     *                               旧宿主没有 chrome-top,这一级是它唯一保证存在的高度
-     *                               信号;缺了它,修复在旧宿主(CI 矩阵里的 0.1.7-rc.2)会
-     *                               静默失效 —— 不报错,但也没修好。
-     *   0px                         纯 Web / 未标记环境:行为与修复前一致。
-     * 顺序不能换:全屏时 chrome-top 为 0,但 top-clearance 与 titlebar-height 仍是
-     * 40/48px —— 把后两者排在前面会让全屏白留一条空隙。
+     * 1. 内联样式会盖掉皮肤对 [role=dialog] 的定位规则。v1.8.6 补 role="dialog" 的
+     *    本意就是让皮肤能接管这个弹窗的样式(issue #219),内联 inset/margin 会让
+     *    皮肤把弹窗钉到底部一类的规则失效。
+     * 2. 顶部避让量要走四级回退链,并注册成 <length>(@property --cm-dialog-top):
+     *    宿主变量「存在但为空值/非法值」时,var() 不会走 fallback,calc()/inset 会在
+     *    计算值阶段整条失效(IACVT)——弹窗失去高度上限、被内容撑到视口外且无法滚动,
+     *    比修复前更差。注册后非法值整体退回 initial-value 0px,仍是一份可用的兜底。
+     * 3. 旧宿主(≤0.1.7)没有 --dsh-frame-chrome-top,全屏时回退链会命中不随全屏变化的
+     *    --dsh-windows-titlebar-height(40px),白留一条 40px 空隙;样式表里补一条
+     *    html[data-fullscreen] 归零规则。新宿主本就由 chrome-top 归 0,这条是旧宿主兜底。
+     *
+     * 四级回退的取值来源(顺序不能换:全屏时 chrome-top 为 0,后两级仍是 40/48px,
+     * 排前面会让全屏白留空隙):
+     *   --dsh-frame-chrome-top      DSH ≥0.2.0:Windows 标题栏高,全屏由宿主置 0;darwin 未定义
+     *   --dsh-frame-top-clearance   darwin 红绿灯区 48px;DSH ≥0.2.0 的 Windows 由它派生
+     *   --dsh-windows-titlebar-height  Electron preload 注入的 40px(旧宿主唯一保证存在的一级)
+     *   0px                         纯 Web / 未标记环境:与修复前一致
      */
-    const STAT_DIALOG_GAP = 16
-    const STAT_DIALOG_TOP = 'var(--dsh-frame-chrome-top, var(--dsh-frame-top-clearance, var(--dsh-windows-titlebar-height, 0px)))'
-    const STAT_DIALOG_STYLE = {
-      width: 'min(1160px,94vw)',
-      // 横向同样留边距:content-box 下 min(1160px,94vw) 的实际宽度会多出 padding+border,
-      // 视口 < 833px 时曾横向溢出(520px 窗口溢出 19px)。
-      maxWidth: `calc(100vw - ${STAT_DIALOG_GAP * 2}px)`,
-      // 可用高度 = 视口 - 顶部避让 - 上下各一个间距。
-      maxHeight: `calc(100vh - ${STAT_DIALOG_TOP} - ${STAT_DIALOG_GAP * 2}px)`,
-      // 居中基准从「整个视口」下移到「标题栏下方」,配合 margin:auto 仍保持居中。
-      inset: `${STAT_DIALOG_TOP} 0 0 0`,
-      margin: 'auto',
-      // 内容超高时由弹窗自身滚动,不裁切、不溢出。
-      overflow: 'auto',
-      boxSizing: 'border-box',
-      padding: 24,
-      borderRadius: 16,
-      border: '1px solid var(--dsw-alias-border-l1)',
-      color: 'var(--dsw-alias-label-primary)',
-      background: 'var(--dsw-alias-bg-base,#fff)',
-    }
+    const STAT_DIALOG_CLASS = 'cm-stat-dialog'
 
     function SessionStatisticsButton(props) {
       const snapshot = props.useCost?.(s => s), state = snapshot?.state
@@ -81,7 +57,7 @@
       const label = en ? 'Conversation cost details' : '本会话费用明细'
       return el(Fragment, null,
         el('button', { type: 'button', className: 'cm-btn cm-stat-entry cm-stat-' + (props.entryPosition || 'dock'), title: label, 'aria-label': label, 'aria-haspopup': 'dialog', onClick: () => setOpenedId(props.sessionId) }, en ? 'Cost details' : '费用明细'),
-        open ? el('dialog', { ref: dialog, role: 'dialog', 'aria-label': label, onCancel: () => setOpenedId(null), style: STAT_DIALOG_STYLE },
+        open ? el('dialog', { ref: dialog, role: 'dialog', className: STAT_DIALOG_CLASS, 'aria-label': label, onCancel: () => setOpenedId(null) },
           el('button', { type: 'button', className: 'cm-btn', autoFocus: true, 'aria-label': en ? 'Close' : '关闭', onClick: () => setOpenedId(null), style: { float: 'right' } }, '×'),
           state ? el(BillingStatistics, { key: props.sessionId, state, api: props.api, sessionId: props.sessionId }) : el('p', { role: snapshot?.error ? 'alert' : 'status' }, snapshot?.error || (en ? 'Loading…' : '加载中…'), el('button', { type: 'button', className: 'cm-btn', onClick: () => props.api.reload() }, en ? 'Retry' : '重试'))) : null)
     }
