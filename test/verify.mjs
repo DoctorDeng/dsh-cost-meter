@@ -6762,6 +6762,8 @@ await import('./turn-cost.mjs')
 await import('./billing-statistics.mjs')
 await import('./turn-inspection.mjs')
 await import('./billing-statistics-client.mjs')
+// 无外部依赖(纯 vm + 假 DOM),因此并入本套件而不是浏览器作业。
+await import('./client-style-injection.mjs')
 await import('./native-search-history.mjs')
 await import('./versioned-session-logs.mjs')
 await import('./session-log-repair.mjs')

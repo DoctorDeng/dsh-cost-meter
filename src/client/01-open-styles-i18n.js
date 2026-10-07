@@ -368,13 +368,22 @@ window.__ModuleLoader__.load({
       '.cm-footer-stack.simple .cm-peak-rail-track,.cm-footer-stack.simple .cm-peak-rail-classic-track{height:28px}',
       '@media (max-width:640px){.cm-cards{grid-template-columns:1fr}.cm-grid{grid-template-columns:1fr}.cm-budget-controls{grid-template-columns:1fr}}',
     ].join('\n')
+    // 样式表注入。**按内容比对,不按 id 去重**:客户端插件热更新(DSH 的 client HMR,不刷新
+    // 页面就换掉插件代码)时,页面上留着的是上一版的 <style>,旧写法只看 id 存不存在就跳过
+    // 注入,于是新代码渲染的 .cm-stat-dialog 匹配不到任何规则 —— 弹窗退回 UA 默认几何,重新
+    // 压住标题栏,本插件的定位修复被静默还原。弹窗几何改成只靠样式表之后,这个既有守卫
+    // 才第一次有了实际影响(此前几何写在内联样式里,陈旧样式表无害)。
+    // 仍保留按 id 复用:内容一致时不重复插入,也不动宿主/皮肤可能挂上的同一节点。
     const cssTagId = 'dsh-cost-meter/client.css'
-    if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(cssTagId) + ']') === null) {
-      const tag = document.createElement('style')
-      tag.dataset.plugin = 'dsh-cost-meter'
-      tag.dataset.pluginCss = cssTagId
-      tag.textContent = css
-      document.head.appendChild(tag)
+    if (typeof document !== 'undefined' && document.head !== undefined) {
+      const existing = document.querySelector('style[data-plugin-css=' + JSON.stringify(cssTagId) + ']')
+      if (existing?.textContent !== css) {
+        const tag = existing ?? document.createElement('style')
+        tag.dataset.plugin = 'dsh-cost-meter'
+        tag.dataset.pluginCss = cssTagId
+        tag.textContent = css
+        if (existing === null) document.head.appendChild(tag)
+      }
     }
 
     // ── 多语言(中/英) ──────────────────────────────────────────────────────
