@@ -38,6 +38,14 @@ window.__ModuleLoader__.load({
 
     const css = [
       '/* dsh-cost-meter: 会话费用徽章与设置页 */',
+      // 费用明细弹窗定位(见 03 片段 STAT_DIALOG_CLASS 注释)。写成样式表规则而非内联样式:
+      // 皮肤能用 [role=dialog] 覆盖(issue #219),且 @property 注册后非法宿主变量整体退回
+      // initial-value,不会让 calc()/inset 在计算值阶段整条失效。
+      '@property --cm-dialog-top{syntax:"<length>";inherits:true;initial-value:0px}',
+      '.cm-stat-dialog{--cm-dialog-top:var(--dsh-frame-chrome-top,var(--dsh-frame-top-clearance,var(--dsh-windows-titlebar-height,0px)));inset:var(--cm-dialog-top) 0 0 0;margin:auto;width:min(1160px,94vw);max-width:calc(100vw - 32px);max-height:calc(100vh - var(--cm-dialog-top) - 32px);overflow:auto;box-sizing:border-box;padding:24px;border-radius:16px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base,#fff)}',
+      // 旧宿主(≤0.1.7)没有 --dsh-frame-chrome-top:全屏时回退链只能命中不随全屏变化的
+      // --dsh-windows-titlebar-height(40px),会白留一条 40px 空隙。新宿主由 chrome-top 归 0。
+      '[data-fullscreen] .cm-stat-dialog{--cm-dialog-top:0px}',
       '.cm-root{flex:0 1 auto;min-width:0;max-width:100%;text-align:center;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-chip{display:inline-flex;align-items:center;gap:4px;max-width:180px;padding:0 8px;height:22px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-size:12px;line-height:22px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-foot{display:flex;align-items:center;gap:6px;height:32px;padding:0 8px;border-radius:8px;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden}',
@@ -360,13 +368,22 @@ window.__ModuleLoader__.load({
       '.cm-footer-stack.simple .cm-peak-rail-track,.cm-footer-stack.simple .cm-peak-rail-classic-track{height:28px}',
       '@media (max-width:640px){.cm-cards{grid-template-columns:1fr}.cm-grid{grid-template-columns:1fr}.cm-budget-controls{grid-template-columns:1fr}}',
     ].join('\n')
+    // 样式表注入。**按内容比对,不按 id 去重**:客户端插件热更新(DSH 的 client HMR,不刷新
+    // 页面就换掉插件代码)时,页面上留着的是上一版的 <style>,旧写法只看 id 存不存在就跳过
+    // 注入,于是新代码渲染的 .cm-stat-dialog 匹配不到任何规则 —— 弹窗退回 UA 默认几何,重新
+    // 压住标题栏,本插件的定位修复被静默还原。弹窗几何改成只靠样式表之后,这个既有守卫
+    // 才第一次有了实际影响(此前几何写在内联样式里,陈旧样式表无害)。
+    // 仍保留按 id 复用:内容一致时不重复插入,也不动宿主/皮肤可能挂上的同一节点。
     const cssTagId = 'dsh-cost-meter/client.css'
-    if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(cssTagId) + ']') === null) {
-      const tag = document.createElement('style')
-      tag.dataset.plugin = 'dsh-cost-meter'
-      tag.dataset.pluginCss = cssTagId
-      tag.textContent = css
-      document.head.appendChild(tag)
+    if (typeof document !== 'undefined' && document.head !== undefined) {
+      const existing = document.querySelector('style[data-plugin-css=' + JSON.stringify(cssTagId) + ']')
+      if (existing?.textContent !== css) {
+        const tag = existing ?? document.createElement('style')
+        tag.dataset.plugin = 'dsh-cost-meter'
+        tag.dataset.pluginCss = cssTagId
+        tag.textContent = css
+        if (existing === null) document.head.appendChild(tag)
+      }
     }
 
     // ── 多语言(中/英) ──────────────────────────────────────────────────────
