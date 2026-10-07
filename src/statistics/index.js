@@ -196,13 +196,20 @@ window.__ModuleLoader__.load({
     function TurnInspection({ api, sessionId, turn, revision, text }) {
       const [offset, setOffset] = useState(0), [retry, setRetry] = useState(0)
       const result = useRequest(api, 'getTurnInspection', { sessionId, turn, offset }, revision + ':' + retry)
+      const retryButton = () => button(text('重试', 'Retry'), () => setRetry(n => n + 1))
+      // 保留旧值时的后台刷新失败必须**跟数据一起**渲染,并带上重试入口:此前这条提示写在
+      // 主返回里,一旦旧值恰好是「本轮的原始日志不可用」(found:false),紧随其后的早退
+      // 会把提示整段吞掉 —— 界面照旧说日志不可用,用户既看不到失败也没法重试。
+      const staleNotice = result.failed
+        ? el('div', { className: 'cm-stat-inspection' }, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), retryButton())
+        : null
       if (showsPlaceholder(result)) return result.loading
         ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('读取这一轮的输入和工具调用…', 'Loading this turn’s input and tools…'))
-        : el('div', { className: 'cm-stat-inspection' }, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1)))
+        : el('div', { className: 'cm-stat-inspection' }, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), retryButton())
       const data = result.value
-      if (!data.found) return el('p', { className: 'cm-stat-note' }, text('这一轮的原始日志不可用。', 'Original records for this turn are unavailable.'))
+      if (!data.found) return el(Fragment, null, staleNotice, el('p', { className: 'cm-stat-note' }, text('这一轮的原始日志不可用。', 'Original records for this turn are unavailable.')))
       return el('div', { className: 'cm-stat-inspection' },
-        result.failed ? el('p', { className: 'cm-stat-error', role: 'alert' }, result.error) : null,
+        staleNotice,
         el('h4', null, text('本轮用户输入', 'User input for this turn')),
         data.input ? el('pre', { className: 'cm-stat-pre' }, data.input) : el('p', { className: 'cm-stat-sub' }, text('日志未记录本轮用户输入。', 'No user input is recorded for this turn.')),
         data.inputTruncated ? el('p', { className: 'cm-stat-truncated' }, text('输入过长，此处显示前 16,000 个字符。', 'Showing the first 16,000 characters of this input.')) : null,
@@ -220,8 +227,8 @@ window.__ModuleLoader__.load({
 
     function SessionDetail({ api, query, revision, money, formatTokens, text }) {
       const [offset, setOffset] = useState(0), [selected, setSelected] = useState(-1), [turnOffset, setTurnOffset] = useState(0)
-      const [expandedTurn, setExpandedTurn] = useState(null), [shareMetric, setShareMetric] = useState('cost')
-      const result = useRequest(api, 'getSessionBilling', { ...query, offset, turnOffset }, revision)
+      const [expandedTurn, setExpandedTurn] = useState(null), [shareMetric, setShareMetric] = useState('cost'), [retry, setRetry] = useState(0)
+      const result = useRequest(api, 'getSessionBilling', { ...query, offset, turnOffset }, revision + ':' + retry)
       const detail = result.value, basis = query.basis
       const names = { input: text('输入', 'Input'), output: text('输出', 'Output'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), reasoning: text('推理', 'Reasoning') }
       const kinds = { model: text('模型调用', 'Model call'), compaction: text('上下文压缩', 'Compaction'), search: text('原生搜索', 'Native search') }
@@ -230,9 +237,13 @@ window.__ModuleLoader__.load({
         ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('正在读取本对话的用量明细…', 'Loading this conversation’s usage records…'))
         : el('p', { className: 'cm-stat-error', role: 'alert' }, result.error)
       // 明细保留旧值时,后台刷新失败必须可见 —— 否则界面看着正常、数字却是旧的。
-      // 概览与轮次明细都有这行内联提示,这里补齐,避免「静默陈旧」。
-      const staleError = result.failed ? el('p', { className: 'cm-stat-error', role: 'alert' }, result.error) : null
-      if (!detail.found) return el('p', { className: 'cm-stat-note' }, text('没有可用的调用日志。上方账本统计仍然有效；明细不会按零费用处理。', 'Call logs are unavailable. The ledger totals above remain valid; missing details do not mean zero cost.'))
+      // 提示**必须带重试入口**,且必须跟数据一起渲染:此前它写在主返回里,旧值是
+      // found:false 时会被紧随其后的早退吞掉,用户只看到「没有可用的调用日志」,
+      // 既不知道刷新失败,也没有重试按钮(改动前失败必清值、必走带重试的分支)。
+      const staleError = result.failed
+        ? el('div', null, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1)))
+        : null
+      if (!detail.found) return el(Fragment, null, staleError, el('p', { className: 'cm-stat-note' }, text('没有可用的调用日志。上方账本统计仍然有效；明细不会按零费用处理。', 'Call logs are unavailable. The ledger totals above remain valid; missing details do not mean zero cost.')))
       const agentName = id => !id || id === query.sessionId ? text('主会话', 'Main conversation') : text('子代理 ', 'Subagent ') + ((detail.agents ?? []).find(row => row.id === id)?.title || id).slice(0, 80)
       const turnKey = row => JSON.stringify([row.sessionId || query.sessionId, row.turn])
       const turnLabel = row => ((detail.agents?.length ?? 0) > 1 ? agentName(row.sessionId) + ' · ' : '') + turnName(row.turn)

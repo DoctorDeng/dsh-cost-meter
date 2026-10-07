@@ -168,11 +168,11 @@ const rows = [{ provider: 'deepseek', model: 'deepseek-v4-flash', bucket: 'input
 const callsOf = n => Array.from({ length: n }, (_, i) => ({ sessionId: 's', kind: 'model', turn: 1, step: i + 1, provider: 'deepseek', model: 'deepseek-v4-flash', atMs: 1790762400000, cost: 0.01, apiCost: 0.01, plan: false, priced: true, longContext: false, rows }))
 const turnsOf = n => Array.from({ length: n }, (_, i) => ({ ...bucketOf(n), sessionId: 's', turn: i + 1, unpriced: false }))
 const shares = [{ ...bucketOf(2), sessionId: 's', turn: 1, step: 1, other: false, unpriced: false }]
-let seq = 0, turnsAvailable = 2, callsAvailable = 2
+let seq = 0, turnsAvailable = 2, callsAvailable = 2, detailFails = false, detailFound = true
 const rpcLog = []
 const liveApi = {
   getBillingStatistics: async () => { rpcLog.push('stats'); await sleep(20); return live.parseStatistics({ from: '2026-09-30', to: '2026-09-30', retainedFrom: '2026-09-30', retainedTo: '2026-09-30', totals: bucketOf(callsAvailable), days: [{ ...bucketOf(callsAvailable), date: '2026-09-30' }], models: [{ ...bucketOf(callsAvailable), key: 'k', provider: 'deepseek', model: 'deepseek-v4-flash', priced: true }], sessions: [{ ...bucketOf(callsAvailable), id: 's', title: 'T' }], providers: ['deepseek'], modelOptions: ['m'], sessionCount: 1, offset: 0, unassignedCost: 0, unmodeledCost: 0 }) },
-  getSessionBilling: async () => { rpcLog.push('detail'); await sleep(20); return live.parseDetail({ found: true, ...bucketOf(callsAvailable), rows, calls: callsOf(callsAvailable), totalCalls: callsAvailable, offset: 0, recorded: bucketOf(callsAvailable), kinds: [{ ...bucketOf(callsAvailable), kind: 'model', unpriced: false }], turns: turnsOf(turnsAvailable), totalTurns: turnsAvailable, turnOffset: 0, stepShares: { cost: shares, calls: shares }, agents: [] }) },
+  getSessionBilling: async () => { rpcLog.push('detail'); await sleep(20); if (detailFails) throw new Error('detail rpc down'); return live.parseDetail({ found: detailFound, ...bucketOf(callsAvailable), rows, calls: callsOf(callsAvailable), totalCalls: callsAvailable, offset: 0, recorded: bucketOf(callsAvailable), kinds: [{ ...bucketOf(callsAvailable), kind: 'model', unpriced: false }], turns: turnsOf(turnsAvailable), totalTurns: turnsAvailable, turnOffset: 0, stepShares: { cost: shares, calls: shares }, agents: [] }) },
   getTurnInspection: async q => { rpcLog.push('turn'); await sleep(20); return { found: true, turn: q.turn, input: 'x', inputTruncated: false, totalTools: 0, offset: 0, tools: [] } },
 }
 const liveState = (now, calls) => ({ config: baseState.config, meta: { dayKey: '2026-09-30', timezone: 'Asia/Shanghai', now }, total: bucketOf(calls), today: bucketOf(calls) })
@@ -194,5 +194,22 @@ assert.ok(turnText.some(t => t.includes('3')), '新用量入账后明细必须�
 rpcLog.length = 0
 await liveRender(liveState(3000, 3)); await flush(300)
 assert.equal(rpcLog.length, 0, '仅 meta.now 变化时概览与明细都不得重取(实际重取:' + rpcLog.join(',') + ')')
+
+// ── F. 保留旧值 + 后台刷新失败时,错误提示不得被「无数据」分支吞掉 ──────────────
+// 这一条锁的是「静默陈旧」:旧值恰好是 found:false(日志不可用)时,若错误提示写在
+// 早退之后,界面会照旧只说「没有可用的调用日志」,用户既看不到刷新失败、也没法重试。
+// 第一步:让明细的**旧值**落在「无数据」状态(日志不可用),这是早退会吞掉错误的前提。
+detailFound = false; detailFails = false
+await liveRender(liveState(4000, 4)); await flush(400)
+assert.ok(win.document.body.textContent.includes('没有可用的调用日志'), '前置条件:明细旧值为无数据')
+// 第二步:触发一次重取(新用量入账),这一次失败 —— 旧值仍是无数据,错误必须可见。
+detailFails = true
+await liveRender(liveState(5000, 5)); await flush(400)
+const bodyText = win.document.body.textContent
+assert.ok(bodyText.includes('detail rpc down'), '保留旧值时后台失败必须显示错误(实际正文未包含):' + bodyText.slice(0, 200))
+assert.ok(bodyText.includes('没有可用的调用日志'), '无数据分支仍在(错误提示与它并存,而不是互相顶替)')
+const retryButton = [...win.document.querySelectorAll('.cm-stat-btn')].find(node => node.textContent.trim() === '重试')
+assert.ok(retryButton, '保留旧值时的错误提示必须带重试入口')
+detailFails = false; detailFound = true
 
 console.log('[ok] #费用明细弹窗闪烁:重取保留旧值、失败保留旧值、换 query 才清空、重取键排除 meta.now、概览与明细两侧都随新用量重取')
