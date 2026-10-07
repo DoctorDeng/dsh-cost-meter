@@ -124,7 +124,8 @@ ${[['dsh', 1280, 800, 1], ['dsh', 900, 600, 1], ['dsh', 520, 600, 1],
   // (margin:auto 与 margin:16px 在顶满时同值,断言照样全绿)。
   ['dsh', 1280, 800, 0], ['dsh', 900, 600, 0], ['dsh', 520, 600, 0],
   ['fullscreen', 1280, 800, 1], ['fullscreen', 1280, 800, 0], ['web', 1280, 800, 1], ['web', 1280, 800, 0],
-  // 旧宿主(DSH ≤0.1.7):没有 --dsh-frame-chrome-top,只有 --dsh-frame-top-clearance。
+  // 旧宿主(DSH ≤0.1.7):没有 --dsh-frame-chrome-top,Windows 下也没有 top-clearance
+  // (它只为 darwin 定义,见下面 frameVars),回退链落到 preload 注入的 40px。
   // 不覆盖这一档,修复会在 CI 矩阵覆盖的旧宿主上静默失效而测试仍全绿。
   ['legacy', 1280, 800, 1], ['legacy', 900, 600, 1], ['legacy', 1280, 800, 0],
   // 旧宿主 + 全屏:回退链只能命中不随全屏变化的 40px,必须由样式表 [data-fullscreen] 归零。
@@ -134,7 +135,6 @@ ${[['dsh', 1280, 800, 1], ['dsh', 900, 600, 1], ['dsh', 520, 600, 1],
   .map(([env, w, h, tall]) => `<iframe title="${env}|${w}x${h}|t${tall}" width="${w}" height="${h}" src="/case?env=${env}&tall=${tall}"></iframe>`).join('')}
 <script>
 const frames=[...document.querySelectorAll('iframe')];
-const wait=ms=>new Promise(r=>setTimeout(r,ms));
 // 轮询等待,且**每次都重新取 contentDocument**:iframe 尚未加载完时 contentDocument
 // 是初始 about:blank(它的 readyState 也是 'complete'),若只取一次就会永远查到那个
 // 过期文档。这里每 tick 重取,超时才失败。
@@ -166,7 +166,7 @@ const report=tag=>{try{fetch('/report',{method:'POST',headers:{'content-type':'a
       const titlebar=(isDarwin?48:(hasTitlebar&&!isFullscreen)?40:0);
       // 不再断言 !!entry / !!dialog:waitFor 只在回调返回真值时 resolve、超时即 reject,
       // 能走到这里就说明元素必然存在,那两条断言恒真(零判别力)。
-      entry.click(); await wait(150);
+      entry.click();
       const dialog=await waitFor(()=>doc.querySelector('dialog[open]'));
       const r=dialog.getBoundingClientRect();
       // titlebar===0 的档位(全屏/纯 Web)重叠量恒为 0,该断言在那些档没有判别力 ——

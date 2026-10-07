@@ -63,6 +63,9 @@ jobs:
           # 两个作业只装 DSH 包,没有 jsdom —— 那样会在 import 阶段 MODULE_NOT_FOUND。
           node test/statistics-flicker.mjs
       - name: Verify the cost dialog clears the DSH titlebar in a real browser
+        # 唯一的弹窗几何护栏。前面任一步失败时 GitHub 会跳过本步,于是「弹窗压住标题栏」
+        # 这个用户可见回归拿不到信号;always() 让它独立执行(它自带 Chrome 安装与启动)。
+        if: always()
         run: |
           # 弹窗几何只能靠真实排版判定(jsdom 不做布局),用 runner 自带的 Chrome 无头执行。
           # 测试自己拉起浏览器并等页面回报结果(--wait),找不到浏览器即以非零退出。

@@ -64,7 +64,7 @@ assert.ok(runtime.length > 1000, 'injected stylesheet is the full client CSS')
 
 // ── C. 页面没有样式表:新建并插入 ────────────────────────────────────────────
 {
-  const { doc, appended } = inject({ existing: null })
+  const { appended } = inject({ existing: null })
   assert.equal(appended.length, 1, 'a fresh page gets exactly one stylesheet node')
   assert.equal(appended[0].textContent, runtime, 'the inserted node carries the current CSS')
   assert.equal(appended[0].dataset.pluginCss, 'dsh-cost-meter/client.css', 'node keeps its stable id')

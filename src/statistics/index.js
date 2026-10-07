@@ -161,6 +161,8 @@ window.__ModuleLoader__.load({
       return result
     }
     const button = (label, onClick, props = {}) => el('button', { type: 'button', className: 'cm-stat-btn', onClick, ...props }, label)
+    /** 失败提示的唯一出处。同一句提示此前在 6 处各写一遍,改文案或无障碍属性要动 6 个点,漏一处就出现「明细报错、概览不报」。 */
+    const errorNotice = error => el('p', { className: 'cm-stat-error', role: 'alert' }, error)
     function Pager({ offset, count, size, onChange, text }) {
       return el('div', { className: 'cm-stat-page' },
         el('span', { className: 'cm-stat-sub' }, count ? `${offset + 1}–${Math.min(offset + size, count)} / ${count}` : '0'),
@@ -200,12 +202,12 @@ window.__ModuleLoader__.load({
       // 保留旧值时的后台刷新失败必须**跟数据一起**渲染,并带上重试入口:此前这条提示写在
       // 主返回里,一旦旧值恰好是「本轮的原始日志不可用」(found:false),紧随其后的早退
       // 会把提示整段吞掉 —— 界面照旧说日志不可用,用户既看不到失败也没法重试。
-      const staleNotice = result.failed
-        ? el('div', { className: 'cm-stat-inspection' }, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), retryButton())
-        : null
+      // 同一个失败节点在下面的占位分支也要渲染,构造一次即可。
+      const failure = el('div', { className: 'cm-stat-inspection' }, errorNotice(result.error), retryButton())
+      const staleNotice = result.failed ? failure : null
       if (showsPlaceholder(result)) return result.loading
         ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('读取这一轮的输入和工具调用…', 'Loading this turn’s input and tools…'))
-        : el('div', { className: 'cm-stat-inspection' }, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), retryButton())
+        : failure
       const data = result.value
       if (!data.found) return el(Fragment, null, staleNotice, el('p', { className: 'cm-stat-note' }, text('这一轮的原始日志不可用。', 'Original records for this turn are unavailable.')))
       return el('div', { className: 'cm-stat-inspection' },
@@ -235,13 +237,13 @@ window.__ModuleLoader__.load({
       const turnName = turn => turn == null ? text('未标明轮次', 'Turn not recorded') : text('轮次 ', 'Turn ') + turn
       if (showsPlaceholder(result)) return result.loading
         ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('正在读取本对话的用量明细…', 'Loading this conversation’s usage records…'))
-        : el('p', { className: 'cm-stat-error', role: 'alert' }, result.error)
+        : errorNotice(result.error)
       // 明细保留旧值时,后台刷新失败必须可见 —— 否则界面看着正常、数字却是旧的。
       // 提示**必须带重试入口**,且必须跟数据一起渲染:此前它写在主返回里,旧值是
       // found:false 时会被紧随其后的早退吞掉,用户只看到「没有可用的调用日志」,
       // 既不知道刷新失败,也没有重试按钮(改动前失败必清值、必走带重试的分支)。
       const staleError = result.failed
-        ? el('div', null, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1)))
+        ? el('div', null, errorNotice(result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1)))
         : null
       if (!detail.found) return el(Fragment, null, staleError, el('p', { className: 'cm-stat-note' }, text('没有可用的调用日志。上方账本统计仍然有效；明细不会按零费用处理。', 'Call logs are unavailable. The ledger totals above remain valid; missing details do not mean zero cost.')))
       const agentName = id => !id || id === query.sessionId ? text('主会话', 'Main conversation') : text('子代理 ', 'Subagent ') + ((detail.agents ?? []).find(row => row.id === id)?.title || id).slice(0, 80)
@@ -335,8 +337,8 @@ window.__ModuleLoader__.load({
           pick(text('提供商', 'Provider'), provider, value => { setProvider(value); setModel('') }, [['', text('全部提供商', 'All providers')], ...[...new Set([provider, ...(data?.providers ?? [])])].filter(Boolean).map(s => [s, s])]),
           pick(text('模型', 'Model'), model, setModel, [['', text('全部模型', 'All models')], ...[...new Set([model, ...(data?.modelOptions ?? [])])].filter(Boolean).map(s => [s, s])])),
         el('details', { className: 'cm-stat-help' }, el('summary', null, text('计费说明', 'About billing')), el('p', null, text('按宿主时区归日：', 'Days use the host timezone: ') + (state.meta.timezone || 'UTC') + ' · ' + text('API 金额是按已记录用量和配置单价计算的估算；Plan 为订阅用量的 API 等值，不是订阅账单。外部导入用量在原概览中单列。', 'API amounts estimate recorded usage at configured rates; Plan is API-equivalent usage, not the subscription invoice. External usage remains separate in Overview.'))),
-        showsPlaceholder(result) ? (result.loading ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('加载统计…', 'Loading statistics…')) : el('p', { className: 'cm-stat-error', role: 'alert' }, result.error)) : data ? el(Fragment, null,
-          result.failed ? el('p', { className: 'cm-stat-error', role: 'alert' }, result.error) : null,
+        showsPlaceholder(result) ? (result.loading ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('加载统计…', 'Loading statistics…')) : errorNotice(result.error)) : data ? el(Fragment, null,
+          result.failed ? errorNotice(result.error) : null,
           el('p', { className: 'cm-stat-sub', style: { marginTop: 8 } }, data.from + ' – ' + data.to + (data.retainedFrom ? ' · ' + text('账本保留范围 ', 'Retained ledger ') + data.retainedFrom + ' – ' + data.retainedTo : '')),
           el('div', { className: 'cm-stat-metrics' },
             metric(text('API 费用', 'API cost'), money(top.apiCost), text('已入账估算', 'Recorded estimate')),
