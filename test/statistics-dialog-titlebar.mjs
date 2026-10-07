@@ -1,10 +1,13 @@
 // 真实 React + 真实浏览器回归:费用明细弹窗不得压住 DSH 标题栏(窗口按钮区)。
-// 用法: node test/statistics-dialog-titlebar.mjs /path/to/node_modules   (需含 react/react-dom)
+// 用法: node test/statistics-dialog-titlebar.mjs [node_modules] [--wait] [--browser=<exe>] [--timeout=<ms>]
+//   node_modules  含 react/react-dom 的目录;缺省取 DSH_TEST_NODE_MODULES(与其它浏览器回归同约定)。
+//   --wait        自己启动一个无头浏览器打开本页,等页面回报结果后按退出码结束(CI 用)。
+//                 浏览器取自 --browser,其次 CM_TEST_BROWSER,再按 PATH 与常见安装路径探测;
+//                 找不到就以非零退出,而不是静默等人手动打开。
+//   不加 --wait   进程打印地址供人工打开核对(页面同时显示 PASS/FAIL)。
 //
 // 本文件是「机器可判定」的:页面把断言结果 POST 回 /report,Node 进程据此决定退出码
-// (全通过 0,有失败 1,超时 1),因此只要有一个能打开 URL 的浏览器驱动就能接进 CI。
-// 不加参数时进程打印地址供人工打开核对(页面同时显示 PASS/FAIL);CI 里加 --wait,
-// 让进程等到页面回报结果后按退出码结束。
+// (全通过 0,有失败 1,超时 1)。
 //
 // 背景:DSH 桌面版(Windows)把关闭/最小化/全屏按钮画在视口顶部 40px 的覆盖层里
 // (app.asar → /lib/preload-app.cjs 设 --dsh-windows-titlebar-height: 40px)。原生
@@ -15,14 +18,72 @@
 //   A. Windows 桌面版:弹窗与 40px 标题栏零重叠,且窄窗口不横向溢出;
 //   B. 桌面版全屏:--dsh-frame-chrome-top 归 0,弹窗回到普通 16px 边距(不留空隙);
 //   C. 纯 Web(无标记、变量缺失):回退 0px,行为与修复前一致。
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { resolve } from 'node:path'
+import { spawn } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { delimiter, join, resolve } from 'node:path'
 import { build } from 'esbuild'
 
+process.on('exit', () => { try { cleanupBrowser() } catch (error) { /* 退出路径上的清理失败无需上报 */ } })
+
 const root = resolve(import.meta.dirname, '..')
-if (!process.argv[2]) throw new Error('Pass the node_modules directory containing react and react-dom')
-const nodeModules = resolve(process.argv[2])
+const args = process.argv.slice(2)
+const positional = args.filter(arg => !arg.startsWith('--'))
+const explicitBrowser = (args.find(arg => arg.startsWith('--browser=')) ?? '').slice('--browser='.length)
+const waitForBrowser = args.includes('--wait')
+const hostDir = positional[0] ?? process.env.DSH_TEST_NODE_MODULES ?? ''
+if (!hostDir) throw new Error('Pass the node_modules directory containing react and react-dom (argv or DSH_TEST_NODE_MODULES)')
+const nodeModules = resolve(hostDir)
+
+// ── 无头浏览器:让本回归在 CI 里可判定 ──────────────────────────────────────
+// 只驱动一个已经存在的浏览器(不装 Playwright/Puppeteer):GitHub runner 与常见桌面
+// 环境都自带 Chrome/Edge,装一份浏览器驱动只会给这条回归增加几百 MB 依赖。
+const BROWSER_NAMES = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome', 'msedge', 'microsoft-edge']
+const BROWSER_PATHS = process.platform === 'win32'
+  ? [join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join(process.env.LOCALAPPDATA ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe')]
+  : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/opt/google/chrome/chrome', '/snap/bin/chromium']
+
+function findBrowser() {
+  const explicit = explicitBrowser || process.env.CM_TEST_BROWSER || ''
+  if (explicit) {
+    if (!existsSync(explicit)) throw new Error('--browser/CM_TEST_BROWSER 指向的文件不存在: ' + explicit)
+    return explicit
+  }
+  for (const candidate of BROWSER_PATHS) if (candidate && existsSync(candidate)) return candidate
+  for (const name of BROWSER_NAMES) {
+    for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+      if (!dir) continue
+      for (const file of [join(dir, name), join(dir, name + '.exe')]) if (existsSync(file)) return file
+    }
+  }
+  return null
+}
+
+let browserProcess = null, browserProfile = null, reported = false
+function cleanupBrowser() {
+  try { browserProcess?.kill() } catch (error) { /* 已退出 */ }
+  try { if (browserProfile !== null) rmSync(browserProfile, { recursive: true, force: true }) } catch (error) { /* 清理失败不影响结论 */ }
+}
+function launchBrowser(url) {
+  let executable
+  try { executable = findBrowser() } catch (error) { console.log('FAIL ' + error.message); process.exit(1) }
+  if (executable === null) {
+    console.log('FAIL no headless browser found: pass --browser=<exe> or set CM_TEST_BROWSER (tried PATH and common install paths)')
+    process.exit(1)
+  }
+  // 独立的 user-data-dir:复用正在运行的桌面浏览器配置会直接被拒绝启动。
+  browserProfile = mkdtempSync(join(tmpdir(), 'cm-dialog-titlebar-'))
+  browserProcess = spawn(executable, ['--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
+    '--disable-extensions', '--user-data-dir=' + browserProfile, url], { stdio: 'ignore' })
+  browserProcess.on('error', error => { console.log('FAIL browser launch failed: ' + error.message); cleanupBrowser(); process.exit(1) })
+  browserProcess.on('exit', code => { if (!reported) console.log('browser exited before reporting (code ' + code + ')') })
+}
 
 // 拼接顺序片段(与 scripts/build.mjs 同口径),额外暴露内部组件供测量页渲染真实弹窗。
 const source = readdirSync(resolve(root, 'src/client')).filter(n => n.endsWith('.js')).sort()
@@ -73,6 +134,7 @@ ${[['dsh', 1280, 800, 1], ['dsh', 900, 600, 1], ['dsh', 520, 600, 1],
   .map(([env, w, h, tall]) => `<iframe title="${env}|${w}x${h}|t${tall}" width="${w}" height="${h}" src="/case?env=${env}&tall=${tall}"></iframe>`).join('')}
 <script>
 const frames=[...document.querySelectorAll('iframe')];
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
 // 轮询等待,且**每次都重新取 contentDocument**:iframe 尚未加载完时 contentDocument
 // 是初始 about:blank(它的 readyState 也是 'complete'),若只取一次就会永远查到那个
 // 过期文档。这里每 tick 重取,超时才失败。
@@ -104,8 +166,7 @@ const report=tag=>{try{fetch('/report',{method:'POST',headers:{'content-type':'a
       const titlebar=(isDarwin?48:(hasTitlebar&&!isFullscreen)?40:0);
       // 不再断言 !!entry / !!dialog:waitFor 只在回调返回真值时 resolve、超时即 reject,
       // 能走到这里就说明元素必然存在,那两条断言恒真(零判别力)。
-      // 不用固定 sleep:紧跟的 waitFor 本身就是条件轮询,点开后它自己会等到 dialog 出现。
-      entry.click();
+      entry.click(); await wait(150);
       const dialog=await waitFor(()=>doc.querySelector('dialog[open]'));
       const r=dialog.getBoundingClientRect();
       // titlebar===0 的档位(全屏/纯 Web)重叠量恒为 0,该断言在那些档没有判别力 ——
@@ -166,8 +227,10 @@ const report=tag=>{try{fetch('/report',{method:'POST',headers:{'content-type':'a
         if(env==='legacy') check(!cssVar('--dsh-frame-top-clearance'),'legacy host has no windows top-clearance');
       }
       if(env==='darwin') check(cssVar('--dsh-frame-top-clearance')==='48px','darwin exposes 48px top clearance');
+      // 关闭走 React 状态更新,慢机器上固定 sleep 会假失败:这里保留条件轮询
+      // (waitFor 只在回调返回真值时 resolve),既等到真的关闭,又不引入固定等待。
       close.click();
-      check(await waitFor(()=>!doc.querySelector('dialog[open]')),'dialog closes');
+      check(await waitFor(()=>!doc.querySelector('dialog[open]'),3000),'dialog closes');
     }
     const tag=failures.length===0?'PASS '+checks+' assertions':'FAIL '+failures.length+'/'+checks+'\\n'+failures.join('\\n');
     document.getElementById('result').textContent=tag;
@@ -191,10 +254,12 @@ const server = createServer((request, response) => {
       let parsed = {}
       try { parsed = JSON.parse(body) } catch (error) { parsed = { tag: 'FAIL unparsable report' } }
       const tag = String(parsed.tag || 'FAIL no tag')
+      reported = true
       console.log(tag)
       if (tag.startsWith('FAIL')) for (const item of parsed.failures || []) console.log('  - ' + item)
       response.end('ok')
       server.close()
+      cleanupBrowser()
       process.exit(tag.startsWith('FAIL') ? 1 : 0)
     })
     return
@@ -252,9 +317,15 @@ ${caption}
 <script src="/entry.js"></script>`)
 })
 server.listen(0, '127.0.0.1', () => {
-  console.log('http://127.0.0.1:' + server.address().port)
+  const url = 'http://127.0.0.1:' + server.address().port
+  console.log(url)
+  if (waitForBrowser) {
+    console.log('--wait: 启动无头浏览器执行断言,按页面回报的退出码结束。')
+    launchBrowser(url)
+    return
+  }
   console.log('打开上面的地址核对;页面回报结果后进程会按退出码结束。')
 })
 // 超时保护:页面没能回报结果(例如浏览器没打开)时以非零退出,避免 CI 无限挂起。
-const timeoutMs = Number((process.argv.find(a => a.startsWith('--timeout=')) || '').split('=')[1] || 120000)
-setTimeout(() => { console.log('FAIL timeout: no report within ' + timeoutMs + 'ms'); process.exit(1) }, timeoutMs).unref()
+const timeoutMs = Number((args.find(a => a.startsWith('--timeout=')) || '').split('=')[1] || (waitForBrowser ? 180000 : 120000))
+setTimeout(() => { console.log('FAIL timeout: no report within ' + timeoutMs + 'ms'); cleanupBrowser(); process.exit(1) }, timeoutMs).unref()
