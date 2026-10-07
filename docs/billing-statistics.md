@@ -14,6 +14,8 @@ Open a conversation and click **Cost details** in the same row as turns, speed, 
 - **Turn inspection:** Expand a turn to load its original user inputs, then expand each tool to see arguments, result and completion/error status. Tool records paginate 20 at a time; each long text field shows up to 16,000 characters with an explicit notice. Attachments show their type; system prompts, request headers and binary data are excluded. This is the whole turn, independent of the billing filters. Opening the overview does not load these contents.
 - **Appearance:** Native DSH theme tokens, neutral surfaces, light borders, compact segmented controls and collapsible explanations replace the earlier colored dashboard cards. Light/dark themes and narrow windows share the same layout rules.
 
+From **1.8.15**, the conversation dialog centers within the area below the Desktop title bar, including older Windows hosts and macOS clearance. Fullscreen and Web use the full viewport; narrow windows include padding in the width limit and scroll long content inside the dialog. Client hot reload replaces outdated styles. Automatic refresh keeps existing results and expanded turns, updates both overview and detail when usage or pricing changes, and displays background errors without clearing previous values.
+
 ### What the numbers mean
 
 Overview amounts come from the retained DSH ledger and refresh records written by other host processes. Opening statistics does not reprice history. Rankings combine days into one row per conversation. With subagent costs enabled, each agent is grouped under its owning conversation so the ranking matches its detail. Otherwise sessions stay separate. Each cost is counted once. Historical amounts without a known model or conversation are explicitly listed as unassigned costs.
@@ -45,6 +47,8 @@ The statistics screen uses DSH's package-local asynchronous module loader. Since
 - **步骤占比：**横向条形图展示费用构成、调用类型次数和各步骤占比，可切换费用或调用次数。分母覆盖筛选后的全部调用，跨页合计；显示前 12 个步骤，其余合并，保留完整金额与次数。没有步骤编号的调用单列；工具执行不额外算作模型调用。
 - **展开轮次：**点击一轮才读取其用户输入和工具调用，继续展开工具可查看参数、结果、完成或失败状态。工具每页 20 条，单段文本最多显示 16,000 个字符并标明截断；附件只显示类型，不读取系统提示、请求头或二进制内容。这里显示整轮原始记录，不受计费筛选影响。打开统计首页不会加载这些正文。
 - **界面：**使用 DSH 的主题颜色、轻边框、紧凑分段按钮和可折叠说明，替换原来的彩色顶部卡片；支持浅色、深色和窄窗口。
+
+从 **1.8.15** 起，单对话弹窗在桌面标题栏下方的区域居中，兼容旧版 Windows 和 macOS 顶部空间；全屏与 Web 使用完整视口。窄窗口的宽度限制包含内边距，长内容在弹窗内滚动，热更新会替换陈旧样式。自动刷新保留已有结果和展开轮次，用量或计费配置变化后同时更新概览和明细，后台失败显示错误并保留旧值。
 
 ### 统计口径
 
