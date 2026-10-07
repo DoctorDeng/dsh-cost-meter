@@ -102,7 +102,13 @@ const tall=new URLSearchParams(location.search).get('tall')!=='0';
 const rows=tall?120:2;
 const Tall=()=>React.createElement('div',null,...Array.from({length:rows},(_,i)=>React.createElement('p',{key:i},'费用明细占位行 '+(i+1))));
 const props={sessionId:'synthetic',useCost:()=>({state:{config}}),api:{loadStatistics:async()=>Tall,reload(){}}};
-createRoot(document.getElementById('root')).render(React.createElement(ui.SessionStatisticsButton,{...props,entryPosition:'dock'}));`
+// Wait for the initial effects too: the entry can exist before the component's
+// session-reset effect runs. Clicking at that point can have its open state reset.
+function App(){
+  React.useEffect(()=>{window.fixtureReady=true},[]);
+  return React.createElement(ui.SessionStatisticsButton,{...props,entryPosition:'dock'});
+}
+createRoot(document.getElementById('root')).render(React.createElement(App));`
 
 const bundle = await build({
   stdin: { contents: entry, loader: 'js', resolveDir: root }, bundle: true, write: false,
@@ -142,19 +148,20 @@ const waitFor=(fn,timeout=8000)=>{const deadline=Date.now()+timeout;return new P
   const tick=()=>{let v=null;try{v=fn()}catch{}if(v)return res(v);if(Date.now()>deadline)return rej(Error('timeout waiting for element'));setTimeout(tick,50)};
   tick();
 })};
-let checks=0; const failures=[];
+let checks=0, currentCase='bootstrap'; const failures=[];
 // 失败不立即抛出:收集全部失败项后一次性报告,避免第一条失败掩盖后面。
 const record=(ok,msg)=>{checks++;if(!ok)failures.push(msg)};
 const report=tag=>{try{fetch('/report',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tag,failures,checks})})}catch(e){}};
 (async()=>{
   try{
     for(const frame of frames){
+      currentCase=frame.title;
       // 标题形如 <env>|<w>x<h>|t<0|1>;env 本身含 '-' (legacy-fullscreen),
       // 所以用 '|' 分隔,不能按 '-' 拆。
       const parts=frame.title.split('|'), env=parts[0], tall=parts[2]==='t1';
       // 所有断言统一带上档位前缀:省掉 24 处手工拼接,漏拼也不会定位不到档位。
       const check=(ok,msg)=>record(ok,frame.title+' '+msg);
-      const entry=await waitFor(()=>frame.contentDocument?.querySelector('.cm-stat-entry'));
+      const entry=await waitFor(()=>frame.contentWindow?.fixtureReady&&frame.contentDocument?.querySelector('.cm-stat-entry'));
       const doc=frame.contentDocument, win=frame.contentWindow, root=doc.documentElement;
       const hasTitlebar=root.hasAttribute('data-windows-titlebar');
       const isFullscreen=root.hasAttribute('data-fullscreen');
@@ -236,7 +243,7 @@ const report=tag=>{try{fetch('/report',{method:'POST',headers:{'content-type':'a
     document.getElementById('result').textContent=tag;
     document.title='RESULT:'+tag;
     report(tag);
-  }catch(e){document.getElementById('result').textContent='FAIL '+checks+' '+e.message;document.title='RESULT:FAIL '+e.message;report('FAIL '+e.message);}
+  }catch(e){const tag='FAIL '+checks+' '+currentCase+' '+e.message;document.getElementById('result').textContent=tag;document.title='RESULT:'+tag;report(tag);}
 })();
 </script>`
 
