@@ -77,13 +77,43 @@ window.__ModuleLoader__.load({
       @container(max-width:700px){.cm-stat-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.cm-stat-grid{grid-template-columns:1fr}.cm-stat-panel{padding:12px}.cm-stat-head{align-items:start}.cm-stat-controls label{flex:1}.cm-stat input,.cm-stat select{max-width:100%;width:100%}.cm-stat-value{font-size:23px}}
     `
 
+    // ── 取数状态迁移(纯函数,供 useRequest 复用,并让回归测试无需 React 即可断言)──
+    // 关键不变式:重取**不得**丢掉已渲染的值。清空会让弹窗塌陷闪烁,并让已展开的
+    // 轮次明细被卸载收起(#闪烁)。
+
+    /** 开始取数:同 query 保留旧值(仅置 loading),换 query 才清空。 */
+    function requestStart(previous, key) {
+      return previous.key === key ? { ...previous, error: '', loading: true } : { value: null, error: '', loading: true, key }
+    }
+    /** 取数成功:写入新值。 */
+    function requestValue(key, value) {
+      return { value, error: '', loading: false, key }
+    }
+    /** 取数失败:同 query 保留旧值(刷新失败不该把已有金额换成空白),并记录错误。 */
+    function requestFailure(previous, key, error) {
+      return { value: previous.key === key ? previous.value : null, error: String(error?.message ?? error), loading: false, key }
+    }
+    /**
+     * 是否应显示「加载中/错误」占位。有属于当前 query 的旧值时**不显示** ——
+     * 保留已渲染内容正是消除闪烁的关键。消费点统一用它,避免各处重复写 `!result.value`。
+     */
+    function showsPlaceholder(result) {
+      return !result.value && (result.loading || result.error !== '')
+    }
+
+    /**
+     * 取数钩子。重取时保留上一次的值(stale-while-revalidate):轮询与轮次联动刷新
+     * 只更新数字,不再把已渲染的指标/图表/表格清空回「加载中」。
+     */
     function useRequest(api, method, query, revision) {
-      const [result, setResult] = useState({ value: null, error: '', loading: true })
+      const [result, setResult] = useState({ value: null, error: '', loading: true, key: null })
       const key = JSON.stringify(query)
       useEffect(() => {
         let active = true
-        setResult({ value: null, error: '', loading: true })
-        api[method](JSON.parse(key)).then(value => { if (active) setResult({ value, error: '', loading: false }) }, error => { if (active) setResult({ value: null, error: String(error.message ?? error), loading: false }) })
+        setResult(previous => requestStart(previous, key))
+        api[method](JSON.parse(key)).then(
+          value => { if (active) setResult(requestValue(key, value)) },
+          error => { if (active) setResult(previous => requestFailure(previous, key, error)) })
         return () => { active = false }
       }, [api, method, key, revision])
       return result
@@ -124,11 +154,13 @@ window.__ModuleLoader__.load({
     function TurnInspection({ api, sessionId, turn, revision, text }) {
       const [offset, setOffset] = useState(0), [retry, setRetry] = useState(0)
       const result = useRequest(api, 'getTurnInspection', { sessionId, turn, offset }, revision + ':' + retry)
-      if (result.loading) return el('p', { className: 'cm-stat-empty', role: 'status' }, text('读取这一轮的输入和工具调用…', 'Loading this turn’s input and tools…'))
-      if (result.error) return el('div', { className: 'cm-stat-inspection' }, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1)))
+      if (showsPlaceholder(result)) return result.loading
+        ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('读取这一轮的输入和工具调用…', 'Loading this turn’s input and tools…'))
+        : el('div', { className: 'cm-stat-inspection' }, el('p', { className: 'cm-stat-error', role: 'alert' }, result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1)))
       const data = result.value
       if (!data.found) return el('p', { className: 'cm-stat-note' }, text('这一轮的原始日志不可用。', 'Original records for this turn are unavailable.'))
       return el('div', { className: 'cm-stat-inspection' },
+        result.error ? el('p', { className: 'cm-stat-error', role: 'alert' }, result.error) : null,
         el('h4', null, text('本轮用户输入', 'User input for this turn')),
         data.input ? el('pre', { className: 'cm-stat-pre' }, data.input) : el('p', { className: 'cm-stat-sub' }, text('日志未记录本轮用户输入。', 'No user input is recorded for this turn.')),
         data.inputTruncated ? el('p', { className: 'cm-stat-truncated' }, text('输入过长，此处显示前 16,000 个字符。', 'Showing the first 16,000 characters of this input.')) : null,
@@ -152,8 +184,9 @@ window.__ModuleLoader__.load({
       const names = { input: text('输入', 'Input'), output: text('输出', 'Output'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), reasoning: text('推理', 'Reasoning') }
       const kinds = { model: text('模型调用', 'Model call'), compaction: text('上下文压缩', 'Compaction'), search: text('原生搜索', 'Native search') }
       const turnName = turn => turn == null ? text('未标明轮次', 'Turn not recorded') : text('轮次 ', 'Turn ') + turn
-      if (result.loading) return el('p', { className: 'cm-stat-empty', role: 'status' }, text('正在读取本对话的用量明细…', 'Loading this conversation’s usage records…'))
-      if (result.error) return el('p', { className: 'cm-stat-error', role: 'alert' }, result.error)
+      if (showsPlaceholder(result)) return result.loading
+        ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('正在读取本对话的用量明细…', 'Loading this conversation’s usage records…'))
+        : el('p', { className: 'cm-stat-error', role: 'alert' }, result.error)
       if (!detail.found) return el('p', { className: 'cm-stat-note' }, text('没有可用的调用日志。上方账本统计仍然有效；明细不会按零费用处理。', 'Call logs are unavailable. The ledger totals above remain valid; missing details do not mean zero cost.'))
       const agentName = id => !id || id === query.sessionId ? text('主会话', 'Main conversation') : text('子代理 ', 'Subagent ') + ((detail.agents ?? []).find(row => row.id === id)?.title || id).slice(0, 80)
       const turnKey = row => JSON.stringify([row.sessionId || query.sessionId, row.turn])
@@ -219,7 +252,12 @@ window.__ModuleLoader__.load({
       const from = period === 'all' ? '' : period === 'custom' ? custom?.from || today : shiftDate(today, period === 'week' ? -6 : period === 'month' ? -29 : 0)
       const to = period === 'custom' ? custom?.to || today : today
       const query = { from, to, provider, model, basis, sessionId: scope.id, offset }
-      const result = useRequest(api, 'getBillingStatistics', query, revision + ':' + state.meta.now)
+      // 重取键必须只随「真实数据」变化:日期边界(跨零点换日)与已入账的用量/金额。
+      // 不能用 state.meta.now —— 宿主每次 buildState 都取 Date.now()(lib/index.js),
+      // 于是每次轮询键都变,弹窗被无谓地清空重画一次(闪一下)。轮次结束会改变
+      // total/today 的 calls 与 cost,因此「新数据自动出现」的能力仍然保留。
+      const dataKey = [state.meta.dayKey, state.total?.calls, state.total?.cost, state.today?.calls, state.today?.cost].join(':')
+      const result = useRequest(api, 'getBillingStatistics', query, revision + ':' + dataKey)
       const data = result.value
       const money = n => formatMoneyUsd(n, { ...state.config, decimals: Math.max(n !== 0 && Math.abs(n) < .01 ? 8 : 4, state.config.decimals ?? 2) })
       const choosePeriod = value => { setPeriod(value); setOffset(0) }
@@ -241,7 +279,8 @@ window.__ModuleLoader__.load({
           pick(text('提供商', 'Provider'), provider, value => { setProvider(value); setModel('') }, [['', text('全部提供商', 'All providers')], ...[...new Set([provider, ...(data?.providers ?? [])])].filter(Boolean).map(s => [s, s])]),
           pick(text('模型', 'Model'), model, setModel, [['', text('全部模型', 'All models')], ...[...new Set([model, ...(data?.modelOptions ?? [])])].filter(Boolean).map(s => [s, s])])),
         el('details', { className: 'cm-stat-help' }, el('summary', null, text('计费说明', 'About billing')), el('p', null, text('按宿主时区归日：', 'Days use the host timezone: ') + (state.meta.timezone || 'UTC') + ' · ' + text('API 金额是按已记录用量和配置单价计算的估算；Plan 为订阅用量的 API 等值，不是订阅账单。外部导入用量在原概览中单列。', 'API amounts estimate recorded usage at configured rates; Plan is API-equivalent usage, not the subscription invoice. External usage remains separate in Overview.'))),
-        result.loading ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('加载统计…', 'Loading statistics…')) : result.error ? el('p', { className: 'cm-stat-error', role: 'alert' }, result.error) : data ? el(Fragment, null,
+        showsPlaceholder(result) ? (result.loading ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('加载统计…', 'Loading statistics…')) : el('p', { className: 'cm-stat-error', role: 'alert' }, result.error)) : data ? el(Fragment, null,
+          result.error ? el('p', { className: 'cm-stat-error', role: 'alert' }, result.error) : null,
           el('p', { className: 'cm-stat-sub', style: { marginTop: 8 } }, data.from + ' – ' + data.to + (data.retainedFrom ? ' · ' + text('账本保留范围 ', 'Retained ledger ') + data.retainedFrom + ' – ' + data.retainedTo : '')),
           el('div', { className: 'cm-stat-metrics' },
             metric(text('API 费用', 'API cost'), money(top.apiCost), text('已入账估算', 'Recorded estimate')),
@@ -284,6 +323,6 @@ window.__ModuleLoader__.load({
       }]))
       return props => el(Statistics, { ...props, api })
     }
-    return { mount, Statistics, SessionDetail, TurnInspection, ShareChart, CONTRIBUTION, parseStatistics, parseDetail, parseInspection, dailyChartRows }
+    return { mount, Statistics, SessionDetail, TurnInspection, ShareChart, CONTRIBUTION, parseStatistics, parseDetail, parseInspection, dailyChartRows, requestStart, requestValue, requestFailure, showsPlaceholder }
   },
 })
