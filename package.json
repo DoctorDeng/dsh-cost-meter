@@ -96,6 +96,7 @@
     "cordis.patch.yml",
     "docs/provider-pricing.json",
     "docs/billing-statistics.md",
+    "docs/ledger-lock-recovery.md",
     "docs/external-usage.md",
     "docs/qwen-cli-quota.md",
     "docs/session-sidebar-recovery.md",
