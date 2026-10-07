@@ -2276,7 +2276,7 @@
                 onChange: event => setField('showSessionId', event.target.checked),
               }),
               el('span', null, t('showSessionIdLabel'))),
-            ...['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost'].map(key => el('label', { key, className: 'cm-check' },
+            ...['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact'].map(key => el('label', { key, className: 'cm-check' },
               el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
               el('span', null, t(key)))),
             el('div', { className: 'cm-grid-group' }, t('groupMoney')),

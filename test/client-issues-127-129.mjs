@@ -206,6 +206,47 @@ for (const locale of ['en', 'zh']) {
   }
 }
 
+// #236: compact text retains the full line on hover and the header stays unchanged.
+for (const locale of ['en', 'zh']) {
+  let dockConfig = { ...config, locale, sessionCostCompact: false }
+  const row = { ...usage(20, 7, 4), cacheRead: 60, cacheWrite: 20, output: 900 }
+  const tokens = { ...row, byProviderModel: { 'custom:model': row } }
+  const p = { useProjection: () => tokens, useCost: pick => pick({ state: { config: dockConfig } }) }
+  const dock = e.mount(e.ui.DockLine, p), header = e.mount(e.ui.SessionCost, p)
+  const full = textOf(dock.tree), headerText = textOf(header.tree), headerTitle = header.tree.props.label
+  assert.match(full, /60\.0%/)
+  dockConfig = { ...dockConfig, sessionCostCompact: true }
+  dock.render(); header.render()
+  assert.equal(textOf(dock.tree), locale === 'en' ? 'This session $4 (API) · Plan equiv. $3' : '本会话 $4(API)· Plan 等值 $3')
+  assert.equal(dock.tree.props.title, full + '; custom:model $7', 'compact hover preserves full token/cache hit and model details')
+  assert.equal(textOf(header.tree), headerText)
+  assert.equal(header.tree.props.label, headerTitle)
+  dockConfig = { ...dockConfig, showTotalWithPlan: true }
+  dock.render()
+  assert.equal(textOf(dock.tree), locale === 'en' ? 'This session $7' : '本会话 $7')
+  assert.match(dock.tree.props.title, /60\.0%/)
+  assert.doesNotMatch(dock.tree.props.title, /Plan/)
+  dockConfig = { ...dockConfig, sessionCostCompact: false }
+  dock.render()
+  assert.match(textOf(dock.tree), /60\.0%/, 'turning compact off immediately restores token details')
+  dock.dispose(); header.dispose()
+
+  const outputOnly = e.mount(e.ui.DockLine, { useProjection: () => ({ ...usage(0, 1), output: 10 }),
+    useCost: pick => pick({ state: { config: { ...dockConfig, sessionCostCompact: true } } }) })
+  assert.equal(textOf(outputOnly.tree), locale === 'en' ? 'This session $1' : '本会话 $1')
+  assert.match(outputOnly.tree.props.title, /—/, 'output-only sessions retain the unknown hit rate on hover')
+  outputOnly.dispose()
+
+  const childCost = e.mount(e.ui.DockLine, { sessionId: 'compact-child', useProjection: () => usage(999, 99),
+    useCost: pick => pick({ state: { config: { ...dockConfig, sessionCostCompact: true, includeSubagentCost: true } } }),
+    api: { getSessionCost: async () => snapshot(usage(80, 8, 8), usage(20, 2, 2)) } })
+  await e.flush()
+  assert.equal(textOf(childCost.tree), locale === 'en' ? 'This session $10' : '本会话 $10', 'compact uses retained ledger plus subagents, not stale projection')
+  assert.match(childCost.tree.props.title, /100/)
+  assert.doesNotMatch(childCost.tree.props.title, /999/)
+  childCost.dispose()
+}
+
 // Codex 插件查询是显式选择:关闭状态不探测,开启才查询同源路由,关闭解除订阅。
 const quotaRequest = deferred()
 const quota = environment(() => quotaRequest.promise)

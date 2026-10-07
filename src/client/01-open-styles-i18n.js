@@ -380,6 +380,8 @@ window.__ModuleLoader__.load({
         sessionDetailCache: '缓存:读 {read} · 写 {write}(写入按命中价计费)',
         cost: '费用 {amount}',
         sessionLine: '本会话 {amount} · 命中 {hitRate} · 输入 {input} · 缓存 {cache} · 输出 {output}',
+        sessionLineCompact: '本会话 {amount}',
+        sessionCostCompact: '输入区下方只显示金额(悬停可见完整分项)',
         quotaUnlimited: '无限制',
         pricingCnyHint: '当前人民币金额来自美元价格 × 汇率 {rate}。对照官方人民币账单，请选择 CNY，再同步价格；同步会更新历史费用。',
         // 余额行
@@ -681,6 +683,7 @@ window.__ModuleLoader__.load({
         modelStatsLegacy: '未分模型(早期数据 · 按当时记录计费)',
         // Plan/API 双轨计费与 Token Plan 统计(issue #64)
         sessionLineSplit: '本会话 {amount}(API)· Plan 等值 {planAmount} · 命中 {hitRate} · 输入 {input} · 缓存 {cache} · 输出 {output}',
+        sessionLineSplitCompact: '本会话 {amount}(API)· Plan 等值 {planAmount}',
         costChipPlan: '费用 {amount}(+Plan)',
         sessionDetailPlan: 'Plan 订阅额度消耗(等值){amount}',
         planStatsTitle: 'Token Plan 用量统计(每 1% 与满窗估算)',
@@ -908,6 +911,8 @@ window.__ModuleLoader__.load({
         sessionDetailCache: 'Cache: read {read} · write {write} (writes billed at the hit price)',
         cost: 'Cost {amount}',
         sessionLine: 'This session {amount} · Hit {hitRate} · Input {input} · Cache {cache} · Output {output}',
+        sessionLineCompact: 'This session {amount}',
+        sessionCostCompact: 'Amount only below the composer (full split on hover)',
         quotaUnlimited: 'Unlimited',
         pricingCnyHint: 'CNY totals use USD prices × {rate}. To compare official CNY bills, select CNY, then sync prices; syncing also updates historical costs.',
         balanceQueryFailed: 'Balance query failed: {message}',
@@ -1205,6 +1210,7 @@ window.__ModuleLoader__.load({
         modelStatsLegacy: 'Unattributed (early data · billed as recorded)',
         // Plan/API dual-track billing & Token Plan stats (issue #64)
         sessionLineSplit: 'This session {amount} (API) · Plan equiv. {planAmount} · Hit {hitRate} · Input {input} · Cache {cache} · Output {output}',
+        sessionLineSplitCompact: 'This session {amount} (API) · Plan equiv. {planAmount}',
         costChipPlan: 'Cost {amount} (+Plan)',
         sessionDetailPlan: 'Plan subscription quota usage (equiv.) {amount}',
         planStatsTitle: 'Token Plan usage stats (per-1% & full-window estimates)',
