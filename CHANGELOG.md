@@ -2,9 +2,10 @@
 
 ## [Unreleased]
 
-- 修复费用明细弹窗压住 DSH 窗口标题栏（关闭/最小化/全屏按钮区）的问题：弹窗改为在标题栏**下方**的可用区域居中，并显式使用 `border-box`。此前原生 `<dialog>` 在整个视口居中、顶部钻进 Windows 桌面版顶部 40px 的标题栏覆盖层，实测 1920×1080 压 11px、1280×800 压 25px、900×600 压 35px（三枚窗口按钮被遮挡 84–88%，几乎点不到）。改用宿主派生变量 `--dsh-frame-chrome-top`（全屏时由宿主置 0，纯 Web 下回退 0px），全屏与网页版行为不变。
+- 修复费用明细弹窗压住 DSH 窗口标题栏（关闭/最小化/全屏按钮区）的问题：弹窗改为在标题栏**下方**的可用区域居中，并显式使用 `border-box`。此前原生 `<dialog>` 在整个视口居中、顶部钻进 Windows 桌面版顶部 40px 的标题栏覆盖层，实测 1920×1080 压 11px、1280×800 压 25px、900×600 压 35px（三枚窗口按钮被遮挡 84–88%，几乎点不到）。
+- 顶部避让量采用四级回退 `var(--dsh-frame-chrome-top, var(--dsh-frame-top-clearance, var(--dsh-windows-titlebar-height, 0px)))`，逐级递补以覆盖不同宿主版本与平台：`--dsh-frame-chrome-top` 由 DSH ≥0.2.0 在 Windows 定义、全屏时归 0（CI 矩阵里的 0.1.7-rc.2 等旧宿主**没有**该变量，不回退到它修复会在这些宿主上静默失效）；`--dsh-frame-top-clearance` 覆盖 macOS 红绿灯区 48px；Windows 标题栏高由 preload 注入的 `--dsh-windows-titlebar-height` 兜底 —— 旧宿主在 Windows 下只有这一级保证存在。纯 Web 四级全缺失，回退 0px，行为与修复前一致。
 - 同时修掉窄窗口横向溢出：`width:min(1160px,94vw)` 在 DSH 的 content-box 环境下实际宽度多出 padding+border，视口 < 833px 时溢出（520px 窗口溢出 19px）；新增 `max-width:calc(100vw - 32px)`。弹窗整体比之前小一圈，并保留内容自身滚动。
-- 新增 `test/statistics-dialog-titlebar.mjs` 浏览器回归：覆盖桌面版三种视口 + 全屏 + 纯 Web 共 5 种环境，断言「与标题栏零重叠、关闭按钮可点、不横向溢出、不越出视口底部、内容可滚动」。已用「临时还原旧样式」验证该测试能复现 24.9px 重叠，确保断言非空过。
+- 新增 `test/statistics-dialog-titlebar.mjs` 浏览器回归：覆盖 Windows 桌面版三种视口、全屏、纯 Web、旧宿主（无 chrome-top，只有 preload 高度）两种视口、macOS 两种视口共 9 种环境 130 条断言，断言「与标题栏零重叠、关闭按钮可点、不横向溢出、不越出视口底部、内容确实溢出且可滚动」。已用三次负向验证确认断言非空过：还原旧样式复现 24.9px 重叠；把顶部避让降级为只认 `chrome-top`、以及只回退到 `top-clearance`（缺第四级）时，旧宿主档位都以 24.0px 重叠失败。
 
 ## [1.8.12] - 2026-10-05
 

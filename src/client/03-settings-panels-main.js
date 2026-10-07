@@ -32,20 +32,32 @@
      *    max-height:90vh 只约束内容盒,外框实际高 0.9vh+48(padding)+2(border),
      *    比预期更高。故显式 border-box。
      *
-     * 用 --dsh-frame-chrome-top 而不是 --dsh-windows-titlebar-height:前者是 DSH 的
-     * 派生变量,全屏时被宿主置 0(不留空隙),纯 Web 下未定义、由回退值 0px 兜底;
-     * 后者全屏时仍是 40px,会白留一条空隙。
+     * 顶部避让量用四级回退,兼容新旧宿主与两个平台。四级都是「视口顶部被宿主遮挡的
+     * 高度」的合法来源,逐级递补:某一级不存在就落到下一级,多一级只会更保守。
+     *   --dsh-frame-chrome-top      DSH ≥0.2.0:Windows 为标题栏高,**全屏时由宿主置 0**
+     *                               (不留空隙);darwin 未定义,落到下一级。
+     *   --dsh-frame-top-clearance   darwin 的红绿灯区(48px);DSH ≥0.2.0 的 Windows 也由
+     *                               它派生自标题栏高。但旧宿主(≤0.1.7)在 Windows 下不保证
+     *                               有它,所以它不能当成 Windows 的最后一道兜底。
+     *   --dsh-windows-titlebar-height  Windows 标题栏高(Electron preload 注入的 40px)。
+     *                               旧宿主没有 chrome-top,这一级是它唯一保证存在的高度
+     *                               信号;缺了它,修复在旧宿主(CI 矩阵里的 0.1.7-rc.2)会
+     *                               静默失效 —— 不报错,但也没修好。
+     *   0px                         纯 Web / 未标记环境:行为与修复前一致。
+     * 顺序不能换:全屏时 chrome-top 为 0,但 top-clearance 与 titlebar-height 仍是
+     * 40/48px —— 把后两者排在前面会让全屏白留一条空隙。
      */
     const STAT_DIALOG_GAP = 16
+    const STAT_DIALOG_TOP = 'var(--dsh-frame-chrome-top, var(--dsh-frame-top-clearance, var(--dsh-windows-titlebar-height, 0px)))'
     const STAT_DIALOG_STYLE = {
       width: 'min(1160px,94vw)',
       // 横向同样留边距:content-box 下 min(1160px,94vw) 的实际宽度会多出 padding+border,
       // 视口 < 833px 时曾横向溢出(520px 窗口溢出 19px)。
       maxWidth: `calc(100vw - ${STAT_DIALOG_GAP * 2}px)`,
-      // 可用高度 = 视口 - 标题栏 - 上下各一个间距。
-      maxHeight: `calc(100vh - var(--dsh-frame-chrome-top, 0px) - ${STAT_DIALOG_GAP * 2}px)`,
+      // 可用高度 = 视口 - 顶部避让 - 上下各一个间距。
+      maxHeight: `calc(100vh - ${STAT_DIALOG_TOP} - ${STAT_DIALOG_GAP * 2}px)`,
       // 居中基准从「整个视口」下移到「标题栏下方」,配合 margin:auto 仍保持居中。
-      inset: 'var(--dsh-frame-chrome-top, 0px) 0 0 0',
+      inset: `${STAT_DIALOG_TOP} 0 0 0`,
       margin: 'auto',
       // 内容超高时由弹窗自身滚动,不裁切、不溢出。
       overflow: 'auto',

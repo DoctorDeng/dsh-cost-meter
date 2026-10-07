@@ -51,7 +51,12 @@ const page = `<!doctype html><meta charset="utf-8"><title>Dialog vs titlebar reg
 </style>
 <h1>费用明细弹窗 · DSH 标题栏避让回归</h1>
 <p id="result" role="status">Ready</p>
-${[['dsh', 1280, 800], ['dsh', 900, 600], ['dsh', 520, 600], ['fullscreen', 1280, 800], ['web', 1280, 800]]
+${[['dsh', 1280, 800], ['dsh', 900, 600], ['dsh', 520, 600], ['fullscreen', 1280, 800], ['web', 1280, 800],
+  // 旧宿主(DSH ≤0.1.7):没有 --dsh-frame-chrome-top,只有 --dsh-frame-top-clearance。
+  // 不覆盖这一档,修复会在 CI 矩阵覆盖的旧宿主上静默失效而测试仍全绿。
+  ['legacy', 1280, 800], ['legacy', 900, 600],
+  // macOS:不设 data-windows-titlebar,红绿灯区由 --dsh-frame-top-clearance: 48px 表达。
+  ['darwin', 1280, 800], ['darwin', 900, 600]]
   .map(([env, w, h]) => `<iframe title="${env}-${w}x${h}" width="${w}" height="${h}" src="/case?env=${env}"></iframe>`).join('')}
 <script>
 const frames=[...document.querySelectorAll('iframe')];
@@ -72,8 +77,12 @@ let checks=0; const check=(ok,msg)=>{checks++;if(!ok)throw Error(msg)};
       const doc=frame.contentDocument, win=frame.contentWindow, root=doc.documentElement;
       const hasTitlebar=root.hasAttribute('data-windows-titlebar');
       const isFullscreen=root.hasAttribute('data-fullscreen');
-      // 有效标题栏高度:只有「Windows 桌面版且非全屏」时,系统才真的画那 40px 覆盖层。
-      const titlebar=(hasTitlebar&&!isFullscreen)?40:0;
+      const isDarwin=env==='darwin';
+      // 有效顶部避让高度 = 平台 chrome 实际占用的高度(也就是弹窗必须让开的量):
+      //   Windows 桌面版非全屏 -> 40px(标题栏覆盖层)
+      //   macOS               -> 48px(红绿灯区;不设 data-windows-titlebar)
+      //   全屏 / 纯 Web        -> 0
+      const titlebar=(isDarwin?48:(hasTitlebar&&!isFullscreen)?40:0);
       check(!!entry,frame.title+' entry button mounted');
       entry.click(); await wait(150);
       const dialog=await waitFor(()=>doc.querySelector('dialog[open]'));
@@ -97,11 +106,26 @@ let checks=0; const check=(ok,msg)=>{checks++;if(!ok)throw Error(msg)};
       const expectedTop=r.height>=available-32 ? titlebar+16 : titlebar+(available-r.height)/2;
       check(Math.abs(r.top-expectedTop)<=1.5,frame.title+' dialog centered below the titlebar (got '+r.top.toFixed(1)+', expected '+expectedTop.toFixed(1)+')');
       check(r.bottom<=win.innerHeight+0.5,frame.title+' dialog must not overflow the viewport bottom (bottom='+r.bottom.toFixed(1)+' vh='+win.innerHeight+')');
-      // 内容超高时必须自身可滚动,不能被裁切。
+      // 内容超高时必须真的可滚动:断言「确实溢出且滚动范围 > 0」,而不是断言
+      // overflow==='auto' —— 裸 <dialog> 的 UA 默认值就是 auto,那条断言恒真(空断言)。
       check(getComputedStyle(dialog).overflow==='auto',frame.title+' dialog scrolls its own overflow');
+      check(dialog.scrollHeight>dialog.clientHeight,frame.title+' dialog content really overflows (scrollHeight='+dialog.scrollHeight+' clientHeight='+dialog.clientHeight+')');
       // 环境特定断言。
       if(env==='fullscreen') check(win.getComputedStyle(root).getPropertyValue('--dsh-frame-chrome-top').trim()==='0px',frame.title+' chrome-top is 0 in fullscreen');
-      if(env==='web') check(!hasTitlebar&&!win.getComputedStyle(root).getPropertyValue('--dsh-frame-chrome-top').trim(),frame.title+' plain web has no chrome-top');
+      if(env==='web'){
+        check(!hasTitlebar,frame.title+' plain web has no windows-titlebar marker');
+        check(!win.getComputedStyle(root).getPropertyValue('--dsh-frame-chrome-top').trim(),frame.title+' plain web has no chrome-top');
+        check(!win.getComputedStyle(root).getPropertyValue('--dsh-frame-top-clearance').trim(),frame.title+' plain web has no top-clearance');
+        check(!win.getComputedStyle(root).getPropertyValue('--dsh-windows-titlebar-height').trim(),frame.title+' plain web has no preload titlebar height');
+      }
+      // 旧宿主没有 chrome-top、也没有 Windows 版 top-clearance:必须靠
+      // --dsh-windows-titlebar-height 兜住,否则修复静默失效(这正是本档位要守的回归)。
+      if(env==='legacy'){
+        check(!win.getComputedStyle(root).getPropertyValue('--dsh-frame-chrome-top').trim(),frame.title+' legacy host has no chrome-top');
+        check(!win.getComputedStyle(root).getPropertyValue('--dsh-frame-top-clearance').trim(),frame.title+' legacy host has no windows top-clearance');
+        check(win.getComputedStyle(root).getPropertyValue('--dsh-windows-titlebar-height').trim()==='40px',frame.title+' legacy host exposes titlebar height');
+      }
+      if(env==='darwin') check(win.getComputedStyle(root).getPropertyValue('--dsh-frame-top-clearance').trim()==='48px',frame.title+' darwin exposes 48px top clearance');
       close.click(); await wait(60);
       check(!doc.querySelector('dialog[open]'),frame.title+' dialog closes');
     }
@@ -120,28 +144,46 @@ const server = createServer((request, response) => {
   if (!request.url.startsWith('/case')) { response.end(page); return }
   const env = new URL(request.url, 'http://127.0.0.1').searchParams.get('env') ?? 'dsh'
   // [真实] 逐字复刻 app.asar /lib/preload-app.cjs 的标记注入与 dsh-client-ui-layout 的变量定义。
-  const preload = env === 'web' ? '' : `
+  // darwin 不设 data-windows-titlebar(macOS 用 hiddenInset,红绿灯由系统画)。
+  // legacy(DSH ≤0.1.7)**没有** chrome-top,且 top-clearance 只为 darwin 定义 ——
+  // Windows 下唯一的高度信号是 preload 注入的 --dsh-windows-titlebar-height
+  // (实测 0.1.7-rc.2 的 client.js:top-clearance 仅出现于 html[data-platform=darwin])。
+  const preload = env === 'web' || env === 'darwin' ? '' : `
     root.dataset.windowsTitlebar='';
     root.style.setProperty('--dsh-windows-titlebar-height','40px');
     ${env === 'fullscreen' ? "root.dataset.fullscreen='true';" : ''}`
+  const isDarwin = env === 'darwin'
+  const frameVars = env === 'legacy'
+    ? 'html[data-platform=darwin]{--dsh-frame-top-clearance:48px}'
+    : isDarwin
+      // macOS:不设 windows-titlebar,红绿灯区 48px;chrome-top 未定义
+      ? 'html[data-platform=darwin]{--dsh-frame-top-clearance:48px}'
+      // DSH ≥0.2.0:Windows 定义 chrome-top(全屏归 0);darwin 仍只有 top-clearance
+      : `html[data-windows-titlebar]{--dsh-frame-top-clearance:var(--dsh-windows-titlebar-height);--dsh-frame-chrome-top:var(--dsh-windows-titlebar-height)}
+html[data-windows-titlebar][data-fullscreen]{--dsh-frame-chrome-top:0px}`
+  const captionHeight = isDarwin ? '48px' : 'var(--dsh-windows-titlebar-height)'
+  const caption = env === 'web' ? '' : `<div id="caption" aria-hidden="true"><i>–</i><i>□</i><i>×</i></div>`
+  // 纯 Web 环境**没有** preload,因此 --dsh-windows-titlebar-height 必须不存在
+  // (真实 DSH 里它只由 Windows preload 注入)。若在 :root 里无条件定义它,
+  // 四级回退的最后一档就会被误命中,测出的行为与真实纯 Web 不符。
+  const titlebarHeightVar = env === 'web' ? '' : '--dsh-windows-titlebar-height:40px;'
   response.end(`<!doctype html><meta charset="utf-8"><style>
-:root{--dsh-windows-titlebar-height:40px;
+:root{${titlebarHeightVar}
   --dsw-alias-border-l1:#e0e5ed;--dsw-alias-border-l3:#e9eaed;--dsw-alias-label-primary:#0f1115;
   --dsw-alias-label-secondary:#61666b;--dsw-alias-label-tertiary:#858a94;--dsw-alias-bg-base:#fff;
   --dsw-alias-bg-layer-1:#f7f8fa;--dsw-alias-bg-layer-2:#f0f3f7;--dsw-alias-interactive-bg-hover:#eff0f3;
   --dsw-alias-state-business-primary:#4d6bfe;--dsw-alias-brand-primary:#4d6bfe}
-html[data-windows-titlebar]{--dsh-frame-top-clearance:var(--dsh-windows-titlebar-height);--dsh-frame-chrome-top:var(--dsh-windows-titlebar-height)}
-html[data-windows-titlebar][data-fullscreen]{--dsh-frame-chrome-top:0px}
+${frameVars}
 /* 真实 DSH 产品页面【没有】全局 box-sizing 重置:此处刻意不写,保持 <dialog> 为 content-box */
 html,body{height:100%;margin:0;font:14px system-ui}
-#caption{position:fixed;inset:0 0 auto;height:var(--dsh-windows-titlebar-height);background:#2b2f36;z-index:2147483647;display:flex;justify-content:flex-end}
+#caption{position:fixed;inset:0 0 auto;height:${captionHeight};background:#2b2f36;z-index:2147483647;display:flex;justify-content:flex-end}
 #caption i{width:46px;height:100%;display:grid;place-items:center;color:#fff;font-style:normal}
 #root{padding:24px}
 </style>
-<div id="caption" aria-hidden="true"><i>–</i><i>□</i><i>×</i></div>
+${caption}
 <div id="root"></div>
 <script>
-(function(){const env=${JSON.stringify(env)};const root=document.documentElement;if(env==='web')return;${preload}})();
+(function(){const env=${JSON.stringify(env)};const root=document.documentElement;if(env==='web')return;${isDarwin ? "root.dataset.platform='darwin';" : ''}${preload}})();
 </script>
 <script src="/entry.js"></script>`)
 })
