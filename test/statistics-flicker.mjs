@@ -98,9 +98,11 @@ assert.ok(typeof refreshKeyOf === 'function', '导出纯函数 refreshKeyOf')
 
 const baseState = {
   config: { locale: 'zh', decimals: 2, includeSubagentCost: true, currency: 'CNY', exchangeRate: 7.2,
-    fetchedAt: null, priceSource: 'bundled', priceMatch: 'auto', priceOverrides: {}, showTotalWithPlan: false, prices: {} },
+    fetchedAt: null, priceSource: 'bundled', priceMatch: 'auto', priceOverrides: {}, showTotalWithPlan: false, prices: {},
+    planBilling: { providers: {}, models: {} }, codingPlans: {}, goQuota: { enabled: false },
+    peakEnabled: false, peakEffectiveAt: null, peakWindows: [], peakHolidays: [] },
   meta: { dayKey: '2026-09-30', now: 1000 },
-  total: { calls: 28, cost: 0.2722 }, today: { calls: 28, cost: 0.2722 },
+  total: { calls: 28, cost: 0.2722, apiCost: 0.2722 }, today: { calls: 28, cost: 0.2722, apiCost: 0.2722 },
 }
 const keyOf = patch => refreshKeyOf({
   ...baseState, ...patch,
@@ -126,6 +128,19 @@ for (const [label, config] of [['汇率', { exchangeRate: 7.9 }], ['价格覆盖
   ['计费口径', { showTotalWithPlan: true }], ['子代理合计', { includeSubagentCost: false }], ['小数位', { decimals: 4 }]]) {
   assert.notEqual(keyOf({ config }), baseKey, `${label}变化必须重取(它直接改变展示金额)`)
 }
+// (D5b) 只改 apiCost、不改 cost/calls 的配置必须重取 —— 这些补丁恰是宿主
+// splitLedgerApiCost 只重写 apiCost 的那些(lib/store.js),账本汇总与 dayKey 都不动,
+// 重取键曾经带着 meta.now 时靠时间戳自愈,去掉后必须显式进键。
+for (const [label, config] of [['计费口径映射', { planBilling: { providers: {}, models: { 'deepseek:v4': 'plan' } } }],
+  ['订阅计划', { codingPlans: { qwen: { enabled: true } } }], ['Go 额度开关', { goQuota: { enabled: true } }],
+  ['峰谷开关', { peakEnabled: true }], ['峰谷生效点', { peakEffectiveAt: '2026-09-01T00:00:00.000Z' }],
+  ['峰谷时段', { peakWindows: [{ start: '09:00', end: '12:00' }] }],
+  ['单价表(手改单价/后台刷新价表)', { prices: { currency: 'CNY', models: { 'deepseek:v4': { cacheHit: 1, cacheMiss: 2, output: 3 } } } }]]) {
+  assert.notEqual(keyOf({ config }), baseKey, label + '变化必须重取(宿主只重算 apiCost,汇总数字与 dayKey 不变)')
+}
+// (D5c) 汇总里的 apiCost 单列:同一批调用换计费口径后,cost/calls 可以完全不变。
+assert.notEqual(keyOf({ total: { apiCost: 0.1 } }), baseKey, 'total.apiCost 变化必须重取')
+assert.notEqual(keyOf({ today: { apiCost: 0.1 } }), baseKey, 'today.apiCost 变化必须重取')
 // (D6) 与展示无关的配置变化**不应**触发重取(避免无谓请求)。
 assert.equal(keyOf({ config: { locale: 'en' } }), baseKey, '仅切换语言不得触发重取(文案在客户端本地化)')
 // (D7) 键必须稳定:同一状态重复计算结果相同(否则每次渲染都重取)。

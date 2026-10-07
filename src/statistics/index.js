@@ -110,6 +110,17 @@ window.__ModuleLoader__.load({
      * 宿主每次 buildState 都取 `Date.now()`(lib/index.js),把它放进键里会让每次轮询
      * 都触发重取 + 清屏(用户报的「闪一下」)。
      *
+     * 键里曾经带着 meta.now,任何配置变化都会因为「时间戳变了」顺带自愈;去掉这层兜底后,
+     * 凡是**改变统计输出却不改变 dayKey 与用量汇总**的配置都必须显式进键,否则已打开的
+     * 弹窗会停在旧值,直到有新调用入账或用户手动点「刷新」。曾经漏掉的两类:
+     *   1. 计费口径 planBilling / codingPlans / goQuota.enabled 与峰谷档位(peak*):宿主命中
+     *      这些补丁时只重算 apiCost(lib/store.js splitLedgerApiCost 只写 apiCost,不写 cost),
+     *      所以 total.cost/calls 与 dayKey 都不变;
+     *   2. 价格表 prices 本体:同币种改单价只影响宿主现算的明细单价(lib/index.js
+     *      getSessionBilling),账本 cost 同样不变 —— 而 fetchedAt/priceSource 只在「官方同步」
+     *      那一次更新,手改单价与后台刷新价表都不动它们。
+     * 口径与客户端既有实现保持一致(见 02 片段的 pricingKey),两处需要同步修改。
+     *
      * 抽成纯函数是为了让回归测试能直接断言「哪些变化应当/不应当触发重取」,
      * 而不是只做源码正则匹配(那种断言曾对子组件不重取的回归给出过虚假保证)。
      *
@@ -117,13 +128,17 @@ window.__ModuleLoader__.load({
      * @param revision - 用户手动点「刷新」的计数器。
      */
     function refreshKeyOf(state, revision) {
-      // 日期边界(跨零点换日)+ 已入账用量/金额(新轮次入账)。
-      const dataKey = [state.meta.dayKey, state.total?.calls, state.total?.cost, state.today?.calls, state.today?.cost].join(':')
+      // 日期边界(跨零点换日)+ 已入账用量/金额(新轮次入账)。apiCost 也单列:改计费口径后
+      // 宿主只重写它,不看它就会漏掉「同一批调用换了口径」这一变化。
+      const dataKey = [state.meta.dayKey, state.total?.calls, state.total?.cost, state.total?.apiCost,
+        state.today?.calls, state.today?.cost, state.today?.apiCost].join(':')
       // 展示相关配置指纹:改价格/汇率/口径会改变金额与明细内容,但账本与 dayKey 都不变。
-      // 刻意**不**序列化整张价格表(实测 158KB,每次渲染都算代价过高),只用宿主已有的
-      // 轻量信号(fetchedAt / priceSource / 币种)+ 用户可改的小字段。
-      const configKey = JSON.stringify([state.config.fetchedAt, state.config.priceSource, state.config.prices?.currency,
-        state.config.priceOverrides, state.config.priceMatch, state.config.currency, state.config.exchangeRate,
+      // 价格表按整体序列化(实测约 78KB、单次约 0.2ms,可接受):跳过它就只能靠 fetchedAt
+      // 这类间接信号,而手改单价与后台价表刷新都不动 fetchedAt。
+      const configKey = JSON.stringify([state.config.prices, state.config.priceOverrides, state.config.priceMatch,
+        state.config.planBilling, state.config.codingPlans, state.config.goQuota?.enabled,
+        state.config.peakEnabled, state.config.peakEffectiveAt, state.config.peakWindows, state.config.peakHolidays,
+        state.config.fetchedAt, state.config.priceSource, state.config.currency, state.config.exchangeRate,
         state.config.decimals, state.config.showTotalWithPlan, state.config.includeSubagentCost])
       return revision + ':' + dataKey + ':' + configKey
     }
