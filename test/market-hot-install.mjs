@@ -2,7 +2,7 @@
 // Exercise real Cordis, typert-loader/registry and gateway, plus the actual plugin.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, rmSync, utimesSync, existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -37,7 +37,7 @@ try {
     export { TYPERT } from ${JSON.stringify(new URL('../lib/typert.host.js', import.meta.url).href)};
     export function apply(ctx) { ctx.provide('costMeter', { getState() { throw Error('must not dispatch') } }) }
   `)
-  for (const mode of ['negative', 'hot', 'cold', 'late-registry', 'already-registered', 'unload-before-registry']) {
+  for (const mode of ['negative', 'hot', 'cold', 'stale-lock-cold', 'late-registry', 'already-registered', 'unload-before-registry']) {
     const host = new Context(), errors = []
     host.baseUrl = anchor
     host.logger = { error: error => errors.push(error), warn() {}, info() {} }
@@ -50,7 +50,15 @@ try {
       await host.plugin(Gateway, {}).await()
       if (mode === 'already-registered') host.typert.register(TYPERT)
       const existing = host.get('typert')?.getPackage('dsh-cost-meter')
-      if (mode === 'cold') {
+      if (mode === 'stale-lock-cold') {
+        const lock = join(work, 'storages', 'cost-meter', 'ledger.json.lock')
+        mkdirSync(lock)
+        const owner = join(lock, `${process.pid}-00000000-0000-0000-0000-000000000237`)
+        writeFileSync(owner, '')
+        const old = new Date(Date.now() - process.uptime() * 1000 - 10000)
+        utimesSync(owner, old, old)
+      }
+      if (mode === 'cold' || mode === 'stale-lock-cold') {
         await host.loader.root.update([{ id: 'cost-meter', name: 'dsh-cost-meter' }])
         await host.loader.await()
       } else {
@@ -60,6 +68,7 @@ try {
         await hot.await()
       }
       assert.ok(host.get('costMeter'), `${mode}: business service loaded`)
+      if (mode === 'stale-lock-cold') assert.equal(existsSync(join(work, 'storages', 'cost-meter', 'ledger.json.lock')), false, '#237: stale lock heals before real loader activation')
       if (mode === 'unload-before-registry') {
         await hot.dispose()
         await host.plugin(Registry).await()

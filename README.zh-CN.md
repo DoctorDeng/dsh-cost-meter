@@ -14,6 +14,8 @@
 
 桌面端用户请按 [Desktop 安装说明](docs/install-troubleshooting.md#desktop-安装与更新)，使用应用自带的 CLI 和 `desktop` Profile。
 
+启动报 **Ledger is busy** 且费用卡片消失时，参见[账本锁恢复说明](docs/ledger-lock-recovery.md#简体中文)。
+
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![dsh](https://img.shields.io/badge/DeepSeek%20Harness-dsh--plugin-4176E6)](https://github.com/deepseek-ai/deepseek-harness)
