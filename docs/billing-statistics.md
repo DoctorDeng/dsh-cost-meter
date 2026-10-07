@@ -2,7 +2,7 @@
 
 ## English
 
-Open a conversation and click **Cost details** in the same row as turns, speed, tokens and cache-hit statistics below its input box. **Settings → Cost → Display** has separate switches to hide the header entry, composer entry and turn cost summaries; all remain visible by default. The header entry automatically hides at viewport widths of 640px or less. The composer entry follows its own switch. Both buttons use compact 12px text. Budget chips take only their content width and no longer create an extra row. Cost badge visibility remains independent. The conversation entry opens its entire retained history, shows API and Plan equivalents separately, uses the sidebar cost basis by default, and puts component details before overview charts. Switching conversations closes the previous dialog. For all conversations, open **Settings → Cost → Cost statistics**; this entry starts with the last seven calendar days, including today.
+Open a conversation and click **Cost details** in the same row as turns, speed, tokens and cache-hit statistics below its input box. **Settings → Cost → Display** has separate switches to hide the header entry, composer entry and turn cost summaries; all remain visible by default. The header entry automatically hides at viewport widths of 640px or less. The composer entry follows its own switch. Both buttons use compact 12px text. Budget chips take only their content width and no longer create an extra row. Cost badge visibility remains independent. From 1.8.13, **Amount only below the composer (full split on hover)** in the same Display tab condenses the conversation cost line to its amounts. Hover retains cache hit rate, input/cache/output tokens and model amounts; header badges and Cost details stay available. The conversation entry opens its entire retained history, shows API and Plan equivalents separately, uses the sidebar cost basis by default, and puts component details before overview charts. Switching conversations closes the previous dialog. For all conversations, open **Settings → Cost → Cost statistics**; this entry starts with the last seven calendar days, including today.
 
 - **Periods:** Today, Last 7 days, Last 30 days, All retained, and custom inclusive dates. Dates follow the host timezone shown on the page.
 - **Filters:** Provider and model. Choose API cost, Plan equivalent, or their combined equivalent for chart amounts and rankings.
@@ -31,6 +31,8 @@ Cache hit rate is `cacheRead / (input + cacheRead + cacheWrite)`. Token composit
 The statistics screen uses DSH's package-local asynchronous module loader. Since **1.8.2**, the main and statistics Remote contributions have distinct registration identities; their combined lifecycle is tested against the real **0.1.7-rc.2** and **0.2.0-rc.2** client registry/gateway. Older hosts without that loader show an upgrade message; existing metering and settings remain available. Both shipped client files stay below the 256 KiB per-file limit.
 
 ## 简体中文
+
+从 1.8.13 起，可在**设置 → 费用 → 显示**开启“**输入区下方只显示金额（悬停可见完整分项）**”。费用行只显示金额，悬停保留命中率、输入／缓存／输出 Token 与模型金额。API 和 Plan 等值继续使用当前展示口径，标题栏徽章及“费用明细”入口保持原有行为；默认关闭。
 
 打开一个会话，点击**输入框下方与轮数、速度、Token 和缓存命中率同一行的「费用明细」**。在 **设置 → 费用 → 显示设置** 中，可分别隐藏标题栏入口、输入框下方入口和每轮回复后的费用行；默认均保留。视口不超过 640px 时，标题栏入口自动隐藏，输入框下方入口继续遵守自己的开关。两个明细按钮使用 12px 字号和紧凑间距；预算标签仅占内容所需宽度，不再独占整行。关闭费用徽章不影响明细入口。对话入口默认显示该对话保留的全部历史，API 与 Plan 等值分别列出，默认金额口径跟随侧栏的“含 Plan 总额”设置，费用构成放在趋势图之前。切换会话会关闭旧明细。全部会话统计的入口为 **设置 → 费用 → 计费统计**，默认显示包含今天的近 7 个自然日。
 

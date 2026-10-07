@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import './zai-candidates.mjs'
 import './ledger-concurrency.mjs'
+import './ledger-lock-recovery.mjs'
 import './external-usage.mjs'
 import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
