@@ -126,9 +126,17 @@ try {
       .map(([name, off, high]) => `<tr><td>${name}</td><td>OFF-PEAK</td><td>$${off}</td></tr><tr><td>${name}</td><td>PEAK</td><td>$${high}</td></tr>`).join('') + '</table><!--' + 'fixture '.repeat(80) + '-->'
   globalThis.fetch = async url => {
     if (String(url) === OPENROUTER_MODELS_URL) { directoryCalls++; return directoryOk ? response([row('vendor/service')]) : new Response('', { status: 503 }) }
-    if (String(url).includes('api-docs.deepseek.com')) return officialOk ? new Response(html) : new Response('', { status: 503 })
+    if (new URL(url).origin === 'https://api-docs.deepseek.com') return officialOk ? new Response(html) : new Response('', { status: 503 })
     throw new Error('unexpected test request: ' + url)
   }
+  for (const url of [
+    'https://attacker.example/api-docs.deepseek.com',
+    'https://api-docs.deepseek.com.attacker.example/pricing',
+    'https://api-docs.deepseek.com@attacker.example/pricing',
+    'https://attacker-api-docs.deepseek.com/pricing',
+    'http://api-docs.deepseek.com/pricing',
+    'https://api-docs.deepseek.com:4444/pricing',
+  ]) await assert.rejects(globalThis.fetch(url), /unexpected test request/, 'reject a spoofed official pricing URL')
   for (const [set, clear, delay] of [['setTimeout', 'clearTimeout', 3000], ['setInterval', 'clearInterval', 3600_000]]) {
     globalThis[set] = (fn, ms, ...args) => {
       if (ms !== delay) return nativeTimers[set](fn, ms, ...args)
