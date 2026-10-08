@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { transform } from 'esbuild'
 import { runInNewContext } from 'node:vm'
 import assert from 'node:assert/strict'
+import { javascriptLiteral } from './javascript-literal.mjs'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -104,7 +105,7 @@ const unpacked = Object.fromEntries(packedMessages.map(([locale, packed]) => {
   return [locale, Object.fromEntries(messageKeys.map((key, i) => [key, values[i]]).filter(([, value]) => value !== '\0'))]
 }))
 assert.deepEqual(unpacked, JSON.parse(JSON.stringify(messages)), 'dictionary packing must preserve every translation')
-src = src.replace(messagesMatch[0], () => `const messageKeys=${JSON.stringify(messageKeys.join(separator))}.split(${JSON.stringify(separator)});const messagePhrases=${JSON.stringify(phrases.join(separator))}.split(${JSON.stringify(separator)});const MESSAGES=Object.fromEntries(${JSON.stringify(packedMessages)}.map(([locale,packed])=>{const values=packed.replace(/${tokenRange}/g,token=>messagePhrases[token.charCodeAt(0)-${tokenBase}]).split(${JSON.stringify(separator)});return [locale,Object.fromEntries(messageKeys.map((key,i)=>[key,values[i]]).filter(([,value])=>value!=="\\0"))]}));\n`)
+src = src.replace(messagesMatch[0], () => `const messageKeys=${javascriptLiteral(messageKeys.join(separator))}.split(${javascriptLiteral(separator)});const messagePhrases=${javascriptLiteral(phrases.join(separator))}.split(${javascriptLiteral(separator)});const MESSAGES=Object.fromEntries(${javascriptLiteral(packedMessages)}.map(([locale,packed])=>{const values=packed.replace(/${tokenRange}/g,token=>messagePhrases[token.charCodeAt(0)-${tokenBase}]).split(${javascriptLiteral(separator)});return [locale,Object.fromEntries(messageKeys.map((key,i)=>[key,values[i]]).filter(([,value])=>value!=="\\0"))]}));\n`)
 // CSS 在源码保留逐行审阅形式；发布时先按 CSS 语法压缩，再嵌入同一客户端。
 // 不删除规则、不调整选择器优先级，所有样式仍在受字节门禁检查的 bundle 内。
 const cssMatch = src.match(/const css = (\[[\s\S]*?\]\.join\('\\n'\))/)
@@ -112,7 +113,7 @@ if (!cssMatch) throw new Error('client CSS source not found')
 const css = runInNewContext(cssMatch[1], Object.create(null), { timeout: 1000 })
 const cssResult = await transform(css, { loader: 'css', minify: true, charset: 'utf8', target: 'es2022' })
 if (cssResult.warnings.length) throw new Error('client CSS contains build warnings')
-src = src.replace(cssMatch[0], () => `const css = ${JSON.stringify(cssResult.code.trim())}`)
+src = src.replace(cssMatch[0], () => `const css = ${javascriptLiteral(cssResult.code.trim())}`)
 const result = await transform(src, {
   minify: true,
   keepNames: false,
