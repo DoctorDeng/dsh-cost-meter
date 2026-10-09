@@ -43,12 +43,13 @@ const pluginSource = file => baseline
   ? execFileSync('git', ['show', 'v1.8.1:lib/' + file], { encoding: 'utf8' })
   : readFileSync(new URL('../lib/' + file, import.meta.url), 'utf8')
 const statistics = moduleFrom(pluginSource('client.statistics.js'), () => React)
+const catalog = baseline ? null : moduleFrom(pluginSource('client.openrouter.js'), () => React)
 let loadCalls = 0, failLoad = false
 const requireMain = id => id === 'react' ? React : {}
 requireMain.async = async id => {
-  assert.equal(id, './client.statistics.js'); loadCalls++
+  assert.ok(['./client.statistics.js', './client.openrouter.js'].includes(id)); loadCalls++
   if (failLoad) { failLoad = false; throw new Error('synthetic chunk load failure') }
-  return statistics
+  return id === './client.statistics.js' ? statistics : catalog
 }
 const main = moduleFrom(pluginSource('client.js'), requireMain)
 const client = new Context()
@@ -60,6 +61,7 @@ class Connection extends Service {
       call: async (channel, endpoint, payload) => {
         assert.equal(channel, '/api'); calls.push([endpoint, payload.args])
         if (endpoint === 'costMeter/getState') return { ok: true, value: state }
+        if (endpoint === 'costMeter/getOpenRouterCatalog') return { ok: true, value: { fetchedAt: '2026-10-09T05:00:00Z', stale: false, error: '', models: [] } }
         if (endpoint === 'costMeter/loginCodingPlan') return { ok: true, value: { ok: false, message: 'synthetic login response', state } }
         if (endpoint === 'costMeter/getBillingStatistics') return { ok: true, value: billingStatistics(ledger, payload.args.query) }
         if (endpoint === 'costMeter/getSessionBilling') return { ok: true, value: await getSessionBilling(ledger, { get: () => ({ get: () => ({ snapshotEvents: () => [] }) }) }, payload.args.query) }
@@ -122,6 +124,10 @@ try {
     assert.equal((await api.getTurnInspection({ sessionId: 'selected', turn: 1 })).found, false)
     assert.equal((await first.api.loginCodingPlan('qwen')).message, 'synthetic login response')
     assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/loginCodingPlan', { provider: 'qwen' }], 'login RPC reaches the real gateway with its provider parameter')
+    const [Prices, samePrices] = await Promise.all([first.api.loadOpenRouter(), first.api.loadOpenRouter()])
+    assert.equal(Prices, samePrices, 'concurrent catalog opens share one mounted contribution')
+    assert.equal((await Prices({ state }).props.api.getOpenRouterCatalog()).stale, false)
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/getOpenRouterCatalog', {}])
     const expectedMethods = TYPERT.invocations.filter(d => d.namespace === 'costMeter').map(d => d.method).sort()
     const actualMethods = Array.from(client.typert.remotes.list().filter(d => d.namespace === 'costMeter'), d => d.method).sort()
     assert.deepEqual(actualMethods, expectedMethods, 'all main and statistics methods coexist exactly once')

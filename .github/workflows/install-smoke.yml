@@ -59,6 +59,7 @@ jobs:
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-statistics-client/node_modules"
           node test/statistics-remote-registration.mjs
           node test/host-locale-client.mjs
+          node test/openrouter-catalog-client.mjs
           # 闪烁回归要真实驱动组件(jsdom + react),因此放在本作业执行:verify.mjs 所在的
           # 两个作业只装 DSH 包,没有 jsdom —— 那样会在 import 阶段 MODULE_NOT_FOUND。
           node test/statistics-flicker.mjs
