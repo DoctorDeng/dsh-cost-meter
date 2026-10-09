@@ -517,6 +517,10 @@ dsh --profile web --port 3099                           # 真机启动(观察启
 
 各版本更新总览与社区 issue 处理记录见 [docs/UPDATE-HISTORY.md](docs/UPDATE-HISTORY.md);逐条开发记录见 [CHANGELOG.md](CHANGELOG.md)。
 
+## Star 增长记录
+
+![dsh-cost-meter 的 GitHub Star 增长记录](docs/star-history.png)
+
 ## License
 
 [MIT](LICENSE) © 2026 dsh-cost-meter contributors

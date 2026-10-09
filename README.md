@@ -513,6 +513,10 @@ Check and clear the host search before changing stored data.
 
 A per-version overview and the community-issue resolution log live in [docs/UPDATE-HISTORY.md](docs/UPDATE-HISTORY.md) (中文); the itemized changelog is [CHANGELOG.md](CHANGELOG.md).
 
+## Star History
+
+![GitHub star history of dsh-cost-meter](docs/star-history.png)
+
 ## License
 
 [MIT](LICENSE) © 2026 dsh-cost-meter contributors
