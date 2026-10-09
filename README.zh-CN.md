@@ -8,11 +8,13 @@
 
 本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;周末与中国法定假日全天按谷价,分别标注) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 170+ 模型 ID 价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 / 千问 / 小米 MiMo 十一家,含 Volcano Ark AK/SK 签名与 MiMo 控制台 Cookie 查询) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
 
-[![version](https://img.shields.io/badge/version-1.8.12-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.8.15-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.8.12** 增加百炼 CLI 控制台登录按钮，登录后核验凭据并刷新额度，支持并发合并与切源取消。详见[更新说明](docs/release-notes/v1.8.12.md)。
+**v1.8.15** 修复费用明细弹窗遮挡桌面端标题栏及窄窗口横向溢出；自动刷新时保留已有内容和展开的轮次，并同步新用量。详见[更新说明](docs/release-notes/v1.8.15.md)。
 
 桌面端用户请按 [Desktop 安装说明](docs/install-troubleshooting.md#desktop-安装与更新)，使用应用自带的 CLI 和 `desktop` Profile。
+
+启动报 **Ledger is busy** 且费用卡片消失时，参见[账本锁恢复说明](docs/ledger-lock-recovery.md#简体中文)。
 
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -32,7 +34,7 @@
 |---|---|---|
 | 计费统计与明细 | 会话输入框下方 / 标题栏 / 设置 → 费用 → 计费统计 | 输入、输出、缓存、推理费用；按轮次、模型、搜索和压缩统计；日、周、月及全部记录。[说明](docs/billing-statistics.md#简体中文) |
 | 按模型花费卡片 | 侧栏 / 右下角 dock（可配） | 默认关闭；就地展开 Top-N、其它汇总、占比和可选 Token；支持今日 / 近 90 天、展开记忆及 Top-1 角标，见[使用说明](docs/model-cost-card.md) |
-| 本会话费用 | 输入区下方 / 会话标题栏 | 实时累计费用 + 输入/缓存/输出 token；输入区下方在“输入”前显示缓存命中率（缓存读取 / 含缓存写入的全部输入），位置可配 |
+| 本会话费用 | 输入区下方 / 会话标题栏 | 实时累计费用 + 输入/缓存/输出 token；输入区下方在“输入”前显示缓存命中率（缓存读取 / 含缓存写入的全部输入），位置可配；显示页可开启输入区下方只显示金额，完整费用行保留在悬停提示中 |
 | 官方余额 | 侧边栏顶部 / 设置页(可配) | 总余额 / 赠送 / 充值,自动刷新 + 手动刷新;可选三段进度条(蓝/橙/灰),当日段只统计官方渠道费用(不含 Coding Plan / 自定义 Provider) |
 | 自定义 Provider 余额 | 侧边栏 / 设置页(可配) | 可配置 HTTP 查询任意 Provider 余额(LiteLLM 等);中/英名称、币种、extract 规则(点路径 / 数字常量 / add / subtract / divide,divide 适配 NewApi 等 quota 端点,见下方[示例](#自定义-provider-余额配置示例newapi-模板));与 Coding Plan 同区可折叠配置 |
 | OpenCode Go 额度 | 侧边栏 / 设置页 / 右下角(dock,可配) | 滚动 5 小时 / 本周 / 本月用量百分比与重置时间,三档可分别开关,可同时显示预算已用%;Key 自动发现(专用引用 / 官方 Go 路由 apiKeyEnv / 环境变量 / opencode 登录态)或手动填写 |
@@ -320,22 +322,22 @@ Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安�
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.8.12`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.8.15`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.12/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.15/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.12
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.15
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.12.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.15.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):

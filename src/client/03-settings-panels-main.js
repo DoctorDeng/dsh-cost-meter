@@ -20,6 +20,31 @@
       return el('p', { role: error ? 'alert' : 'status' }, error || '…', error ? el('button', { className: 'cm-btn', onClick: () => setRetry(n => n + 1) }, '↻') : null)
     }
 
+    /**
+     * 费用明细弹窗的定位与尺寸。
+     *
+     * 样式写在 01 片段的 .cm-stat-dialog 规则里,**不用内联样式**。三个理由:
+     *
+     * 1. 内联样式会盖掉皮肤对 [role=dialog] 的定位规则。v1.8.6 补 role="dialog" 的
+     *    本意就是让皮肤能接管这个弹窗的样式(issue #219),内联 inset/margin 会让
+     *    皮肤把弹窗钉到底部一类的规则失效。
+     * 2. 顶部避让量要走四级回退链,并注册成 <length>(@property --cm-dialog-top):
+     *    宿主变量「存在但为空值/非法值」时,var() 不会走 fallback,calc()/inset 会在
+     *    计算值阶段整条失效(IACVT)——弹窗失去高度上限、被内容撑到视口外且无法滚动,
+     *    比修复前更差。注册后非法值整体退回 initial-value 0px,仍是一份可用的兜底。
+     * 3. 旧宿主(≤0.1.7)没有 --dsh-frame-chrome-top,全屏时回退链会命中不随全屏变化的
+     *    --dsh-windows-titlebar-height(40px),白留一条 40px 空隙;样式表里补一条
+     *    html[data-fullscreen] 归零规则。新宿主本就由 chrome-top 归 0,这条是旧宿主兜底。
+     *
+     * 四级回退的取值来源(顺序不能换:全屏时 chrome-top 为 0,后两级仍是 40/48px,
+     * 排前面会让全屏白留空隙):
+     *   --dsh-frame-chrome-top      DSH ≥0.2.0:Windows 标题栏高,全屏由宿主置 0;darwin 未定义
+     *   --dsh-frame-top-clearance   darwin 红绿灯区 48px;DSH ≥0.2.0 的 Windows 由它派生
+     *   --dsh-windows-titlebar-height  Electron preload 注入的 40px(旧宿主唯一保证存在的一级)
+     *   0px                         纯 Web / 未标记环境:与修复前一致
+     */
+    const STAT_DIALOG_CLASS = 'cm-stat-dialog'
+
     function SessionStatisticsButton(props) {
       const snapshot = props.useCost?.(s => s), state = snapshot?.state
       const [openedId, setOpenedId] = useState(null), dialog = React.useRef(null)
@@ -32,7 +57,7 @@
       const label = en ? 'Conversation cost details' : '本会话费用明细'
       return el(Fragment, null,
         el('button', { type: 'button', className: 'cm-btn cm-stat-entry cm-stat-' + (props.entryPosition || 'dock'), title: label, 'aria-label': label, 'aria-haspopup': 'dialog', onClick: () => setOpenedId(props.sessionId) }, en ? 'Cost details' : '费用明细'),
-        open ? el('dialog', { ref: dialog, role: 'dialog', 'aria-label': label, onCancel: () => setOpenedId(null), style: { width: 'min(1160px,94vw)', maxHeight: '90vh', padding: 24, borderRadius: 16, border: '1px solid var(--dsw-alias-border-l1)', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base,#fff)' } },
+        open ? el('dialog', { ref: dialog, role: 'dialog', className: STAT_DIALOG_CLASS, 'aria-label': label, onCancel: () => setOpenedId(null) },
           el('button', { type: 'button', className: 'cm-btn', autoFocus: true, 'aria-label': en ? 'Close' : '关闭', onClick: () => setOpenedId(null), style: { float: 'right' } }, '×'),
           state ? el(BillingStatistics, { key: props.sessionId, state, api: props.api, sessionId: props.sessionId }) : el('p', { role: snapshot?.error ? 'alert' : 'status' }, snapshot?.error || (en ? 'Loading…' : '加载中…'), el('button', { type: 'button', className: 'cm-btn', onClick: () => props.api.reload() }, en ? 'Retry' : '重试'))) : null)
     }
@@ -2277,7 +2302,7 @@
                 onChange: event => setField('showSessionId', event.target.checked),
               }),
               el('span', null, t('showSessionIdLabel'))),
-            ...['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost'].map(key => el('label', { key, className: 'cm-check' },
+            ...['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact'].map(key => el('label', { key, className: 'cm-check' },
               el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
               el('span', null, t(key)))),
             el('div', { className: 'cm-grid-group' }, t('groupMoney')),

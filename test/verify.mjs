@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import './zai-candidates.mjs'
 import './ledger-concurrency.mjs'
+import './ledger-lock-recovery.mjs'
 import './external-usage.mjs'
 import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -6768,6 +6769,8 @@ await import('./turn-cost.mjs')
 await import('./billing-statistics.mjs')
 await import('./turn-inspection.mjs')
 await import('./billing-statistics-client.mjs')
+// 无外部依赖(纯 vm + 假 DOM),因此并入本套件而不是浏览器作业。
+await import('./client-style-injection.mjs')
 await import('./native-search-history.mjs')
 await import('./versioned-session-logs.mjs')
 await import('./session-log-repair.mjs')

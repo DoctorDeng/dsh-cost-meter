@@ -2,7 +2,7 @@
 
 ## English
 
-Open a conversation and click **Cost details** in the same row as turns, speed, tokens and cache-hit statistics below its input box. **Settings → Cost → Display** has separate switches to hide the header entry, composer entry and turn cost summaries; all remain visible by default. The header entry automatically hides at viewport widths of 640px or less. The composer entry follows its own switch. Both buttons use compact 12px text. Budget chips take only their content width and no longer create an extra row. Cost badge visibility remains independent. The conversation entry opens its entire retained history, shows API and Plan equivalents separately, uses the sidebar cost basis by default, and puts component details before overview charts. Switching conversations closes the previous dialog. For all conversations, open **Settings → Cost → Cost statistics**; this entry starts with the last seven calendar days, including today.
+Open a conversation and click **Cost details** in the same row as turns, speed, tokens and cache-hit statistics below its input box. **Settings → Cost → Display** has separate switches to hide the header entry, composer entry and turn cost summaries; all remain visible by default. The header entry automatically hides at viewport widths of 640px or less. The composer entry follows its own switch. Both buttons use compact 12px text. Budget chips take only their content width and no longer create an extra row. Cost badge visibility remains independent. From 1.8.13, **Amount only below the composer (full split on hover)** in the same Display tab condenses the conversation cost line to its amounts. Hover retains cache hit rate, input/cache/output tokens and model amounts; header badges and Cost details stay available. The conversation entry opens its entire retained history, shows API and Plan equivalents separately, uses the sidebar cost basis by default, and puts component details before overview charts. Switching conversations closes the previous dialog. For all conversations, open **Settings → Cost → Cost statistics**; this entry starts with the last seven calendar days, including today.
 
 - **Periods:** Today, Last 7 days, Last 30 days, All retained, and custom inclusive dates. Dates follow the host timezone shown on the page.
 - **Filters:** Provider and model. Choose API cost, Plan equivalent, or their combined equivalent for chart amounts and rankings.
@@ -13,6 +13,8 @@ Open a conversation and click **Cost details** in the same row as turns, speed, 
 - **Step shares:** Horizontal bars show cost components, call-type counts and each logged step's share. Switch between costs and call counts. The denominator covers all filtered calls, across pages; the top 12 steps plus a combined remainder preserve the full amount. Tools are not counted as additional model calls. No recorded step stays explicitly unassigned.
 - **Turn inspection:** Expand a turn to load its original user inputs, then expand each tool to see arguments, result and completion/error status. Tool records paginate 20 at a time; each long text field shows up to 16,000 characters with an explicit notice. Attachments show their type; system prompts, request headers and binary data are excluded. This is the whole turn, independent of the billing filters. Opening the overview does not load these contents.
 - **Appearance:** Native DSH theme tokens, neutral surfaces, light borders, compact segmented controls and collapsible explanations replace the earlier colored dashboard cards. Light/dark themes and narrow windows share the same layout rules.
+
+From **1.8.15**, the conversation dialog centers within the area below the Desktop title bar, including older Windows hosts and macOS clearance. Fullscreen and Web use the full viewport; narrow windows include padding in the width limit and scroll long content inside the dialog. Client hot reload replaces outdated styles. Automatic refresh keeps existing results and expanded turns, updates both overview and detail when usage or pricing changes, and displays background errors without clearing previous values.
 
 ### What the numbers mean
 
@@ -32,6 +34,8 @@ The statistics screen uses DSH's package-local asynchronous module loader. Since
 
 ## 简体中文
 
+从 1.8.13 起，可在**设置 → 费用 → 显示**开启“**输入区下方只显示金额（悬停可见完整分项）**”。费用行只显示金额，悬停保留命中率、输入／缓存／输出 Token 与模型金额。API 和 Plan 等值继续使用当前展示口径，标题栏徽章及“费用明细”入口保持原有行为；默认关闭。
+
 打开一个会话，点击**输入框下方与轮数、速度、Token 和缓存命中率同一行的「费用明细」**。在 **设置 → 费用 → 显示设置** 中，可分别隐藏标题栏入口、输入框下方入口和每轮回复后的费用行；默认均保留。视口不超过 640px 时，标题栏入口自动隐藏，输入框下方入口继续遵守自己的开关。两个明细按钮使用 12px 字号和紧凑间距；预算标签仅占内容所需宽度，不再独占整行。关闭费用徽章不影响明细入口。对话入口默认显示该对话保留的全部历史，API 与 Plan 等值分别列出，默认金额口径跟随侧栏的“含 Plan 总额”设置，费用构成放在趋势图之前。切换会话会关闭旧明细。全部会话统计的入口为 **设置 → 费用 → 计费统计**，默认显示包含今天的近 7 个自然日。
 
 - **时间范围：**今天、近 7 天、近 30 天、全部保留记录，以及包含起止日期的自定义区间。日期按页面标明的宿主时区划分。
@@ -43,6 +47,8 @@ The statistics screen uses DSH's package-local asynchronous module loader. Since
 - **步骤占比：**横向条形图展示费用构成、调用类型次数和各步骤占比，可切换费用或调用次数。分母覆盖筛选后的全部调用，跨页合计；显示前 12 个步骤，其余合并，保留完整金额与次数。没有步骤编号的调用单列；工具执行不额外算作模型调用。
 - **展开轮次：**点击一轮才读取其用户输入和工具调用，继续展开工具可查看参数、结果、完成或失败状态。工具每页 20 条，单段文本最多显示 16,000 个字符并标明截断；附件只显示类型，不读取系统提示、请求头或二进制内容。这里显示整轮原始记录，不受计费筛选影响。打开统计首页不会加载这些正文。
 - **界面：**使用 DSH 的主题颜色、轻边框、紧凑分段按钮和可折叠说明，替换原来的彩色顶部卡片；支持浅色、深色和窄窗口。
+
+从 **1.8.15** 起，单对话弹窗在桌面标题栏下方的区域居中，兼容旧版 Windows 和 macOS 顶部空间；全屏与 Web 使用完整视口。窄窗口的宽度限制包含内边距，长内容在弹窗内滚动，热更新会替换陈旧样式。自动刷新保留已有结果和展开轮次，用量或计费配置变化后同时更新概览和明细，后台失败显示错误并保留旧值。
 
 ### 统计口径
 

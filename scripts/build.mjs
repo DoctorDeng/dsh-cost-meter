@@ -77,26 +77,34 @@ for (const value of Object.values(messages).flatMap(Object.values)) {
   }
 }
 const phrases = []
-const tokenBase = 0xe000
-assert.ok(dictionaryStrings.every(value => !/[\ue000-\ue0ff]/.test(value)), 'phrase tokens must be unused')
+// Token 用 UTF-8 只占 2 字节的区间(拉丁扩展-B),而不是 3 字节的 U+E000 私用区:
+// 每次替换省 1 字节,短短语也因此变得划算。产物贴着 DSH STORE 单文件上限时,
+// 这是唯一能靠构建解决、又不改动任何界面文案的字节来源。
+const TOKEN_BYTES = 2
+const tokenBase = 0x0180
+const tokenLast = tokenBase + 255
+const tokenRange = `[${String.fromCharCode(tokenBase)}-${String.fromCharCode(tokenLast)}]`
+assert.ok(dictionaryStrings.every(value => !new RegExp(tokenRange).test(value)), 'phrase tokens must be unused')
 const phraseBytes = phrase => Buffer.byteLength(phrase)
 const candidates = [...phraseCounts].filter(([, count]) => count >= 2)
-  .sort((a, b) => (phraseBytes(b[0]) - 3) * b[1] - (phraseBytes(a[0]) - 3) * a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+  .sort((a, b) => (phraseBytes(b[0]) - TOKEN_BYTES) * b[1] - (phraseBytes(a[0]) - TOKEN_BYTES) * a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
 for (const [phrase] of candidates) {
   const count = packedMessages.reduce((sum, [, packed]) => sum + packed.split(phrase).length - 1, 0)
-  if (count * (phraseBytes(phrase) - 3) <= phraseBytes(phrase) + 8) continue
+  // 短语表里一条的成本是 len + 1(分隔符),每次出现省 (len - TOKEN_BYTES);只收净赚的。
+  if (count * (phraseBytes(phrase) - TOKEN_BYTES) <= phraseBytes(phrase) + 1) continue
   const token = String.fromCharCode(tokenBase + phrases.length)
   phrases.push(phrase)
   for (const row of packedMessages) row[1] = row[1].split(phrase).join(token)
-  if (phrases.length === 128) break
+  // 256 个槽位(见上方 unused 断言)用满即止。
+  if (phrases.length === 256) break
 }
-const restorePhrases = packed => packed.replace(/[\ue000-\ue0ff]/g, token => phrases[token.charCodeAt(0) - tokenBase])
+const restorePhrases = packed => packed.replace(new RegExp(tokenRange, 'g'), token => phrases[token.charCodeAt(0) - tokenBase])
 const unpacked = Object.fromEntries(packedMessages.map(([locale, packed]) => {
   const values = restorePhrases(packed).split(separator)
   return [locale, Object.fromEntries(messageKeys.map((key, i) => [key, values[i]]).filter(([, value]) => value !== '\0'))]
 }))
 assert.deepEqual(unpacked, JSON.parse(JSON.stringify(messages)), 'dictionary packing must preserve every translation')
-src = src.replace(messagesMatch[0], () => `const messageKeys=${JSON.stringify(messageKeys.join(separator))}.split(${JSON.stringify(separator)});const messagePhrases=${JSON.stringify(phrases.join(separator))}.split(${JSON.stringify(separator)});const MESSAGES=Object.fromEntries(${JSON.stringify(packedMessages)}.map(([locale,packed])=>{const values=packed.replace(/[\ue000-\ue0ff]/g,token=>messagePhrases[token.charCodeAt(0)-${tokenBase}]).split(${JSON.stringify(separator)});return [locale,Object.fromEntries(messageKeys.map((key,i)=>[key,values[i]]).filter(([,value])=>value!=="\\0"))]}));\n`)
+src = src.replace(messagesMatch[0], () => `const messageKeys=${JSON.stringify(messageKeys.join(separator))}.split(${JSON.stringify(separator)});const messagePhrases=${JSON.stringify(phrases.join(separator))}.split(${JSON.stringify(separator)});const MESSAGES=Object.fromEntries(${JSON.stringify(packedMessages)}.map(([locale,packed])=>{const values=packed.replace(/${tokenRange}/g,token=>messagePhrases[token.charCodeAt(0)-${tokenBase}]).split(${JSON.stringify(separator)});return [locale,Object.fromEntries(messageKeys.map((key,i)=>[key,values[i]]).filter(([,value])=>value!=="\\0"))]}));\n`)
 // CSS 在源码保留逐行审阅形式；发布时先按 CSS 语法压缩，再嵌入同一客户端。
 // 不删除规则、不调整选择器优先级，所有样式仍在受字节门禁检查的 bundle 内。
 const cssMatch = src.match(/const css = (\[[\s\S]*?\]\.join\('\\n'\))/)
