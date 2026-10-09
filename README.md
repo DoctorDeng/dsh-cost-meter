@@ -8,9 +8,9 @@
 
 Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; weekends and Chinese public holidays are off-peak all day, with separate labels) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 170+ model-ID catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / Volcano Ark / Qwen / Xiaomi MiMo) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
 
-[![version](https://img.shields.io/badge/version-1.8.16-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.8.17-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.8.16** adds a searchable OpenRouter price browser in Settings → Cost → Prices. It refreshes every minute while visible, shows price changes and uses the public catalog without an API key or model usage charges. See the [guide](docs/openrouter-prices.md#english).
+**v1.8.17** adds OpenRouter prices to the model picker: hover a model to see input, output and cache rates, context length and the last update time in DSH's native tooltip. Prices refresh every minute while the menu is open and visible, without an API key or model usage charges. The searchable price browser remains in Settings → Cost → Prices. See the [guide](docs/openrouter-prices.md#english).
 
 Desktop users: follow the [Desktop installation instructions](docs/install-troubleshooting.md#desktop-安装与更新) for the application's own CLI and `desktop` Profile.
 
@@ -32,7 +32,7 @@ If startup reports **Ledger is busy** and the cost widgets are missing, see [led
 
 | Feature | Location | Description |
 |---|---|---|
-| OpenRouter model prices | Settings → Cost → Prices | Search current public token prices before using a model; automatic foreground refresh, price-change markers and official model links. No API key or inference charges. [Guide](docs/openrouter-prices.md#english) |
+| OpenRouter model prices | Model picker / Settings → Cost → Prices | Hover a model for token rates and update time, or search the full catalog in Settings; automatic foreground refresh, price-change markers in the table and official model links. No API key or inference charges. [Guide](docs/openrouter-prices.md#english) |
 | Cost statistics | Below the conversation input / title bar / Settings → Cost → Cost statistics | Day, week, month, all retained and custom periods; API/Plan split, trends, model/conversation rankings and per-call costs. [Guide](docs/billing-statistics.md#english); statistics requires DSH’s asynchronous module loader |
 | Per-model cost card | Sidebar / composer dock (optional) | Disabled by default; inline Top-N, Other totals, shares and optional tokens, Today / Last 90 days, remembered expansion and a Top-1 chip. See the [guide](docs/model-cost-card.md#english) |
 | Per-conversation cost | Below the composer / session title bar | Live accumulated cost + input/cache/output tokens; the composer footer shows cache hit rate before Input (cache reads / all input, including cache writes); position configurable; Display settings can show only amounts below the composer, with the full line retained on hover |
@@ -323,22 +323,22 @@ On Node.js 20, use `npm install -g pnpm@10` instead. See [pnpm installation and 
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.8.16`** — review the script before running):
+**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.8.17`** — review the script before running):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.16/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.17/install.ps1 | iex
 ```
 
 **Or a plain command line** (the machine must already have pnpm and git; also pinned to the tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.16
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.17
 ```
 
 Without git, use the GitHub tag archive:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.16.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.17.tar.gz
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):

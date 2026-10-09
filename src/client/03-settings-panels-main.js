@@ -2789,7 +2789,7 @@
       const pages = {}
       const loadPage = name => {
         if (!pages[name]) pages[name] = (typeof require.async === 'function'
-          ? require.async('./client.' + name + '.js').then(module => module.mount(ctx))
+          ? require.async('./client.' + name + '.js').then(module => module.mount(ctx, () => resolveLocale(store.getSnapshot().state?.config ?? { activeLocale: readLocale() })))
           : Promise.reject(new Error(rpcT()('statisticsUpgrade')))).catch(error => { delete pages[name]; throw error })
         return pages[name]
       }
@@ -2835,6 +2835,13 @@
         clearCredential: async target => receive(costMeter.clearCredential(target), 'rpcSyncFailed', true),
       }
 
+      const loadModelPrices = event => {
+        if (event.target?.closest?.('[data-slot="conversation.input.model"]')) void api.loadOpenRouter().catch(() => {})
+      }
+      for (const event of ['pointerover', 'focusin']) ctx.effect(() => {
+        document.addEventListener(event, loadModelPrices)
+        return () => document.removeEventListener(event, loadModelPrices)
+      })
       void reload()
 
       const slots = ctx.get('slots')

@@ -1,4 +1,4 @@
-/** Read-only OpenRouter price browser, loaded only with Settings > Cost > Prices. */
+/** Read-only OpenRouter prices, loaded by Prices settings or the composer model picker. */
 window.__ModuleLoader__.load({
   id: 'dsh-cost-meter', chunk: 'client.openrouter.js',
   factory: require => {
@@ -87,7 +87,97 @@ window.__ModuleLoader__.load({
           button(text('下一页', 'Next'), () => setPage(current + 1), (current + 1) * 50 >= rows.length)),
         el('p', { className: 'cm-note' }, text('显示当前公开 token 参考价；— 表示目录未提供。具体路由、阶梯价格和图片、搜索等附加费用请点模型查看。优惠与实际结算以 OpenRouter 为准。', 'Current public token reference rates; — means unavailable. Open a model for routing, price tiers and extra image/search fees. Promotions and final charges are determined by OpenRouter.')))
     }
-    async function mount(ctx) {
+    // The host model picker exposes no per-option slot. Preserve its native title
+    // tooltip, resolving each row through the host catalog instead of guessing IDs
+    // from display names or touching React internals / selection handlers.
+    function pickerModel(button, groups) {
+      const name = button.querySelector('span[class$="_modelName"]')?.textContent
+      const section = button.closest('section[role="group"][aria-labelledby]')
+      const heading = section && document.getElementById(section.getAttribute('aria-labelledby'))
+      if (!name || !heading || !section.contains(heading)) return null
+      const matches = groups.filter(group => group.name === heading.textContent)
+      if (matches.length !== 1 || !['openrouter', 'llm-openrouter'].includes(matches[0].id)) return null
+      const models = matches[0].models.filter(model => model.name === name)
+      return models.length === 1 ? models[0] : null
+    }
+    function priceTooltip(model, value, locale, error = '') {
+      const en = locale === 'en', text = (zh, english) => en ? english : zh
+      const row = value?.models.find(row => row.id === model.id)
+      const lines = [model.name, 'OpenRouter · ' + model.id]
+      if (row) {
+        lines.push(text('美元 / 百万 tokens', 'USD / million tokens'))
+        for (const [key, zh, english] of [['input', '输入', 'Input'], ['output', '输出', 'Output'], ['cachedInput', '缓存读取', 'Cache read'], ['cacheWrite', '缓存写入', 'Cache write']]) lines.push(text(zh, english) + ': ' + priceText(row[key]))
+        if (row.contextLength !== null) lines.push(text('上下文', 'Context') + ': ' + row.contextLength.toLocaleString() + ' tokens')
+      } else lines.push(value ? text('公开目录未提供此模型的 token 单价', 'Token price unavailable for this model in the public catalog') : error ? text('价格查询失败', 'Price lookup failed') : text('正在查询公开价格…', 'Loading public prices…'))
+      if (value?.fetchedAt) lines.push(text('最近更新: ', 'Updated: ') + new Date(value.fetchedAt).toLocaleString(en ? 'en-US' : 'zh-CN'))
+      if (error || value?.stale) lines.push(text('刷新失败，价格未更新', 'Refresh failed; prices have not been updated'))
+      lines.push(text('公开参考价；优惠与结算以 OpenRouter 为准', 'Public reference rates; promotions and billing follow OpenRouter'))
+      return lines.join('\n')
+    }
+    function installPickerPrices({ api, getGroups, getLocale, subscribeGroups }) {
+      if (typeof MutationObserver !== 'function' || !document.body) return () => {}
+      const selector = 'button[role="menuitemradio"]'
+      const owned = new Map()
+      let active = true, pending = false, value = null, error = '', requestedAt = -Infinity
+      const restore = (button, item) => {
+        if (button.getAttribute('title') === item.written) {
+          if (item.original === null) button.removeAttribute('title')
+          else button.setAttribute('title', item.original)
+        }
+        owned.delete(button)
+      }
+      const scan = (request = true) => {
+        if (!active) return
+        const groups = getGroups(), rows = new Map()
+        for (const button of document.querySelectorAll(selector)) {
+          const model = pickerModel(button, groups)
+          if (model) rows.set(button, model)
+        }
+        for (const [button, item] of owned) if (!rows.has(button)) restore(button, item)
+        for (const [button, model] of rows) {
+          let item = owned.get(button)
+          const title = button.getAttribute('title')
+          if (!item || title !== item.written) item = { original: title, written: null }
+          item.written = priceTooltip(model, value, getLocale(), error)
+          owned.set(button, item)
+          if (title !== item.written) button.setAttribute('title', item.written)
+        }
+        if (request && rows.size && !document.hidden && Date.now() - requestedAt >= 15000) void refresh()
+      }
+      const refresh = async () => {
+        if (!active || pending) return
+        pending = true; requestedAt = Date.now()
+        try {
+          const result = await api.getOpenRouterCatalog()
+          if (active) { value = result; error = result.error }
+        } catch (e) { if (active) error = String(e?.message ?? e) }
+        finally { pending = false; if (active) scan(false) }
+      }
+      const observer = new MutationObserver(records => {
+        if (records.some(record => {
+          if (record.type === 'attributes') return record.target.matches(selector) && record.target.getAttribute('title') !== owned.get(record.target)?.written
+          if (record.type === 'characterData') return record.target.parentElement?.closest(selector)
+          return [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector)))
+        })) scan()
+      })
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['title'] })
+      const visible = () => { if (!document.hidden) scan() }
+      const hover = event => { if (event.target?.closest?.(selector)) scan() }
+      document.addEventListener('visibilitychange', visible)
+      document.addEventListener('pointerover', hover)
+      document.addEventListener('focusin', hover)
+      const timer = setInterval(visible, 60000)
+      const unsubscribe = subscribeGroups?.(() => scan())
+      scan()
+      return () => {
+        active = false; observer.disconnect(); clearInterval(timer); unsubscribe?.()
+        document.removeEventListener('visibilitychange', visible)
+        document.removeEventListener('pointerover', hover)
+        document.removeEventListener('focusin', hover)
+        for (const [button, item] of owned) restore(button, item)
+      }
+    }
+    async function mount(ctx, getLocale = () => ctx.get('locale')?.getSnapshot?.().active ?? 'en') {
       const unmount = await ctx.get('remote').$mount(CONTRIBUTION)
       ctx.effect(() => () => unmount(), 'cost-meter: OpenRouter catalog contribution')
       const remote = ctx.get('remote.costMeter')
@@ -96,8 +186,13 @@ window.__ModuleLoader__.load({
         if (!result?.ok) throw new Error(result?.error?.message || 'OpenRouter price lookup failed')
         return parseCatalog(result.value)
       } }
+      if (typeof ctx.inject === 'function') ctx.inject(['modelDirectories'], scope => {
+        const catalog = scope.get('modelDirectories')?.catalog?.store
+        if (!catalog?.getSnapshot) return
+        scope.effect(() => installPickerPrices({ api, getGroups: () => catalog.getSnapshot()?.value?.groups ?? [], getLocale, subscribeGroups: fn => catalog.subscribe?.(fn) }), 'cost-meter: model price tooltips')
+      })
       return props => el(PriceBrowser, { ...props, api })
     }
-    return { mount, PriceBrowser, CONTRIBUTION, parseCatalog, changedRates, priceText, modelUrl }
+    return { mount, PriceBrowser, CONTRIBUTION, parseCatalog, changedRates, priceText, modelUrl, pickerModel, priceTooltip, installPickerPrices }
   },
 })
