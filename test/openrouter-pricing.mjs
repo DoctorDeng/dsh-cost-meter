@@ -154,6 +154,13 @@ try {
     provide: (_, service) => { api = service },
   })
   await api.updateConfig({ locale: 'en', hideOfficialBalance: true, goQuota: { enabled: false } })
+  const beforeBrowse = await api.getState()
+  const browse = await api.getOpenRouterCatalog()
+  assert.equal(browse.stale, false)
+  assert.equal(browse.models[0].input, 2)
+  const afterBrowse = await api.getState()
+  assert.deepEqual(afterBrowse.config, beforeBrowse.config, 'browsing does not change configured prices')
+  assert.deepEqual(afterBrowse.today, beforeBrowse.today, 'browsing does not change recorded costs')
   for (const options of [[true, true], [false, true], [true, false], [false, false]]) {
     ;[officialOk, directoryOk] = options
     const beforeCalls = directoryCalls, result = await api.fetchPrices()
