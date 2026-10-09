@@ -22,6 +22,7 @@ const { Context, Service } = cordis
 const baseline = process.argv.includes('--baseline')
 const React = { createElement: (type, props) => ({ type, props }) }
 const registrations = new Map(), calls = [], timers = new Set()
+const listeners = new Map()
 const config = sanitizeConfig({ locale: 'en', hideOfficialBalance: true, goQuota: { enabled: false } })
 const state = { config, meta: { now: 1, dayKey: '2026-09-30', timezone: 'UTC' } }
 const work = mkdtempSync(join(tmpdir(), 'cm-statistics-client-'))
@@ -30,7 +31,9 @@ function moduleFrom(source, require) {
   let factory
   vm.runInNewContext(source, {
     window: { __ModuleLoader__: { load: value => { factory = value.factory } } }, navigator: { language: 'en' },
-    document: { querySelector: () => ({}), addEventListener() {}, removeEventListener() {}, hidden: false },
+    document: { querySelector: () => ({}),
+      addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn) },
+      removeEventListener(name, fn) { listeners.get(name)?.delete(fn) }, hidden: false },
     setInterval: fn => { timers.add(fn); return fn }, clearInterval: fn => timers.delete(fn),
     AbortSignal, AbortController, crypto: globalThis.crypto, console,
   })
@@ -124,6 +127,10 @@ try {
     assert.equal((await api.getTurnInspection({ sessionId: 'selected', turn: 1 })).found, false)
     assert.equal((await first.api.loginCodingPlan('qwen')).message, 'synthetic login response')
     assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/loginCodingPlan', { provider: 'qwen' }], 'login RPC reaches the real gateway with its provider parameter')
+    for (const fn of listeners.get('pointerover') ?? []) fn({ target: { closest: () => null } })
+    assert.equal(loadCalls, 3, 'unrelated hover does not load model prices')
+    for (const fn of listeners.get('pointerover') ?? []) fn({ target: { closest: selector => selector === '[data-slot="conversation.input.model"]' } })
+    assert.equal(loadCalls, 4, 'first composer hover loads prices without opening Settings')
     const [Prices, samePrices] = await Promise.all([first.api.loadOpenRouter(), first.api.loadOpenRouter()])
     assert.equal(Prices, samePrices, 'concurrent catalog opens share one mounted contribution')
     assert.equal((await Prices({ state }).props.api.getOpenRouterCatalog()).stale, false)
@@ -135,6 +142,7 @@ try {
     await first.fiber.dispose()
     assert.equal(client.typert.remotes.list().filter(d => d.namespace === 'costMeter').length, 0, 'unload withdraws both contributions')
     assert.equal(timers.size, 0)
+    assert.equal([...listeners.values()].reduce((sum, rows) => sum + rows.size, 0), 0, 'unload removes lazy activation listeners')
     const second = await activate()
     const Reopened = await second.api.loadStatistics()
     assert.equal(typeof Reopened, 'function', 'same client modules can be mounted again after plugin reload')
