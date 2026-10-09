@@ -130,7 +130,7 @@ function readClientSource() {
 // classic script 语法错误不触发 error 事件、宿主只报「loaded without registering」,
 // 而本套件此前只做字符串断言、从不解析该文件——语法错误一路溜到线上。
 // 这里用 vm.Script 整份编译(只编译不执行,window 引用无碍),任何语法错误当场失败。
-for (const browserBundle of ['../lib/client.js', '../lib/client.statistics.js']) {
+for (const browserBundle of ['../lib/client.js', '../lib/client.statistics.js', '../lib/client.openrouter.js']) {
   const src = readFileSync(new URL(browserBundle, import.meta.url), 'utf8')
   new vm.Script(src, { filename: browserBundle })
 }
@@ -1640,6 +1640,11 @@ vm.runInNewContext(readFileSync(new URL('../lib/client.statistics.js', import.me
   window: { __ModuleLoader__: { load: value => { statisticsFactory = value.factory } } },
 })
 descriptors.push(...statisticsFactory(() => ({})).CONTRIBUTION.descriptors)
+let catalogFactory
+vm.runInNewContext(readFileSync(new URL('../lib/client.openrouter.js', import.meta.url), 'utf8'), {
+  window: { __ModuleLoader__: { load: value => { catalogFactory = value.factory } } },
+})
+descriptors.push(...catalogFactory(() => ({})).CONTRIBUTION.descriptors)
 const clientMethods = Array.from(descriptors, d => d.method).sort()
 const serverMethods = TYPERT.invocations.map(i => i.method).sort()
 assert.deepEqual(clientMethods, serverMethods, '客户端 descriptor 与服务端 typert 清单方法一一对齐')
@@ -6743,12 +6748,14 @@ await import('./qwen-cli.mjs')
 await import('./bailian-cli.mjs')
 await import('./minimax-endpoint.mjs')
 await import('./openrouter-pricing.mjs')
+await import('./openrouter-catalog.mjs')
 await import('./pr145-147.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./custom-balance-post.mjs')
 await import('./balance-display-currency.mjs')
 await import('./settings-regressions.mjs')
 await import('./client-dictionaries.mjs')
+await import('./javascript-literal.mjs')
 await import('./scoped-billing.mjs')
 await import('./billing-channel-peak.mjs')
 await import('./sidebar-quota-hover.mjs')

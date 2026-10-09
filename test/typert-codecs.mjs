@@ -24,6 +24,11 @@ const statistics = chunkFactory(() => ({}))
 let lazyContribution
 await assert.rejects(statistics.mount({ get: () => ({ $mount: async value => { lazyContribution = value; throw captured } }) }), error => error === captured)
 contribution.descriptors.push(...lazyContribution.descriptors)
+let catalogFactory
+vm.runInNewContext(readFileSync(new URL('../lib/client.openrouter.js', import.meta.url), 'utf8'), {
+  window: { __ModuleLoader__: { load: module => { catalogFactory = module.factory } } },
+})
+contribution.descriptors.push(...catalogFactory(() => ({})).CONTRIBUTION.descriptors)
 export const CLIENT_CONTRIBUTION = contribution
 
 for (const [face, descriptors] of [['host', TYPERT.invocations], ['client', contribution.descriptors]]) {

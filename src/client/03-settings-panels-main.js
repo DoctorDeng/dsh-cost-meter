@@ -13,9 +13,10 @@
       useEffect(() => {
         let active = true
         setError('')
-        props.api.loadStatistics().then(page => { if (active) setPage(() => page) }, e => { if (active) setError(String(e.message ?? e)) })
+        const load = props.load ?? props.api.loadStatistics
+        load().then(page => { if (active) setPage(() => page) }, e => { if (active) setError(String(e.message ?? e)) })
         return () => { active = false }
-      }, [props.api, retry])
+      }, [props.api, props.load, retry])
       if (Page) return el(Page, { ...props, formatMoneyUsd, formatTokens, resolveLocale })
       return el('p', { role: error ? 'alert' : 'status' }, error || '…', error ? el('button', { className: 'cm-btn', onClick: () => setRetry(n => n + 1) }, '↻') : null)
     }
@@ -2522,6 +2523,7 @@
         : null,
         // ── 价格:价格表、模型名匹配、拓展价格表、峰谷计价与提示、官方价格同步 ──
         tab === 'pricing' ? el(Fragment, { key: 'pricing' },
+        el(BillingStatistics, { state, api, load: api.loadOpenRouter }),
         // 峰谷计价与提示(独立面板:启用/提示开关、样式切换、时段条预览)
         el(PeakPanel, { state, draft, setDraft, t }),
         // 价格表(可折叠,默认收起;priceTableDisplay 按模型门控:未勾选直接显示的模型收入拓展价格表,该开关只决定展示位置)
@@ -2785,14 +2787,16 @@
         if (result.value.state !== undefined) store.set({ status: 'ready', error: null, state: result.value.state })
         return result.value
       }
-      let statisticsPage = null
+      const pages = {}
+      const loadPage = name => {
+        if (!pages[name]) pages[name] = (typeof require.async === 'function'
+          ? require.async('./client.' + name + '.js').then(module => module.mount(ctx, () => resolveLocale(store.getSnapshot().state?.config ?? { activeLocale: readLocale() })))
+          : Promise.reject(new Error(rpcT()('statisticsUpgrade')))).catch(error => { delete pages[name]; throw error })
+        return pages[name]
+      }
       const api = {
-        loadStatistics: () => {
-          if (!statisticsPage) statisticsPage = (typeof require.async === 'function'
-            ? require.async('./client.statistics.js').then(module => module.mount(ctx))
-            : Promise.reject(new Error(rpcT()('statisticsUpgrade')))).catch(error => { statisticsPage = null; throw error })
-          return statisticsPage
-        },
+        loadStatistics: () => loadPage('statistics'),
+        loadOpenRouter: () => loadPage('openrouter'),
         reload,
         updateConfig: async patch => {
           const { activeLocale: _local, ...savedPatch } = patch
@@ -2832,6 +2836,13 @@
         clearCredential: async target => receive(costMeter.clearCredential(target), 'rpcSyncFailed', true),
       }
 
+      const loadModelPrices = event => {
+        if (event.target?.closest?.('[data-slot="conversation.input.model"]')) void api.loadOpenRouter().catch(() => {})
+      }
+      for (const event of ['pointerover', 'focusin']) ctx.effect(() => {
+        document.addEventListener(event, loadModelPrices)
+        return () => document.removeEventListener(event, loadModelPrices)
+      })
       void reload()
 
       const slots = ctx.get('slots')

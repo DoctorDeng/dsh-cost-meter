@@ -273,7 +273,17 @@ const server = createServer((request, response) => {
   }
   response.setHeader('content-type', 'text/html; charset=utf-8')
   if (!request.url.startsWith('/case')) { response.end(page); return }
-  const env = new URL(request.url, 'http://127.0.0.1').searchParams.get('env') ?? 'dsh'
+  const requestedEnv = new URL(request.url, 'http://127.0.0.1').searchParams.get('env') ?? 'dsh'
+  // Select a constant scenario. Never interpolate the request parameter into HTML
+  // or JavaScript: JSON.stringify alone does not escape a closing script tag.
+  const environments = { dsh: 'dsh', fullscreen: 'fullscreen', web: 'web', legacy: 'legacy', 'legacy-fullscreen': 'legacy-fullscreen', darwin: 'darwin' }
+  const env = Object.hasOwn(environments, requestedEnv) ? environments[requestedEnv] : null
+  if (env === null) {
+    response.statusCode = 400
+    response.setHeader('content-type', 'text/plain; charset=utf-8')
+    response.end('Unknown test environment')
+    return
+  }
   const isLegacy = env.indexOf('legacy') === 0
   const isFullscreenEnv = env === 'fullscreen' || env === 'legacy-fullscreen'
   // [真实] 逐字复刻 app.asar /lib/preload-app.cjs 的标记注入与 dsh-client-ui-layout 的变量定义。
@@ -319,13 +329,20 @@ html,body{height:100%;margin:0;font:14px system-ui}
 ${caption}
 <div id="root"></div>
 <script>
-(function(){const env=${JSON.stringify(env)};const root=document.documentElement;if(env==='web')return;${isDarwin ? "root.dataset.platform='darwin';" : ''}${preload}})();
+(function(){const root=document.documentElement;${isDarwin ? "root.dataset.platform='darwin';" : ''}${preload}})();
 </script>
 <script src="/entry.js"></script>`)
 })
-server.listen(0, '127.0.0.1', () => {
+server.listen(0, '127.0.0.1', async () => {
   const url = 'http://127.0.0.1:' + server.address().port
   console.log(url)
+  try {
+    for (const env of ['</script><script>globalThis.injected=true</script>', '__proto__', 'constructor', '']) {
+      const response = await fetch(url + '/case?env=' + encodeURIComponent(env))
+      if (response.status !== 400 || (await response.text()) !== 'Unknown test environment') throw new Error('unsafe environment accepted')
+    }
+    console.log('[ok] fixture rejects script injection and unknown environments without reflecting input')
+  } catch (error) { console.log('FAIL ' + error.message); process.exit(1) }
   if (waitForBrowser) {
     console.log('--wait: 启动无头浏览器执行断言,按页面回报的退出码结束。')
     launchBrowser(url)

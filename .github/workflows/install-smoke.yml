@@ -53,12 +53,14 @@ jobs:
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
-          npm install --prefix .tmp-statistics-client --no-audit --no-fund --ignore-scripts "@deepseek-ai/dsh-api-gateway@$DSH_VERSION" "@deepseek-ai/dsh-typert-registry@$DSH_VERSION" @deepseek-ai/cordis@4.0.4 react@18.2.0 react-dom@18.2.0 jsdom@28.1.0
+          npm install --prefix .tmp-statistics-client --no-audit --no-fund --ignore-scripts "@deepseek-ai/dsh-api-gateway@$DSH_VERSION" "@deepseek-ai/dsh-typert-registry@$DSH_VERSION" "@deepseek-ai/dsh-client-ui-model-selection@$DSH_VERSION" @deepseek-ai/cordis@4.0.4 react@18.2.0 react-dom@18.2.0 jsdom@28.1.0
       - name: Verify statistics mount together, and that the cost dialog keeps its content on refetch
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-statistics-client/node_modules"
           node test/statistics-remote-registration.mjs
           node test/host-locale-client.mjs
+          node test/openrouter-catalog-client.mjs
+          node test/openrouter-picker-client.mjs
           # 闪烁回归要真实驱动组件(jsdom + react),因此放在本作业执行:verify.mjs 所在的
           # 两个作业只装 DSH 包,没有 jsdom —— 那样会在 import 阶段 MODULE_NOT_FOUND。
           node test/statistics-flicker.mjs

@@ -22,6 +22,7 @@ const { Context, Service } = cordis
 const baseline = process.argv.includes('--baseline')
 const React = { createElement: (type, props) => ({ type, props }) }
 const registrations = new Map(), calls = [], timers = new Set()
+const listeners = new Map()
 const config = sanitizeConfig({ locale: 'en', hideOfficialBalance: true, goQuota: { enabled: false } })
 const state = { config, meta: { now: 1, dayKey: '2026-09-30', timezone: 'UTC' } }
 const work = mkdtempSync(join(tmpdir(), 'cm-statistics-client-'))
@@ -30,7 +31,9 @@ function moduleFrom(source, require) {
   let factory
   vm.runInNewContext(source, {
     window: { __ModuleLoader__: { load: value => { factory = value.factory } } }, navigator: { language: 'en' },
-    document: { querySelector: () => ({}), addEventListener() {}, removeEventListener() {}, hidden: false },
+    document: { querySelector: () => ({}),
+      addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn) },
+      removeEventListener(name, fn) { listeners.get(name)?.delete(fn) }, hidden: false },
     setInterval: fn => { timers.add(fn); return fn }, clearInterval: fn => timers.delete(fn),
     AbortSignal, AbortController, crypto: globalThis.crypto, console,
   })
@@ -43,12 +46,13 @@ const pluginSource = file => baseline
   ? execFileSync('git', ['show', 'v1.8.1:lib/' + file], { encoding: 'utf8' })
   : readFileSync(new URL('../lib/' + file, import.meta.url), 'utf8')
 const statistics = moduleFrom(pluginSource('client.statistics.js'), () => React)
+const catalog = baseline ? null : moduleFrom(pluginSource('client.openrouter.js'), () => React)
 let loadCalls = 0, failLoad = false
 const requireMain = id => id === 'react' ? React : {}
 requireMain.async = async id => {
-  assert.equal(id, './client.statistics.js'); loadCalls++
+  assert.ok(['./client.statistics.js', './client.openrouter.js'].includes(id)); loadCalls++
   if (failLoad) { failLoad = false; throw new Error('synthetic chunk load failure') }
-  return statistics
+  return id === './client.statistics.js' ? statistics : catalog
 }
 const main = moduleFrom(pluginSource('client.js'), requireMain)
 const client = new Context()
@@ -60,6 +64,7 @@ class Connection extends Service {
       call: async (channel, endpoint, payload) => {
         assert.equal(channel, '/api'); calls.push([endpoint, payload.args])
         if (endpoint === 'costMeter/getState') return { ok: true, value: state }
+        if (endpoint === 'costMeter/getOpenRouterCatalog') return { ok: true, value: { fetchedAt: '2026-10-09T05:00:00Z', stale: false, error: '', models: [] } }
         if (endpoint === 'costMeter/loginCodingPlan') return { ok: true, value: { ok: false, message: 'synthetic login response', state } }
         if (endpoint === 'costMeter/getBillingStatistics') return { ok: true, value: billingStatistics(ledger, payload.args.query) }
         if (endpoint === 'costMeter/getSessionBilling') return { ok: true, value: await getSessionBilling(ledger, { get: () => ({ get: () => ({ snapshotEvents: () => [] }) }) }, payload.args.query) }
@@ -122,6 +127,14 @@ try {
     assert.equal((await api.getTurnInspection({ sessionId: 'selected', turn: 1 })).found, false)
     assert.equal((await first.api.loginCodingPlan('qwen')).message, 'synthetic login response')
     assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/loginCodingPlan', { provider: 'qwen' }], 'login RPC reaches the real gateway with its provider parameter')
+    for (const fn of listeners.get('pointerover') ?? []) fn({ target: { closest: () => null } })
+    assert.equal(loadCalls, 3, 'unrelated hover does not load model prices')
+    for (const fn of listeners.get('pointerover') ?? []) fn({ target: { closest: selector => selector === '[data-slot="conversation.input.model"]' } })
+    assert.equal(loadCalls, 4, 'first composer hover loads prices without opening Settings')
+    const [Prices, samePrices] = await Promise.all([first.api.loadOpenRouter(), first.api.loadOpenRouter()])
+    assert.equal(Prices, samePrices, 'concurrent catalog opens share one mounted contribution')
+    assert.equal((await Prices({ state }).props.api.getOpenRouterCatalog()).stale, false)
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/getOpenRouterCatalog', {}])
     const expectedMethods = TYPERT.invocations.filter(d => d.namespace === 'costMeter').map(d => d.method).sort()
     const actualMethods = Array.from(client.typert.remotes.list().filter(d => d.namespace === 'costMeter'), d => d.method).sort()
     assert.deepEqual(actualMethods, expectedMethods, 'all main and statistics methods coexist exactly once')
@@ -129,6 +142,7 @@ try {
     await first.fiber.dispose()
     assert.equal(client.typert.remotes.list().filter(d => d.namespace === 'costMeter').length, 0, 'unload withdraws both contributions')
     assert.equal(timers.size, 0)
+    assert.equal([...listeners.values()].reduce((sum, rows) => sum + rows.size, 0), 0, 'unload removes lazy activation listeners')
     const second = await activate()
     const Reopened = await second.api.loadStatistics()
     assert.equal(typeof Reopened, 'function', 'same client modules can be mounted again after plugin reload')
