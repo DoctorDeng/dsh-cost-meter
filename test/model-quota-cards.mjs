@@ -334,6 +334,7 @@ let getCalls = 0, remoteResult = { ok: true, value: { ok: true, message: 'done' 
 let live = { ...state, config: { ...base, sidebarModels: { ...base.sidebarModels, enabled: true, dock: true, refreshSeconds: 10 } } }
 const remote = new Proxy({ getState: async () => { getCalls++; return { ok: true, value: live } } }, {
   get: (obj, key) => obj[key] ?? (async (...args) => { remoteArgs = [key, ...args]; return remoteResult }) })
+remote.getLocalState = remote.getState
 const stop = await activation.apply({ remote: { $mount: async () => () => {} }, get: key => key === 'remote.costMeter' ? remote : {
   inject: (_, fn) => { const cleanup = fn(); if (cleanup) cleanups.push(cleanup) },
   register: (options, component) => { const key = options.name + ':' + options.id; registered.set(key, { options, component }); return () => registered.delete(key) },
@@ -342,10 +343,11 @@ await activation.flush()
 assert.ok(registered.has('sidebar.footer.action:cost-meter'))
 assert.ok(registered.has('conversation.composer.dock:cost-meter-corner'))
 const injected = registered.get('settings.section:cost-meter').options.inject(), api = injected.api
-activation.setNow(9999); await activation.tick(1000); assert.equal(getCalls, 1)
-activation.setNow(10000); await activation.tick(1000); assert.equal(getCalls, 2)
-activation.doc.hidden = true; activation.setNow(20000); await activation.tick(1000); assert.equal(getCalls, 2)
-activation.doc.hidden = false; await activation.tick(1000); assert.equal(getCalls, 3)
+assert.equal(getCalls, 2, 'first local snapshot is followed by one completed quota snapshot')
+activation.setNow(9999); await activation.tick(1000); assert.equal(getCalls, 2)
+activation.setNow(10000); await activation.tick(1000); assert.equal(getCalls, 3)
+activation.doc.hidden = true; activation.setNow(20000); await activation.tick(1000); assert.equal(getCalls, 3)
+activation.doc.hidden = false; await activation.tick(1000); assert.equal(getCalls, 4)
 for (const [method, args] of [['refreshBalance', []], ['refreshGoQuota', []], ['refreshGatewayQuota', ['gw-1']],
   ['refreshGatewayQuota', []], ['refreshCustomBalance', [0]], ['refreshCustomBalance', []],
   ['refreshCodingPlan', ['qwen']], ['fetchPrices', []], ['setCredential', ['goQuota', 'test-only']], ['clearCredential', ['goQuota']]]) {
@@ -361,7 +363,7 @@ assert.equal((await api.refreshGoQuota()).ok, false)
 assert.equal(injected.hooks.cost.getSnapshot().state.config.sidebarModels.enabled, false, '包括查询失败在内的新快照都会传播')
 assert.equal(registered.has('sidebar.footer.action:cost-meter'), false)
 assert.equal(registered.has('conversation.composer.dock:cost-meter-corner'), false)
-activation.setNow(30000); await activation.tick(1000); assert.equal(getCalls, 3, '关闭后恢复默认 60 秒轮询')
+activation.setNow(30000); await activation.tick(1000); assert.equal(getCalls, 4, '关闭后恢复默认 60 秒轮询')
 stop(); for (const cleanup of cleanups.reverse()) cleanup()
 assert.equal(activation.timers.size, 0, '卸载清理轮询')
 // #154: first RPC can race hot installation. Real client apply/store + fake clock.
@@ -373,12 +375,13 @@ const startupRemote = { getState: async () => {
   if (pending) return pending.promise
   return available ? { ok: true, value: startupState } : { ok: false, error: { message: 'gateway/invocation-unavailable' } }
 } }
+startupRemote.getLocalState = startupRemote.getState
 const stopStartup = await startup.apply({ remote: { $mount: async () => () => {} },
   get: key => key === 'remote.costMeter' ? startupRemote : {
     inject: (_, fn) => { const cleanup = fn(); if (cleanup) startupCleanups.push(cleanup) },
     register: (options, component) => { startupSlots.set(options.id, { options, component }); return () => {} },
   }, effect: fn => { const cleanup = fn(); if (cleanup) startupCleanups.push(cleanup) },
-  on: (event, fn) => { startupEvents.set(event, fn); return () => startupEvents.delete(event) },
+  on: (event, fn) => { startupEvents.set(event, fn); const dispose = () => startupEvents.delete(event); startupCleanups.push(dispose); return dispose },
 })
 await startup.flush()
 const startupInjected = startupSlots.get('cost-meter').options.inject()
@@ -417,11 +420,11 @@ await refresh; await startup.flush(); panel.render()
 assert.equal(startupStore.getSnapshot().status, 'ready')
 assert.doesNotMatch(textOf(panel.tree), /gateway\/invocation-unavailable/, 'successful recovery clears initial error')
 startup.setNow(elapsed + 59000); await startup.tick(1000)
-assert.equal(startupCalls, inFlightCalls, 'successful load restores normal 60-second polling')
+assert.equal(startupCalls, inFlightCalls + 1, 'successful load restores normal 60-second polling')
 startup.doc.hidden = true; startup.setNow(elapsed + 60000); await startup.tick(1000)
-assert.equal(startupCalls, inFlightCalls, 'hidden page skips polling')
+assert.equal(startupCalls, inFlightCalls + 1, 'hidden page skips polling')
 startup.doc.hidden = false; await startup.tick(1000)
-assert.equal(startupCalls, inFlightCalls + 1)
+assert.equal(startupCalls, inFlightCalls + 2)
 pending = deferred()
 const lateReload = startupApi.reload(), snapshot = startupStore.getSnapshot()
 stopStartup(); for (const cleanup of startupCleanups.reverse()) cleanup()
