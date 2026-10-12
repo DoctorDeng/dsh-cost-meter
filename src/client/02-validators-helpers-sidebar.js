@@ -135,6 +135,7 @@
         contextCostsEnabled: v.contextCostsEnabled === true,
         contextCostsPromptSeen: v.contextCostsPromptSeen === true,
         sidebarTodayMetric: v.sidebarTodayMetric === 'tokens' ? 'tokens' : 'cost',
+        statisticsBasis: v.statisticsBasis,
         showTotalWithPlan: v.showTotalWithPlan === true,
         sidebarSimple: v.sidebarSimple === true,
         sidebarSimplePromptSeen: v.sidebarSimplePromptSeen === true,

@@ -77,14 +77,14 @@ const enabled = applyConfigPatch(config, { contextCostsEnabled: true, contextCos
 assert.deepEqual(enabled.errors, [])
 assert.equal(enabled.config.contextCostsEnabled, true); assert.equal(enabled.config.contextCostsPromptSeen, true)
 assert.equal((await getContextIntegration(ctx)).reason, 'unavailable')
-for (const version of ['0.62.0', '0.66.0', '0.67.0', '0.66.1', '0.66.0-beta.1', '']) {
+for (const version of ['0.62.0', '0.66.0', '0.67.0', '0.68.1', '0.69.0', '1.0.0', '0.66.0-beta.1', '']) {
   services.pluginManager = { listBundles: async () => [{ name: 'dsh-context', version, enabled: true }] }
-  assert.equal((await getContextIntegration(ctx)).compatible, ['0.62.0', '0.66.0'].includes(version))
+  assert.equal((await getContextIntegration(ctx)).compatible, true, 'enabled bundle is discovered; client capabilities decide availability')
 }
 services.pluginManager = { listBundles: async () => [{ name: 'dsh-context', version: '0.66.0', enabled: false }] }
 assert.equal((await getContextIntegration(ctx)).reason, 'missing')
 assert.deepEqual(usage, { inputTokens: 100, cacheReadTokens: 300, cacheWriteTokens: 100, outputTokens: 200, reasoningTokens: 50 }, 'viewing costs never changes a usage sample')
-console.log('[ok] context costs: standalone categories, tier crossing, exact usage buckets, currency, Plan, unpriced/free, config and version gate')
+console.log('[ok] context costs: standalone categories, tier crossing, exact usage buckets, currency, Plan, unpriced/free, config and capability-based peer discovery')
 
 if (process.argv.includes('--host')) {
   const req = createRequire(join(resolve(process.env.DSH_TEST_NODE_MODULES), '__cost_planning.cjs'))

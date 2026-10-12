@@ -67,6 +67,7 @@ const data = { status: 'ready', sessionId: 'one', generatedAt: 1800000000000, re
 const projections = { contextTimeline: { ok: true, provider: 'test', model: 'demo', contextWindow: 128000, current: { ...partValues, total: 12000 }, requests: [], events: [], nodes: [], archive: [], droppedNodes: 0 },
   contextBreakdown: { systemTokens: 1200, toolsTokens: 1800, messageTokens: 9000 }, contextPressure: { total: 12000, limit: 128000 } }
 const props = sessionId => ({ sessionId, useProjection: key => projections[key], useContextModal: () => true })
+const peerEntry = (name, entry) => entry.locale === 'dsh-context' && entry.options[name === 'sidebar.right.pane.tab' ? 'key' : 'id'] === (name === 'conversation.view' ? 'context' : name === 'sidebar.right.pane.tab' ? 'dsh-context' : 'context-modal')
 const mounts = []
 function render(component, props = {}) {
   const container = document.createElement('div'); document.getElementById('test').appendChild(container)
@@ -75,7 +76,14 @@ function render(component, props = {}) {
 }
 
 try {
-  for (const [version, path] of [['0.62.0', process.env.DSH_CONTEXT_062 ?? '.tmp-cost-planning-pack/v062/package/lib/client.js'], ['0.66.0', process.env.DSH_CONTEXT_066 ?? '.tmp-cost-planning-pack/package/lib/client.js']]) {
+  // Future peer releases without the required registration shape remain unavailable.
+  const incompatible = environment(), peerStore = storeOf({ contextCostsEnabled: true }), unavailableApi = { getContextIntegration: async () => ({ version: '0.99.0', compatible: true, reason: 'ready' }) }
+  const incompatibleManager = ui.createContextIntegration(incompatible.ctx, unavailableApi, peerStore, () => 'en', createPortal)
+  await settle(() => incompatible.slots.register({ name: 'conversation.view', id: 'context', locale: 'dsh-context', store: {} }, () => null))
+  assert.equal(incompatibleManager.getSnapshot().available, false, 'changed peer ownership is not borrowed')
+  assert.equal(incompatibleManager.getSnapshot().enabled, false)
+  incompatibleManager.dispose(); incompatible.dispose()
+  for (const [version, path] of [['0.62.0', process.env.DSH_CONTEXT_062 ?? '.tmp-cost-planning-pack/v062/package/lib/client.js'], ['0.66.0', process.env.DSH_CONTEXT_066 ?? '.tmp-cost-planning-pack/package/lib/client.js'], ['0.68.1', process.env.DSH_CONTEXT_068 ?? '.tmp-context-068/package/lib/client.js']]) {
     window.localStorage.clear()
     const env = environment(), store = storeOf(), reads = [], writes = []
     let failSave = false
@@ -90,7 +98,7 @@ try {
     assert.equal(manager.getSnapshot().available, true, version + ' is detected after installation')
     assert.equal(manager.getSnapshot().enabled, false)
     const targets = ['conversation.view', 'sidebar.right.pane.tab', 'conversation.input.overlay']
-    for (const name of targets) assert.equal(env.slots.entries(name).filter(e => e.locale === 'dsh-context').length, 1, name + ' remains original before consent')
+    for (const name of targets) assert.equal(env.slots.entries(name).filter(e => peerEntry(name, e)).length, 1, name + ' remains original before consent')
     let prompt
     await settle(() => { prompt = render(ui.ContextPrompt, { manager, getLocale: () => 'en' }) })
     assert.ok(prompt.container.querySelector('dialog[open]'))
@@ -108,10 +116,11 @@ try {
     assert.equal(manager.getSnapshot().enabled, true)
     const views = []
     for (const [index, name] of targets.entries()) {
-      const entries = env.slots.entries(name).filter(e => e.locale === 'dsh-context')
+      const entries = env.slots.entries(name).filter(e => peerEntry(name, e))
       assert.equal(entries.length, 2, 'one original and one wrapper: ' + name)
-      const entry = env.slots.entriesOfSlot(name).find(e => e.locale === 'dsh-context')
+      const entry = env.slots.entriesOfSlot(name).find(e => peerEntry(name, e))
       assert.equal(entry.registrant, 'dsh-cost-meter-context-bridge')
+      if(name === 'conversation.view') assert.equal(entry.options.label(), 'Context', 'integration preserves the peer tab label')
       let view
       await settle(() => { view = render(entry.component, props(index === 1 ? 'two' : 'one')) })
       const card = view.container.querySelector('[data-lc-current]')
@@ -127,7 +136,7 @@ try {
     await settle(() => prompt.container.querySelector('.cm-context-close').click())
     assert.equal(manager.getSnapshot().enabled, true)
     await settle(() => manager.choose(false))
-    for (const name of targets) assert.equal(env.slots.entries(name).filter(e => e.locale === 'dsh-context').length, 1, 'switch off restores the original')
+    for (const name of targets) assert.equal(env.slots.entries(name).filter(e => peerEntry(name, e)).length, 1, 'switch off restores the original')
     failSave = true
     await settle(() => manager.preview())
     await settle(() => prompt.container.querySelector('.cm-context-primary').click())

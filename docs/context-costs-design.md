@@ -2,7 +2,7 @@
 
 ## 使用方式
 
-点击对话输入区的费用明细，只查看当前对话。费用概览集中显示总费用、调用次数、Token、缓存命中率和费用构成；计费轨迹直接显示在概览，逐次调用明细原位展开；“费用明细”默认用一张圆环图汇总全部轨迹步骤费用，每块代表一步。逐步独立圆环和上下文参考默认折叠。设置中的计费统计保留跨对话查询入口。
+点击对话输入区的费用明细，只查看当前对话。费用概览集中显示总费用、调用次数、Token、缓存命中率和费用构成；计费轨迹直接显示在概览，逐次调用明细原位展开；“费用明细”默认用一张圆环图汇总全部轨迹步骤费用，每块代表一步。逐步独立圆环和上下文参考默认折叠。设置中的计费统计保留跨对话查询入口。两处的计费口径选择写入插件配置，关闭重开及重启后保留；尚未选择时沿用全局 API／含 Plan 设置。
 
 “步骤费用构成”按已有轨迹步骤汇总费用，显示每步金额与全会话占比。超过 20 步时，费用最高的 20 步单列，其余合并为一块，所有步骤均计入分母。“计费轨迹”逐步列出输入、输出、缓存金额及占比，点击步骤可展开 Token、单价和金额。多个工具属于同一步时，整步模型费用只计一次；工具名称用于识别步骤，不把整笔费用重复分摊给各工具。缺少步骤编号的调用单列。
 
@@ -57,7 +57,7 @@ dsh-context 主要展示上下文占用、组成、变化和注入事件。0.66.
 
 启用后，费用区域位于 dsh-context 的当前上下文卡片内部，覆盖会话页、右侧栏与 `/context` 弹窗。未启用或关闭联动时，本插件的独立费用展示继续可用。
 
-- 支持明确验证的 dsh-context 0.62.0、0.66.0。宿主通过本地 `pluginManager.listBundles()` 提供版本；未知版本不会自动启用。
+- 宿主通过本地 `pluginManager.listBundles()` 确认 dsh-context 已启用，客户端检测所需公开插槽、注册形态和当前卡片挂载位置。联动不依赖精确版本名单，已验证 0.62.0、0.66.0、0.68.1；后续版本沿用这些接口时，无需添加版本号。
 - 开关和“已提示”状态保存在本插件配置中。关闭按钮、Esc、点击遮罩和“暂不启用”均可退出；退出不等待保存请求。浏览器另存提示记录，防止保存失败、重新载入或多个页面造成反复提示。
 - 用户手动重开预览再关闭，不改变已经启用的开关。设置中始终保留开关与预览入口。
 - 自动提示等其他弹窗关闭后再出现。短窗口保持关闭按钮和操作区可见，避开 DSH 桌面标题栏，支持键盘焦点限制与关闭后恢复焦点。
@@ -95,9 +95,9 @@ Each expanded call pairs a cost donut and a token/rate/cost/share table with Inp
 
 Open **Cost details** beside the conversation input to see only that conversation: call-log totals, context composition, latest-call charges and turn/call details. Cross-conversation statistics remain available in Settings.
 
-Overview and Cost details are the two main views. Overview keeps the input/output/cache composition beside step cost composition and a compact billing trajectory. Cost details opens one aggregate donut: each slice represents a trajectory step’s share of the full session cost. The top 20 steps are separate slices; any remaining steps are combined without dropping their costs. Individual step donuts and token/rate/cost tables are in a collapsed section; context references are also collapsed. Individual call records expand within Overview. Overview includes per-call shares across the full selection, cache token/cost comparisons and conditional model/activity charts. The seven highest-cost calls are individual slices; the rest are combined. Select a call to open its details, even on another page. Donut charts use a brighter palette with compact percentage legends. Hover or focus a slice or legend item to inspect its amount and tokens, including tiny categories. Leaving the chart or moving keyboard focus away clears the highlight. Expanding the individual-step section reveals its billing tables, which can also be collapsed. The close button stays visible while scrolling; Escape also closes the dialog. Dialogs follow DSH popup background tokens, including dsh-dream-skin opacity.
+The selected API, Plan or combined cost basis is saved in plugin configuration and survives reopening and restart. Before the first explicit selection, it follows the existing global API/Plan display preference. Overview and Cost details are the two main views. Overview keeps the input/output/cache composition beside step cost composition and a compact billing trajectory. Cost details opens one aggregate donut: each slice represents a trajectory step’s share of the full session cost. The top 20 steps are separate slices; any remaining steps are combined without dropping their costs. Individual step donuts and token/rate/cost tables are in a collapsed section; context references are also collapsed. Individual call records expand within Overview. Overview includes per-call shares across the full selection, cache token/cost comparisons and conditional model/activity charts. The seven highest-cost calls are individual slices; the rest are combined. Select a call to open its details, even on another page. Donut charts use a brighter palette with compact percentage legends. Hover or focus a slice or legend item to inspect its amount and tokens, including tiny categories. Leaving the chart or moving keyboard focus away clears the highlight. Expanding the individual-step section reveals its billing tables, which can also be collapsed. The close button stays visible while scrolling; Escape also closes the dialog. Dialogs follow DSH popup background tokens, including dsh-dream-skin opacity.
 
-Expand **Display and integration settings → dsh-context integration** to enable or disable the optional integration or reopen its before/after preview. Supported versions are 0.62.0 and 0.66.0. Integration starts off; dismissing the initial prompt prevents repeated automatic prompts. When enabled, costs appear inside the peer's current-context card in the conversation tab, right sidebar and `/context` overlay.
+Expand **Display and integration settings → dsh-context integration** to enable or disable the optional integration or reopen its before/after preview. Compatibility is determined from the enabled peer and its required view registration interfaces, rather than an exact release list. Published clients 0.62.0, 0.66.0 and 0.68.1 are verified. Integration starts off; dismissing the initial prompt prevents repeated automatic prompts. When enabled, costs appear inside the peer's current-context card in the conversation tab, right sidebar and `/context` overlay.
 
 Context amounts use uncached input rates as a reference; they are not itemized bills. Latest-call amounts use reported usage and configured rates, with Plan amounts shown as API equivalents. These amounts are separate and must not be added together. Unknown prices are not treated as free. Visible views react to local changes and refresh every 10 seconds; hidden views pause. No model requests or additional model API charges are introduced, and no context or ledger data is changed.
 

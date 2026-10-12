@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import vm from 'node:vm'
-import { sanitizeConfig } from '../lib/store.js'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { sanitizeConfig, applyConfigPatch, Ledger } from '../lib/store.js'
 import { billingStatistics } from '../lib/billing-statistics.js'
 
 // Hook-level interaction tests against the shipped chunk: no screenshots or live-browser claims.
@@ -45,7 +47,7 @@ const nodes = n => Array.isArray(n) ? n.flatMap(nodes) : n && typeof n === 'obje
 const text = n => Array.isArray(n) ? n.map(text).join(' ') : n && typeof n === 'object' ? text(n.children) : n == null ? '' : String(n)
 const click = (owner, title) => { const button = nodes(owner.tree).find(n => n.type === 'button' && text(n.children) === title); assert.ok(button, title); button.props.onClick(); owner.render() }
 const requests = []
-const api = { getBillingStatistics: query => new Promise((resolve, reject) => requests.push({ query, resolve, reject })) }
+const api = { saveStatisticsBasis: async statisticsBasis => { owner.props = { ...owner.props, state: { ...owner.props.state, config: { ...owner.props.state.config, statisticsBasis } } }; owner.dirty = true }, getBillingStatistics: query => new Promise((resolve, reject) => requests.push({ query, resolve, reject })) }
 const config = sanitizeConfig({ locale: 'zh', currency: 'USD', symbol: '$' })
 const props = { state: { config, meta: { dayKey: '2026-09-30', now: 1, timezone: 'Asia/Shanghai' } }, api, formatMoneyUsd: n => '$' + n.toFixed(6), formatTokens: n => String(n) }
 const stat = billingStatistics({ config, days: {} }, { from: '2026-09-24', to: '2026-09-30' })
@@ -88,6 +90,39 @@ english.dispose()
 const withPlan = mount(ui.Statistics, { ...props, sessionId: 's2', state: { ...props.state, config: { ...config, showTotalWithPlan: true } } })
 assert.equal(requests.at(-1).query.basis, 'total', 'global Plan display preference also applies to detail entry')
 withPlan.dispose()
+
+// #253: save each basis to a real ledger, remount the dialog and reload from disk.
+const basisRoot = mkdtempSync(join(tmpdir(), 'dsh-basis-'))
+try {
+  const path = join(basisRoot, 'ledger.json')
+  let saved = new Ledger(sanitizeConfig({}), {}, path), fail = false, active
+  const savedProps = () => ({ ...props, sessionId: 'selected', state: { ...props.state, config: saved.config }, api: {
+    saveStatisticsBasis: async statisticsBasis => {
+      if (fail) throw Error('write failure')
+      saved.config = applyConfigPatch(saved.config, { statisticsBasis }).config
+      saved.scheduleWrite(); saved.flush()
+      active.props = savedProps(); active.dirty = true
+    }
+  } })
+  for (const value of ['plan', 'total', 'api']) {
+    active = mount(ui.SessionStatistics, savedProps())
+    nodes(active.tree).find(n => n.type === 'select').props.onChange({ target: { value } })
+    active.render(); await flush()
+    assert.equal(nodes(active.tree).find(n => n.type === 'select').props.value, value)
+    active.dispose(); saved = Ledger.load(path)
+    active = mount(ui.SessionStatistics, savedProps())
+    assert.equal(nodes(active.tree).find(n => n.type === 'select').props.value, value, 'reopen retains the persisted basis')
+    active.dispose()
+  }
+  fail = true; active = mount(ui.SessionStatistics, savedProps())
+  nodes(active.tree).find(n => n.type === 'select').props.onChange({ target: { value: 'total' } })
+  active.render(); await flush()
+  assert.match(text(active.tree), /计费口径保存失败/)
+  assert.equal(nodes(active.tree).find(n => n.type === 'select').props.value, 'api', 'failed save restores the persisted basis')
+  active.dispose()
+  assert.equal(sanitizeConfig({ statisticsBasis: 'invalid' }).statisticsBasis, 'auto')
+  assert.ok(applyConfigPatch(saved.config, { statisticsBasis: 'invalid' }).errors.length)
+} finally { rmSync(basisRoot, { recursive: true, force: true }) }
 
 const detailRequests = []
 const detailApi = { getSessionBilling: query => new Promise((resolve, reject) => detailRequests.push({ query, resolve, reject })) }

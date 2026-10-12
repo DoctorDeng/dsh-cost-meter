@@ -414,13 +414,12 @@ window.__ModuleLoader__.load({
       }
       const check = async (force = false) => {
         if (!active || !supported) return
-        const next = contextTargets.flatMap(([name, key, id]) => slots.entries(name).filter(entry => entry.locale === 'dsh-context' && entry.options[key] === id && entry.registrant !== 'dsh-cost-meter-context-bridge' && !entry.children && !entry.store))
+        const next = contextTargets.flatMap(([name, key, id]) => slots.entries(name).filter(entry => entry.locale === 'dsh-context' && entry.options[key] === id && entry.registrant !== 'dsh-cost-meter-context-bridge' && !entry.children && !entry.store && typeof entry.component === 'function'))
         if (!force && checked && next.length === originals.length && next.every((entry, i) => entry === originals[i])) return
         originals = next; checked = true
         const id = ++checkId
         // Stop an existing bridge until a changed peer has been checked again.
         emit({ peer: { version: '', compatible: false, reason: next.length ? 'unavailable' : 'missing' } }); reconcile()
-        if (!next.length) return
         try {
           const peer = await api.getContextIntegration()
           if (active && id === checkId) { emit({ peer }); reconcile() }
@@ -523,7 +522,7 @@ window.__ModuleLoader__.load({
         el('summary', null, 'dsh-context ' + text('联动', 'integration') + ' · ' + (state.enabled ? text('已启用', 'On') : text('未启用', 'Off'))), el('div', null,
         el('label', null, el('input', { type: 'checkbox', role: 'switch', checked: state.enabled, disabled: state.saving || !state.available, onChange: event => void manager.choose(event.target.checked) }), text('在 dsh-context 面板中显示上下文费用', 'Show context costs in dsh-context')),
         el('p', { className: 'cm-plan-sub' }, state.available ? 'dsh-context ' + state.peer.version
-          : text('未检测到已启用的兼容版本（0.62.0 / 0.66.0）', 'No enabled compatible version found (0.62.0 / 0.66.0)')),
+          : state.peer.reason === 'missing' ? text('请安装并启用 dsh-context，然后重新检测。', 'Install and enable dsh-context, then check again.') : state.peer.reason === 'unavailable' ? text('无法读取 dsh-context 状态，请重新检测。', 'Could not read dsh-context status. Check again.') : text('当前 dsh-context 未提供所需界面接口，请更新插件或宿主后重新检测。', 'Required dsh-context view interfaces are unavailable. Update the plugin or host, then check again.')),
         state.error ? el('p', { className: 'cm-plan-error', role: 'alert' }, text('设置保存失败，联动保持关闭。可在此重试。', 'Could not save the setting; integration remains off. Retry here.')) : null,
         el('div', { className: 'cm-plan-actions' }, el('button', { type: 'button', onClick: manager.preview }, text('查看启用前后预览', 'Preview before and after')), el('button', { type: 'button', onClick: manager.refresh }, text('重新检测', 'Check again')))))
     }
@@ -838,9 +837,23 @@ window.__ModuleLoader__.load({
         el(Pager, { offset, count: detail.totalCalls, size: 50, onChange: n => { setOffset(n); setSelected(-1) }, text })) : null)
     }
 
+    function useStatisticsBasis(config, api, text) {
+      const initial = () => ['api', 'plan', 'total'].includes(config.statisticsBasis) ? config.statisticsBasis : config.showTotalWithPlan ? 'total' : 'api'
+      const [basis, setBasis] = useState(initial), [saving, setSaving] = useState(false), [error, setError] = useState('')
+      useEffect(() => { if (!saving) setBasis(initial()) }, [config.statisticsBasis, config.showTotalWithPlan, saving])
+      const choose = async value => {
+        if (saving || !['api', 'plan', 'total'].includes(value)) return
+        setBasis(value); setSaving(true); setError('')
+        try { await api.saveStatisticsBasis(value) }
+        catch { setError(text('计费口径保存失败，请重试。', 'Could not save the cost basis. Try again.')) }
+        finally { setSaving(false) }
+      }
+      return { basis, choose, saving, error }
+    }
+
     function SessionStatistics({ state, api, sessionId, formatMoneyUsd, formatTokens, resolveLocale, contextIntegration }) {
       const text = (zh, en) => (resolveLocale ? resolveLocale(state.config) : state.config.locale) === 'en' ? en : zh
-      const [revision, setRevision] = useState(0), [basis, setBasis] = useState(state.config.showTotalWithPlan ? 'total' : 'api')
+      const [revision, setRevision] = useState(0), preference = useStatisticsBasis(state.config, api, text), { basis } = preference
       const refreshKey = refreshKeyOf(state, revision)
       const money = n => formatMoneyUsd(n, { ...state.config, decimals: Math.max(n !== 0 && Math.abs(n) < .01 ? 8 : 4, state.config.decimals ?? 2) })
       const query = { sessionId, from: '', to: '', provider: '', model: '', basis, offset: 0 }
@@ -849,7 +862,8 @@ window.__ModuleLoader__.load({
         el(SessionDetail, { key: sessionId + ':' + basis, api, query, revision: refreshKey, money, formatTokens, text, overview: true },
           el(ContextCosts, { key: sessionId, api, sessionId, revision: refreshKey, money, text, compact: true, expanded: true })),
         el('details', { className: 'cm-session-options' }, el('summary', null, text('显示与联动设置', 'Display and integration settings')),
-          el('div', { className: 'cm-stat-controls' }, el('label', null, text('计费口径', 'Cost basis'), el('select', { value: basis, onChange: event => setBasis(event.target.value) }, ...[['api', text('API 费用', 'API cost')], ['plan', text('Plan 等值', 'Plan equivalent')], ['total', text('API + Plan 等值', 'API + Plan equivalent')]].map(([value, label]) => el('option', { key: value, value }, label))))),
+          el('div', { className: 'cm-stat-controls' }, el('label', null, text('计费口径', 'Cost basis'), el('select', { value: basis, disabled: preference.saving, onChange: event => preference.choose(event.target.value) }, ...[['api', text('API 费用', 'API cost')], ['plan', text('Plan 等值', 'Plan equivalent')], ['total', text('API + Plan 等值', 'API + Plan equivalent')]].map(([value, label]) => el('option', { key: value, value }, label))))),
+          preference.error ? errorNotice(preference.error) : null,
           contextIntegration ? el(ContextIntegrationSettings, contextIntegration) : null))
     }
 
@@ -858,7 +872,7 @@ window.__ModuleLoader__.load({
       const text = (zh, english) => en ? english : zh
       const [period, setPeriod] = useState(sessionId ? 'all' : 'week'), [custom, setCustom] = useState(null)
       const [scope, setScope] = useState({ id: sessionId, title: sessionId }), [provider, setProvider] = useState(''), [model, setModel] = useState('')
-      const [basis, setBasis] = useState(state.config.showTotalWithPlan ? 'total' : 'api'), [offset, setOffset] = useState(0), [revision, setRevision] = useState(0), [showModels, setShowModels] = useState(false)
+      const preference = useStatisticsBasis(state.config, api, text), { basis } = preference, [offset, setOffset] = useState(0), [revision, setRevision] = useState(0), [showModels, setShowModels] = useState(false)
       const today = state.meta.dayKey || new Date().toISOString().slice(0, 10)
       const from = period === 'all' ? '' : period === 'custom' ? custom?.from || today : shiftDate(today, period === 'week' ? -6 : period === 'month' ? -29 : 0)
       const to = period === 'custom' ? custom?.to || today : today
@@ -873,7 +887,7 @@ window.__ModuleLoader__.load({
       const choosePeriod = value => { setPeriod(value); setOffset(0) }
       const chooseScope = row => { setScope(row); setOffset(0); setProvider(''); setModel('') }
       const basisName = basis === 'total' ? text('API + Plan 等值', 'API + Plan equivalent') : basis === 'plan' ? text('Plan 等值', 'Plan equivalent') : text('API 费用', 'API cost')
-      const pick = (label, value, onChange, choices) => el('label', null, label, el('select', { value, onChange: e => { onChange(e.target.value); setOffset(0) } }, choices.map(([value, title]) => el('option', { key: value, value }, title))))
+      const pick = (label, value, onChange, choices, saving = false) => el('label', null, label, el('select', { value, disabled: saving, onChange: e => { onChange(e.target.value); setOffset(0) } }, choices.map(([value, title]) => el('option', { key: value, value }, title))))
       const inputNames = { input: text('未缓存输入', 'Uncached input'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), output: text('输出', 'Output') }
       const panel = (title, content) => el('section', { className: 'cm-stat-panel' }, el('div', { className: 'cm-stat-panel-head' }, el('h3', null, title)), content)
       const top = data?.totals
@@ -886,9 +900,10 @@ window.__ModuleLoader__.load({
         el('div', { className: 'cm-stat-controls' }, el('div', { className: 'cm-stat-periods' }, ...[['today', text('今天', 'Today')], ['week', text('近 7 天', 'Last 7 days')], ['month', text('近 30 天', 'Last 30 days')], ['all', text('全部记录', 'All retained')], ['custom', text('自定义', 'Custom')]].map(([id, label]) => button(label, () => choosePeriod(id), { key: id, 'aria-pressed': period === id })))),
         period === 'custom' ? el('div', { className: 'cm-stat-controls' }, ...['from', 'to'].map(key => el('label', { key }, key === 'from' ? text('开始日期', 'From') : text('结束日期', 'To'), el('input', { type: 'date', value: key === 'from' ? from : to, onChange: e => { setCustom({ from, to, [key]: e.target.value }); setOffset(0) } })))) : null,
         el('div', { className: 'cm-stat-controls' },
-          pick(text('计费口径', 'Cost basis'), basis, setBasis, [['api', text('API 费用', 'API cost')], ['plan', text('Plan 等值', 'Plan equivalent')], ['total', text('API + Plan 等值', 'API + Plan equivalent')]]),
+          pick(text('计费口径', 'Cost basis'), basis, preference.choose, [['api', text('API 费用', 'API cost')], ['plan', text('Plan 等值', 'Plan equivalent')], ['total', text('API + Plan 等值', 'API + Plan equivalent')]], preference.saving),
           pick(text('提供商', 'Provider'), provider, value => { setProvider(value); setModel('') }, [['', text('全部提供商', 'All providers')], ...[...new Set([provider, ...(data?.providers ?? [])])].filter(Boolean).map(s => [s, s])]),
           pick(text('模型', 'Model'), model, setModel, [['', text('全部模型', 'All models')], ...[...new Set([model, ...(data?.modelOptions ?? [])])].filter(Boolean).map(s => [s, s])])),
+        preference.error ? errorNotice(preference.error) : null,
         showsPlaceholder(result) ? (result.loading ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('加载统计…', 'Loading statistics…')) : errorNotice(result.error)) : data ? el(Fragment, null,
           result.failed ? errorNotice(result.error) : null,
           el('p', { className: 'cm-stat-sub', style: { marginTop: 8 } }, data.from + ' – ' + data.to + (data.retainedFrom ? ' · ' + text('账本保留范围 ', 'Retained ledger ') + data.retainedFrom + ' – ' + data.retainedTo : '')),
@@ -939,6 +954,11 @@ window.__ModuleLoader__.load({
         if (!result?.ok) throw new Error(result?.error?.message || 'Statistics request failed')
         return ({ getBillingStatistics: parseStatistics, getSessionBilling: parseDetail, getTurnInspection: parseInspection, getCallInspection: parseCallInspection, getContextCosts: parseContextCosts, getSessionTrajectory: parseTrajectory }[method])(result.value)
       }]))
+      api.saveStatisticsBasis = async statisticsBasis => {
+        const result = await remote.updateConfig({ statisticsBasis })
+        if (!result?.ok || result.value?.config?.statisticsBasis !== statisticsBasis) throw new Error('Cost basis setting failed')
+        source?.set?.({ status: 'ready', error: null, state: result.value })
+      }
       let manager
       if (source?.subscribe && typeof ctx.get('slots')?.entries === 'function') {
         api.getContextIntegration = async () => {

@@ -9,7 +9,7 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import vm from 'node:vm'
-import { sanitizeConfig } from '../lib/store.js'
+import { sanitizeConfig, applyConfigPatch } from '../lib/store.js'
 import { TYPERT } from '../lib/typert.host.js'
 import { billingStatistics } from '../lib/billing-statistics.js'
 import { getSessionBilling } from '../lib/turn-cost.js'
@@ -67,6 +67,7 @@ class Connection extends Service {
       call: async (channel, endpoint, payload) => {
         assert.equal(channel, '/api'); calls.push([endpoint, payload.args])
         if (['costMeter/getState', 'costMeter/getLocalState'].includes(endpoint)) return { ok: true, value: state }
+        if (endpoint === 'costMeter/updateConfig') { state.config = applyConfigPatch(state.config, payload.args.patch).config; return { ok: true, value: state } }
         if (endpoint === 'costMeter/getOpenRouterCatalog') return { ok: true, value: { fetchedAt: '2026-10-09T05:00:00Z', stale: false, error: '', models: [] } }
         if (endpoint === 'costMeter/getContextCosts') return { ok: true, value: getContextCosts(ledger, { get: () => undefined }, payload.args.query) }
         if (endpoint === 'costMeter/getContextIntegration') return { ok: true, value: await getContextIntegration({ get: () => undefined }) }
@@ -124,6 +125,9 @@ try {
     assert.equal(loadCalls, 3, 'failed download, rejected duplicate, then one successful lazy load')
     for (let i = 0; i < 3; i++) assert.equal(await first.api.loadStatistics(), Page)
     const api = Page({ state, sessionId: 'selected' }).props.api
+    await api.saveStatisticsBasis('plan')
+    assert.equal(state.config.statisticsBasis, 'plan')
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/updateConfig', { patch: { statisticsBasis: 'plan' } }])
     const query = { from: '2026-09-30', to: '2026-09-30', provider: '', model: '', sessionId: 'selected', basis: 'total', offset: 0, turnOffset: 0 }
     assert.equal((await api.getBillingStatistics(query)).totals.calls, 0)
     assert.equal((await api.getSessionBilling(query)).found, false)

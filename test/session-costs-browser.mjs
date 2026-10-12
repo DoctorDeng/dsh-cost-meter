@@ -40,6 +40,7 @@ const integrationState={enabled:true,available:true,saving:false,error:'',peer:{
 api.getCallInspection=async q=>{window.callRequests.push(q);return {found:true,kind:'model',input:'检查项目中的构建与依赖。',injected:'工作区：演示项目',skills:'读取项目说明并检查构建配置。',precedingTools:'read_file: package.json 已读取',output:'本次调用 #'+q.seq+'：已读取构建配置，发现缺少输出目录设置。',reasoning:'先检查构建入口，再核对输出目录。',truncated:false,totalTools:1,offset:0,tools:[{seq:q.seq,step:1,name:'read_file',callId:'read-'+q.seq,atMs:q.atMs,durationMs:126,arguments:'{"path":"package.json"}',result:'<img src=x onerror=alert(1)>',truncated:false,status:'complete'}]}};
 const manager={subscribe:()=>()=>{},getSnapshot:()=>integrationState,preview(){},refresh(){},choose(){}};
 const config={locale:'zh',currency:'USD',exchangeRate:1,decimals:6,showTotalWithPlan:false,contextCostsEnabled:true};
+api.saveStatisticsBasis=async value=>{if(window.failBasisSave)throw Error('basis write failed');config.statisticsBasis=value;window.renderSession()};
 const state={config,meta:{dayKey:'2026-10-10',timezone:'Asia/Shanghai'},total:count,today:count};
 const StatisticsPage=props=>h(UI.SessionStatistics,{...props,contextIntegration:{manager,getLocale:()=>config.locale}});
 StatisticsPage.prefetch=props=>UI.prefetchStatistics(api,props);
@@ -224,7 +225,19 @@ try {
   await page.getByRole('alert').filter({hasText:'offline fixture'}).waitFor()
   assert.match(await page.locator('.cm-stat-metrics').innerText(),/0\.027104/,'failed refresh preserves current results')
   await page.keyboard.press('Escape'); assert.equal(await page.locator('dialog[open]').count(),0)
-  await page.evaluate(()=>{window.refreshFails=false;window.renderSession('other')})
+  await page.evaluate(()=>{window.refreshFails=false})
+  for (const basis of ['plan','total','api']) {
+    await page.locator('.cm-stat-entry').click()
+    await page.locator('.cm-session-options>summary').click()
+    await page.locator('.cm-session-options select').selectOption(basis)
+    await page.waitForFunction(()=>!document.querySelector('.cm-session-options select').disabled)
+    await page.keyboard.press('Escape')
+    await page.locator('.cm-stat-entry').click()
+    await page.locator('.cm-session-options>summary').click()
+    assert.equal(await page.locator('.cm-session-options select').inputValue(),basis,'basis persists when the real dialog is reopened')
+    await page.keyboard.press('Escape')
+  }
+  await page.evaluate(()=>{window.renderSession('other')})
   await page.locator('.cm-stat-entry').click(); await page.waitForFunction(()=>window.requests.at(-1)?.sessionId==='other')
   assert.equal(await page.locator('.cm-stat-session').getAttribute('data-session-id'),'other')
   assert.ok((await page.evaluate(()=>window.requests)).every(q=>q.sessionId && !q.from && !q.to && !q.provider && !q.model),'every query stays scoped to a single complete conversation')
