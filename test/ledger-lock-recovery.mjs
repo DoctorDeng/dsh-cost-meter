@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { withLedgerLock } from '../lib/ledger-persistence.js'
+import { staleLedgerLockOwner } from '../lib/ledger-lock-owner.js'
 import { Ledger, defaultConfig } from '../lib/store.js'
 
 const filename = fileURLToPath(import.meta.url)
@@ -90,8 +91,15 @@ if (process.argv[2] === '--holder') {
       assert.equal(withLedgerLock(foreignPath, () => 42, 100), 42)
     }
     const legacyForeign = join(root, 'legacy-foreign.json')
-    plant(legacyForeign, child.pid, '')
-    if (process.platform === 'win32' || process.platform === 'linux') assert.equal(withLedgerLock(legacyForeign, () => 42, 100), 42)
+    const legacyOwner = plant(legacyForeign, child.pid, '')
+    // Reuse the real holder's native identity to isolate legacy timestamp rules.
+    // A second Windows PowerShell startup can time out on a busy runner; that
+    // legitimately produces unknown ownership, not a failed timestamp rule.
+    // The preceding foreign-lock case still exercises the uncached native probe.
+    const legacyIdentity = JSON.parse(childText).identity
+    assert.equal(staleLedgerLockOwner(legacyOwner, child.pid, new Map([[child.pid, legacyIdentity]])),
+      Number.isFinite(legacyIdentity?.startedAtMs), 'pre-birth legacy locks qualify only with a known native start time')
+    assert.equal(readFileSync(legacyOwner, 'utf8'), '', 'the ownership probe never removes the lock itself')
     child.kill('SIGKILL'); await stopped
     assert.equal(withLedgerLock(childPath, () => 'after-death', 100), 'after-death')
     assert.equal(readFileSync(path, 'utf8'), before)

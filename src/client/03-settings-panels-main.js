@@ -888,7 +888,9 @@
         el('option', { value: 'plan' }, t('billingClassPlan')),
         el('option', { value: 'api' }, t('billingClassApi')))
       const barRow = (name, frac, barClass, valueText, tagNode) => el('div', { className: 'cm-mstats-row' },
-        el('span', { className: 'cm-mstats-name', title: name }, name, tagNode ?? null),
+        tagNode ? el('div', { className: 'cm-mstats-label' },
+          el('span', { className: 'cm-mstats-name', title: name }, name), tagNode)
+          : el('span', { className: 'cm-mstats-name', title: name }, name),
         el('div', { className: 'cm-mstats-barbg' },
           el('div', { className: 'cm-mstats-bar ' + barClass, style: { width: pct(frac) } })),
         el('span', { className: 'cm-mstats-val' }, valueText))

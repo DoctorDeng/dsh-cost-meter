@@ -40,8 +40,27 @@ jobs:
           test -x "$CM_TEST_BROWSER" || (sudo apt-get update && sudo apt-get install -y google-chrome-stable)
           node test/context-costs.mjs
           node test/context-costs-client.mjs
+          node test/context-costs-lifecycle.mjs
+          node test/context-costs-regression-browser.mjs
           node test/context-costs-browser.mjs
           node test/session-costs-browser.mjs
+          node test/pricing-theme-browser.mjs
+          node test/model-stats-browser.mjs
+      - name: Save context regression browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: context-costs-browser-evidence
+          path: |
+            .tmp-context-regression-browser/*.png
+            .tmp-context-regression-browser/report.json
+            .tmp-pricing-theme-browser/*.png
+            .tmp-pricing-theme-browser/report.json
+            .tmp-model-stats-browser/*.png
+            .tmp-model-stats-browser/report.json
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: true
 
   sidebar-search-recovery:
     runs-on: ubuntu-latest

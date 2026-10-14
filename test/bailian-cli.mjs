@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
   parseBailianUsage, queryBailianCli, checkBailianAuth, loginBailianCli,
-  BAILIAN_TOKEN_PLAN_ARGS, BAILIAN_CODING_PLAN_ARGS, BAILIAN_AUTH_STATUS_ARGS, BAILIAN_LOGIN_ARGS,
+  BAILIAN_TOKEN_PLAN_ARGS, BAILIAN_CODING_PLAN_ARGS, BAILIAN_TOKEN_PLAN_RAW_ARGS, BAILIAN_AUTH_STATUS_ARGS, BAILIAN_LOGIN_ARGS,
 } from '../lib/bailian-cli.js'
 import { resolveNpmCli } from '../lib/cli-bridge.js'
 import { applyConfigPatch, sanitizeConfig } from '../lib/store.js'
@@ -28,7 +28,20 @@ assert.equal(windows.monthly.percent, 0.1, 'CLI ratios become percent with one d
 assert.equal(windows.monthly.resetsAt, new Date(1792252800000).toISOString())
 assert.equal(windows.source.text, 'Coding Plan (pro) (CLI)')
 
-// Token Plan 优先同名 5h/周窗;Coding Plan 独占月窗;来源行合并。
+// #256: 月额度个人版只返回 per1Month*，不能判为未订阅。
+const monthlyPayload = { per1MonthPercentage: 0.2074571325490196, per1MonthResetTime: 1792771200000 }
+const personal = parseBailianUsage({ token: monthlyPayload, coding: {} }).windows
+assert.deepEqual(personal.monthly, { percent: 20.7, resetsAt: '2026-10-23T16:00:00.000Z' })
+assert.equal(personal.fiveHour, undefined)
+assert.equal(personal.weekly, undefined)
+assert.equal(personal.source.text, 'Token Plan (CLI)')
+assert.deepEqual(parseBailianUsage({ token: { per1MonthPercentage: 0, per1MonthResetTime: 0 } }).windows.monthly, { percent: 0, resetsAt: '' })
+assert.equal(parseBailianUsage({ token: { per1MonthPercentage: 1.1 } }).windows.monthly.percent, 100)
+assert.equal(parseBailianUsage({ token: monthlyPayload, coding: codingPayload }).windows.monthly.percent, 20.7, 'Token Plan wins the shared monthly window')
+for (const value of [null, -1, Infinity, '0.2']) assert.throws(() => parseBailianUsage({ token: { per1MonthPercentage: value } }), { code: 'invalid' })
+assert.throws(() => parseBailianUsage({ token: { ...monthlyPayload, per1MonthResetTime: 1e30 } }), { code: 'invalid' })
+
+// Token Plan 优先同名窗口，Coding Plan 补全其余窗口；来源行合并。
 const merged = parseBailianUsage({
   token: { per5HourPercentage: 0.55, per5HourResetTime: 0 },
   coding: codingPayload,
@@ -82,7 +95,7 @@ const fixture = join(root, 'response.json'), calls = join(root, 'calls.jsonl')
 const env = { ...process.env, PATH: bin }
 for (const key of Object.keys(env)) if (key !== 'PATH' && key.toLowerCase() === 'path') delete env[key]
 const options = { env }
-const DEFAULT = () => ({ token: { payload: {} }, coding: { payload: codingPayload }, auth: { payload: { authenticated: true, console: { masked: 'synthetic-console', source: 'config' } } }, login: {} })
+const DEFAULT = () => ({ token: { payload: {} }, tokenRaw: { payload: {} }, coding: { payload: codingPayload }, auth: { payload: { authenticated: true, console: { masked: 'synthetic-console', source: 'config' } } }, login: {} })
 const setResponse = value => writeFileSync(fixture, JSON.stringify({ ...DEFAULT(), ...value }))
 const readCalls = () => existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : []
 const count = () => readCalls().length
@@ -100,7 +113,7 @@ try {
   writeFileSync(join(bin, 'bl.cmd'), '@echo SHOULD_NOT_EXECUTE_THIS_SHIM\r\nexit /b 99\r\n')
   const program = `import fs from 'node:fs';
 const config = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, 'utf8'));
-const which = process.argv[2] === 'auth' ? (process.argv[3] === 'status' ? 'auth' : 'login') : process.argv.includes('token-plan') ? 'token' : 'coding';
+const which = process.argv[2] === 'auth' ? (process.argv[3] === 'status' ? 'auth' : 'login') : process.argv[2] === 'console' ? 'tokenRaw' : process.argv.includes('token-plan') ? 'token' : 'coding';
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + '\\n');
 const spec = config[which] ?? {};
 if (spec.wait) await new Promise(r => setTimeout(r, spec.wait));
@@ -127,6 +140,31 @@ process.stdout.write(spec.raw ?? JSON.stringify(spec.payload ?? {}));
   const argvs = readCalls()
   assert.equal(argvs.length, 2, 'one query runs both read-only subcommands')
   assert.deepEqual(new Set(argvs.map(a => a.join('|'))), new Set([BAILIAN_TOKEN_PLAN_ARGS.join('|'), BAILIAN_CODING_PLAN_ARGS.join('|')]))
+
+  setResponse({ token: { payload: monthlyPayload }, coding: { payload: {} } })
+  const monthlyQuery = await queryBailianCli('en', options)
+  assert.deepEqual(monthlyQuery.windows.monthly, personal.monthly, 'real CLI process preserves the monthly-only payload')
+  assert.equal(monthlyQuery.windows.source.text, 'Token Plan (CLI)')
+
+  // CLI 2.1.0 drops monthly fields from its normal command; the fixed raw
+  // console query recovers all official response envelopes without model calls.
+  for (const payload of [monthlyPayload, { data: monthlyPayload }, { data: { data: monthlyPayload } }, { data: { DataV2: { data: { data: monthlyPayload } } } }]) {
+    setResponse({ token: { payload: {} }, coding: { payload: {} }, tokenRaw: { payload } })
+    const fallbackStart = count(), recovered = await queryBailianCli('en', options)
+    assert.deepEqual(recovered.windows.monthly, personal.monthly)
+    assert.equal(count(), fallbackStart + 3, 'empty normal quota triggers one bounded fallback')
+    assert.deepEqual(readCalls().at(-1), BAILIAN_TOKEN_PLAN_RAW_ARGS, 'only the fixed read-only quota API is invoked')
+  }
+  for (const [tokenRaw, code] of [[{ exit: 3, stderr: 'SECRET_RAW_AUTH' }, 'auth'], [{ raw: 'SECRET_RAW_INVALID' }, 'invalid'], [{ payload: { data: { per1MonthPercentage: 'SECRET_BAD_RATIO' } } }, 'invalid'], [{ wait: 5000 }, 'timeout']]) {
+    setResponse({ token: { payload: {} }, coding: { payload: {} }, tokenRaw })
+    await assert.rejects(queryBailianCli('en', { ...options, timeoutMs: 1500 }), e => e.code === code && !e.message.includes('SECRET'))
+  }
+  setResponse({ token: { payload: {} }, coding: { payload: {} }, tokenRaw: { wait: 5000 } })
+  const fallbackAbort = new AbortController(), fallbackStart = count()
+  const fallbackPending = queryBailianCli('en', { ...options, signal: fallbackAbort.signal })
+  await until(() => count() >= fallbackStart + 3)
+  fallbackAbort.abort()
+  await assert.rejects(fallbackPending, { name: 'AbortError' })
 
   // 单命令失败 → 另一来源作答;双命令失败 → 分类错误且绝不回吐子进程输出。
   setResponse({ token: { exit: 1, stderr: 'SECRET_TOKEN_OUTPUT' } })
@@ -218,22 +256,39 @@ process.stdout.write(spec.raw ?? JSON.stringify(spec.payload ?? {}));
   assert.equal(count(), afterRefresh, 'polls reuse the CLI result')
   assert.equal(state.planStats.providers.qwen, undefined, 'no local estimates from an unknown CLI billing period')
 
+  setResponse({ token: { payload: {} }, coding: { payload: {} }, tokenRaw: { payload: { data: monthlyPayload } } })
+  result = await api.refreshCodingPlan('qwen')
+  assert.equal(result.ok, true, 'monthly-only Token Plan reaches the host quota card')
+  assert.deepEqual(result.state.codingPlans.qwen.windows.monthly, personal.monthly)
+  assert.equal(result.state.codingPlans.qwen.windows.fiveHour, undefined, 'old windows do not remain after switching to monthly quota')
+  assert.equal(result.state.codingPlans.qwen.windows.source.text, 'Token Plan (CLI)')
+  codec(result.state)
+  const afterMonthlyRefresh = count()
+  await api.getState()
+  assert.equal(count(), afterMonthlyRefresh, 'monthly quota is cached like other windows')
+
   const readLedger = () => JSON.parse(readFileSync(join(process.env.DSH_HOME, 'storages', 'cost-meter', 'ledger.json'), 'utf8'))
   await until(() => existsSync(join(process.env.DSH_HOME, 'storages', 'cost-meter', 'ledger.json')) && readLedger().config.codingPlans.qwen.quotaSource === 'bailian')
   assert.equal(readLedger().config.codingPlans.qwen.quotaSource, 'bailian', 'disk persists the Bailian source')
 
   // 并发刷新合并为一次查询(两个子进程)。
-  setResponse({ token: { wait: 200 }, coding: { wait: 200 } })
+  setResponse({ token: { wait: 200 }, coding: { wait: 200, payload: codingPayload } })
   const concurrentStart = count()
   await Promise.all([api.refreshCodingPlan('qwen'), api.refreshCodingPlan('qwen'), api.refreshCodingPlan('qwen')])
   assert.equal(count(), concurrentStart + 2, 'concurrent refreshes share one query pair')
+
+  setResponse({ token: { wait: 200, payload: {} }, coding: { wait: 200, payload: {} }, tokenRaw: { payload: monthlyPayload } })
+  const concurrentFallbackStart = count()
+  const monthlyResults = await Promise.all([api.refreshCodingPlan('qwen'), api.refreshCodingPlan('qwen'), api.refreshCodingPlan('qwen')])
+  assert.equal(count(), concurrentFallbackStart + 3, 'concurrent refreshes share one normal pair and one fallback')
+  for (const item of monthlyResults) assert.deepEqual(item.state.codingPlans.qwen.windows.monthly, personal.monthly)
 
   // soft 失败:有登录态但无任何订阅 → off + 中性文案。
   setResponse({ token: { payload: {} }, coding: { payload: {} } })
   result = await api.refreshCodingPlan('qwen')
   assert.equal(result.ok, false)
   assert.equal(result.state.codingPlans.qwen.status, 'off')
-  assert.match(result.message, /no valid plan quota/)
+  assert.match(result.message, /no recognized plan quota/)
   assert.deepEqual(result.state.codingPlans.qwen.windows, {})
   // 硬失败:双命令退出 → error + 登录提示,错误遵守查询间隔。
   setResponse({ token: { exit: 1, stderr: 'SECRET_CHILD_A' }, coding: { exit: 1, stderr: 'SECRET_CHILD_B' } })

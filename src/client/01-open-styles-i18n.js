@@ -144,7 +144,8 @@ window.__ModuleLoader__.load({
       '.cm-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:12px}',
       '.cm-field{display:flex;flex-direction:column;gap:6px}',
       '.cm-field label{font-size:12px;color:var(--dsw-alias-label-secondary)}',
-      '.cm-input{font:inherit;font-size:13px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:6px 10px;outline:none}',
+      // #258: 原生下拉选项不会继承 select 的背景；皮肤为深色、宿主仍为浅色时会出现白字白底。
+      '.cm-input,.cm-input option{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.cm-input{font:inherit;font-size:13px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:6px 10px;outline:none}',
       '.cm-input:focus{border-color:var(--dsw-alias-state-business-primary)}',
       '.cm-input.narrow{max-width:120px}',
       '.cm-range-row{display:flex;align-items:center;gap:10px}',
@@ -274,6 +275,8 @@ window.__ModuleLoader__.load({
       '.cm-mstats-h{margin:10px 0 4px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}',
       '.cm-mstats-row{display:grid;grid-template-columns:minmax(90px,170px) 1fr auto;gap:8px;align-items:center;font-size:11px;line-height:1.7}',
       '.cm-mstats-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary)}',
+      '.cm-mstats-label{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}',
+      '.cm-mstats-label .cm-mstats-name{flex:1;min-width:90px}.cm-mstats-label~.cm-mstats-barbg{grid-column:1/3}',
       '.cm-mstats-barbg{position:relative;height:10px;border-radius:999px;background:var(--dsw-alias-bg-layer-3);overflow:hidden;display:flex}',
       '.cm-mstats-bar{height:100%;min-width:0;border-radius:999px}',
       '.cm-mstats-bar.cost{background:#ff9800}',

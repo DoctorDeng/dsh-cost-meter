@@ -335,7 +335,7 @@ window.__ModuleLoader__.load({
         !priced ? el('p', { className: 'cm-plan-note' }, text('未配置模型单价', 'Model rates not configured')) : null))
     }
 
-    /** Public slot shadowing preserves the foreign registration and its props. */
+    /** Keep the peer's view ledger intact: the host builds header tabs from raw entries. */
     const contextTargets = [['conversation.view', 'id', 'context'], ['sidebar.right.pane.tab', 'key', 'dsh-context'], ['conversation.input.overlay', 'id', 'context-modal']]
     function installContextCosts(ctx, api, getLocale, createPortal, localeStore) {
       const slots = ctx.get('slots')
@@ -349,46 +349,57 @@ window.__ModuleLoader__.load({
           const composition = props.useProjection?.('contextBreakdown'), usage = props.useProjection?.('tokenUsage')
           const revision = JSON.stringify([composition, usage])
           useEffect(() => {
-            if (!container.current || typeof MutationObserver !== 'function') return
+            const scope = Original ? container.current : container.current?.closest('[data-conversation-session]')
+            if (!scope || (!Original && scope.dataset.conversationSession !== props.sessionId) || typeof MutationObserver !== 'function') return
             const node = document.createElement('div'); node.className = 'cm-plan-host'; node.dataset.cmContextCosts = ''
             const sync = () => {
-              const card = container.current?.querySelector('[data-lc-current]')
+              const card = Original ? scope.querySelector('[data-lc-current]') : [...scope.querySelectorAll('[data-slot="conversation.view"] [data-lc-current]')].find(card => card.closest('[data-conversation-session]') === scope)
               if (!card) { node.remove(); setTarget(null); return }
               if (node.parentElement !== card) { card.appendChild(node); setTarget(node) }
             }
             const observer = new MutationObserver(sync)
-            observer.observe(container.current, { childList: true, subtree: true }); sync()
+            observer.observe(scope, { childList: true, subtree: true }); sync()
             return () => { observer.disconnect(); node.remove() }
           }, [props.sessionId])
           const text = (zh, english) => getLocale() === 'en' ? english : zh
-          return el('div', { ref: container, style: { display: 'contents' }, 'data-cm-context-bridge': props.sessionId }, el(Original, props),
-            target && props.sessionId ? createPortal(el(ContextCosts, { key: props.sessionId, api, sessionId: props.sessionId, integrated: true, text, revision }), target) : null)
+          const portal = target && props.sessionId ? createPortal(el(ContextCosts, { key: props.sessionId, api, sessionId: props.sessionId, integrated: true, text, revision }), target) : null
+          return Original ? el('div', { ref: container, style: { display: 'contents' }, 'data-cm-context-bridge': props.sessionId }, el(Original, props), portal)
+            : el(Fragment, null, el('span', { ref: container, hidden: true }), portal)
         }
       }
-      for (const [name, key, id] of contextTargets) {
-        let syncing = false
-        const sync = () => {
-          if (!active || syncing) return
-          syncing = true
-          try {
-          const matches = slots.entries(name).filter(entry => entry.locale === 'dsh-context' && entry.options[key] === id && entry.registrant !== 'dsh-cost-meter-context-bridge')
-          const original = matches.length === 1 ? matches[0] : null, previous = bridges.get(name)
-          if (previous?.original === original && slots.entries(name).some(entry => entry.component === previous.component)) return
-          previous?.dispose(); bridges.delete(name)
-          // A newer plugin declaring child slots or an exclusive store needs a
-          // new adapter; never borrow those ownership rights or override peers.
-          if (!original || original.children || original.store || typeof original.component !== 'function') return
-          const winner = slots.entriesOfSlot(name).find(entry => entry.options[key] === id)
-          if (winner !== original) return
-          const component = wrap(original.component)
-          const dispose = slots.register({ name, ...original.options, inject: original.inject, locale: original.locale,
-            priority: (original.options.priority ?? 0) - 1, registrant: 'dsh-cost-meter-context-bridge' }, component)
-          bridges.set(name, { original, component, dispose })
-          } finally { syncing = false }
+      const disposeAll = () => { active = false; for (const dispose of disposers) dispose(); for (const bridge of bridges.values()) bridge.dispose(); bridges.clear() }
+      try {
+        for (const [name, key, id] of contextTargets) {
+          const main = name === 'conversation.view', registration = main ? 'conversation.input.overlay' : name
+          let syncing = false
+          const sync = () => {
+            if (!active || syncing) return
+            syncing = true
+            try {
+              const matches = slots.entries(name).filter(entry => entry.locale === 'dsh-context' && entry.options[key] === id && entry.registrant !== 'dsh-cost-meter-context-bridge')
+              const original = matches.length === 1 ? matches[0] : null, previous = bridges.get(name)
+              const winner = slots.entriesOfSlot(name).find(entry => entry.options[key] === id)
+              if (previous?.original === original && slots.entries(registration).some(entry => entry.component === previous.component)
+                && (main ? winner === original : winner?.component === previous.component)) return
+              previous?.dispose(); bridges.delete(name)
+              // A newer plugin declaring child slots or an exclusive store needs a
+              // new adapter; never borrow those ownership rights or override peers.
+              if (!original || original.children || original.store || typeof original.component !== 'function') return
+              if (slots.entriesOfSlot(name).find(entry => entry.options[key] === id) !== original) return
+              if (main && typeof slots.spec === 'function' && !slots.spec(registration)) return
+              const component = wrap(main ? null : original.component)
+              // A separate, inert composer contribution has normal session props
+              // and can portal into this occurrence's peer card without another tab.
+              const dispose = slots.register(main ? { name: registration, id: 'cost-meter-context-main', registrant: 'dsh-cost-meter-context-bridge' }
+                : { name, ...original.options, inject: original.inject, locale: original.locale,
+                  priority: (original.options.priority ?? 0) - 1, registrant: 'dsh-cost-meter-context-bridge' }, component)
+              bridges.set(name, { original, component, dispose })
+            } finally { syncing = false }
+          }
+          disposers.push(slots.subscribe(name, sync)); if (main) disposers.push(slots.subscribe(registration, sync)); sync()
         }
-        disposers.push(slots.subscribe(name, sync)); sync()
-      }
-      return () => { active = false; for (const dispose of disposers) dispose(); for (const bridge of bridges.values()) bridge.dispose(); bridges.clear() }
+      } catch (error) { disposeAll(); throw error }
+      return disposeAll
     }
 
     const introKey = 'dsh-cost-meter:context-intro-seen'
@@ -399,18 +410,32 @@ window.__ModuleLoader__.load({
     function createContextIntegration(ctx, api, store, getLocale, createPortal) {
       const slots = ctx.get('slots'), listeners = new Set(), disposers = []
       let active = true, bridge = null, originals = [], checked = false, checkId = 0, shown = introSeen(), intent = null, changeId = 0, writes = Promise.resolve()
+      let reconciling = false, reconcileAgain = false
       let state = { peer: { version: '', compatible: false, reason: 'unavailable' }, available: false, enabled: false, saving: false, error: '', prompt: false, manual: false }
       const supported = ['entries', 'entriesOfSlot', 'register', 'subscribe'].every(key => typeof slots?.[key] === 'function')
       const emit = patch => { state = { ...state, ...patch }; for (const fn of listeners) fn() }
       const reconcile = () => {
         if (!active) return
-        const config = store.getSnapshot().state?.config
-        const available = supported && state.peer.compatible && originals.length > 0
-        const enabled = available && !state.saving && (intent ?? config?.contextCostsEnabled) === true
-        if (!enabled && bridge) { const dispose = bridge; bridge = null; dispose() }
-        if (enabled && !bridge) bridge = installContextCosts(ctx, { ...api, disableIntegration: () => void choose(false) }, getLocale, createPortal, store)
-        const prompt = state.prompt && (state.manual || available)
-        emit({ available, enabled, prompt: prompt || !!(config && available && !config.contextCostsPromptSeen && !config.contextCostsEnabled && !shown) })
+        // Real SlotRegistry emits slots/changed inside register/dispose. A
+        // listener may synchronously publish the cost store again. Finish this
+        // transaction and retain its disposer before handling that publication.
+        if (reconciling) { reconcileAgain = true; return }
+        reconciling = true
+        try {
+          do {
+            reconcileAgain = false
+            const config = store.getSnapshot().state?.config
+            const available = supported && state.peer.compatible && originals.length > 0
+            const enabled = available && !state.saving && (intent ?? config?.contextCostsEnabled) === true
+            if (!enabled && bridge) { const dispose = bridge; bridge = null; dispose() }
+            if (enabled && !bridge) {
+              const dispose = installContextCosts(ctx, { ...api, disableIntegration: () => void choose(false) }, getLocale, createPortal, store)
+              if (active) bridge = dispose; else dispose()
+            }
+            const prompt = state.prompt && (state.manual || available)
+            if (active) emit({ available, enabled, prompt: prompt || !!(config && available && !config.contextCostsPromptSeen && !config.contextCostsEnabled && !shown) })
+          } while (active && reconcileAgain)
+        } finally { reconciling = false }
       }
       const check = async (force = false) => {
         if (!active || !supported) return

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { runInNewContext } from 'node:vm'
 
 const host = resolve(process.env.DSH_TEST_NODE_MODULES ?? '.tmp-issue203-host/node_modules')
 const req = createRequire(join(host, '__cost_planning.cjs'))
@@ -15,6 +16,14 @@ for (const key of ['window', 'document', 'MutationObserver', 'HTMLElement']) glo
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const React = uiReq('react'), { createRoot } = uiReq('react-dom/client'), { createPortal } = uiReq('react-dom'), { act } = uiReq('react-dom/test-utils')
 const { SlotCore } = await import(pathToFileURL(req.resolve('@deepseek-ai/dsh-client-ui-slots')).href)
+// Execute the published host's header projection verbatim. The renderer's
+// winners alone cannot detect duplicate tabs in this raw-ledger consumer.
+const conversationClient = readFileSync(join(host, '@deepseek-ai/dsh-client-ui-conversation/lib/client.js'), 'utf8')
+const headerProjection = conversationClient.match(/const viewTabs = ([\s\S]+?);\n\s*const activateView =/)
+assert.ok(headerProjection, 'published host header tab projection is available')
+const headerTabs = slots => runInNewContext('(' + headerProjection[1] + ')()', { slots,
+  ctx: { configForms: { developerTools: { enabled: { getSnapshot: () => true } } } },
+  _deepseek_ai_dsh_client_ui_slots: { resolveSlotLabel: value => typeof value === 'function' ? value() : value } })
 window.HTMLElement.prototype.scrollIntoView = () => {}
 window.HTMLDialogElement.prototype.showModal = function () { this.open = true }
 window.HTMLDialogElement.prototype.close = function () { this.open = false }
@@ -74,6 +83,20 @@ function render(component, props = {}) {
   const root = createRoot(container); mounts.push(root)
   root.render(h(component, props)); return { root, container }
 }
+function Surface({ slots, name, sessionId, visible = true, nested = false }) {
+  React.useSyncExternalStore(fn => {
+    const disposers = [name, 'conversation.input.overlay'].map(key => slots.subscribe(key, fn))
+    return () => disposers.forEach(dispose => dispose())
+  }, () => slots.getVersion(name) + slots.getVersion('conversation.input.overlay'))
+  const entry = slots.entriesOfSlot(name).find(entry => peerEntry(name, entry))
+  const view = visible && entry ? h(entry.component, props(sessionId)) : null
+  if (name !== 'conversation.view') return view
+  const main = slots.entriesOfSlot('conversation.input.overlay').find(entry => entry.options.id === 'cost-meter-context-main')
+  return h('div', { 'data-conversation-session': sessionId },
+    h('header', { 'data-conversation-tabs': true }, ...headerTabs(slots).map((tab, index) => h('button', { key: index }, tab.label))),
+    nested ? h('div', { 'data-conversation-session': 'nested' }, h('div', { 'data-slot': name }, h('div', { 'data-lc-current': true, 'data-nested-card': true }, 'Nested context'))) : null,
+    h('div', { 'data-slot': name }, view), h('div', { 'data-slot': 'conversation.input.overlay' }, main ? h(main.component, props(sessionId)) : null))
+}
 
 try {
   // Future peer releases without the required registration shape remain unavailable.
@@ -98,6 +121,16 @@ try {
     assert.equal(manager.getSnapshot().available, true, version + ' is detected after installation')
     assert.equal(manager.getSnapshot().enabled, false)
     const targets = ['conversation.view', 'sidebar.right.pane.tab', 'conversation.input.overlay']
+    const originals = new Map(targets.map(name => [name, env.slots.entries(name).find(entry => peerEntry(name, entry))]))
+    const assertSlots = enabled => {
+      assert.equal(headerTabs(env.slots).filter(tab => tab.id === 'context').length, 1, version + ': one real host Context tab')
+      for (const name of targets) {
+        assert.equal(env.slots.entries(name).filter(entry => peerEntry(name, entry)).length, enabled && name !== 'conversation.view' ? 2 : 1, name + ': bounded registration ledger')
+        assert.ok(env.slots.entries(name).includes(originals.get(name)), name + ': original registration identity preserved')
+      }
+      assert.equal(env.slots.entries('conversation.input.overlay').filter(entry => entry.options.id === 'cost-meter-context-main').length, enabled ? 1 : 0, 'one inert main-view mount')
+    }
+    assertSlots(false)
     for (const name of targets) assert.equal(env.slots.entries(name).filter(e => peerEntry(name, e)).length, 1, name + ' remains original before consent')
     let prompt
     await settle(() => { prompt = render(ui.ContextPrompt, { manager, getLocale: () => 'en' }) })
@@ -114,15 +147,16 @@ try {
     await settle(() => manager.preview())
     await settle(() => prompt.container.querySelector('.cm-context-primary').click())
     assert.equal(manager.getSnapshot().enabled, true)
+    assertSlots(true)
     const views = []
     for (const [index, name] of targets.entries()) {
       const entries = env.slots.entries(name).filter(e => peerEntry(name, e))
-      assert.equal(entries.length, 2, 'one original and one wrapper: ' + name)
+      assert.equal(entries.length, name === 'conversation.view' ? 1 : 2, 'view ledger stays original; other surfaces shadow: ' + name)
       const entry = env.slots.entriesOfSlot(name).find(e => peerEntry(name, e))
-      assert.equal(entry.registrant, 'dsh-cost-meter-context-bridge')
+      if (name !== 'conversation.view') assert.equal(entry.registrant, 'dsh-cost-meter-context-bridge')
       if(name === 'conversation.view') assert.equal(entry.options.label(), 'Context', 'integration preserves the peer tab label')
       let view
-      await settle(() => { view = render(entry.component, props(index === 1 ? 'two' : 'one')) })
+      await settle(() => { view = render(Surface, { slots: env.slots, name, sessionId: index === 1 ? 'two' : 'one' }) })
       const card = view.container.querySelector('[data-lc-current]')
       assert.ok(card, version + ' actual current-context card: ' + name)
       assert.equal(card.querySelectorAll('[data-cm-context-costs]').length, 1, 'planner resides inside partner card')
@@ -131,19 +165,49 @@ try {
       views.push(view)
     }
     assert.ok(reads.includes('one') && reads.includes('two'), 'two simultaneously visible sessions stay scoped')
+    let secondMain
+    await settle(() => { secondMain = render(Surface, { slots: env.slots, name: 'conversation.view', sessionId: 'two', nested: true }) })
+    const mainCard = () => secondMain.container.querySelector('[data-conversation-session="two"] > [data-slot="conversation.view"] [data-lc-current]')
+    assert.equal(mainCard().querySelector('[data-cm-plan-session]').dataset.cmPlanSession, 'two', 'second main occurrence remains session-scoped')
+    assert.equal(secondMain.container.querySelector('[data-nested-card] [data-cm-context-costs]'), null, 'nested foreign session is never augmented')
+    await settle(() => secondMain.root.render(h(Surface, { slots: env.slots, name: 'conversation.view', sessionId: 'two', visible: false, nested: true })))
+    assert.equal(secondMain.container.querySelectorAll('[data-cm-context-costs]').length, 0, 'switching away removes the main portal')
+    await settle(() => secondMain.root.render(h(Surface, { slots: env.slots, name: 'conversation.view', sessionId: 'two', nested: true })))
+    assert.equal(mainCard().querySelectorAll('[data-cm-context-costs]').length, 1, 'returning to a replacement card restores exactly one portal')
+    await settle(() => secondMain.root.render(h(Surface, { slots: env.slots, name: 'conversation.view', sessionId: 'one', nested: true })))
+    assert.equal(secondMain.container.querySelector('[data-cm-plan-session]').dataset.cmPlanSession, 'one', 'session switch never carries the previous costs')
+    views.push(secondMain)
+    let disposeShadow
+    await settle(() => { disposeShadow = env.slots.register({ name: 'conversation.view', id: 'context', priority: -2 }, () => h('div', { 'data-lc-current': true }, 'Unrelated replacement')) })
+    assert.equal(views[0].container.querySelectorAll('[data-cm-context-costs]').length, 0, 'foreign winning view is not augmented')
+    assert.equal(env.slots.entries('conversation.input.overlay').filter(entry => entry.options.id === 'cost-meter-context-main').length, 0)
+    await settle(() => disposeShadow()); assertSlots(true)
+    assert.equal(views[0].container.querySelectorAll('[data-cm-context-costs]').length, 1, 'original winner recovery reinstalls main costs')
     // Manually reopening the preview and closing it must not turn off an existing opt-in.
     await settle(() => manager.preview())
     await settle(() => prompt.container.querySelector('.cm-context-close').click())
     assert.equal(manager.getSnapshot().enabled, true)
     await settle(() => manager.choose(false))
-    for (const name of targets) assert.equal(env.slots.entries(name).filter(e => peerEntry(name, e)).length, 1, 'switch off restores the original')
+    assertSlots(false)
+    for (const view of views) assert.equal(view.container.querySelectorAll('[data-cm-context-costs]').length, 0, 'switch off immediately removes costs')
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await settle(() => manager.choose(true)); assertSlots(true)
+      await settle(() => { manager.refresh(); manager.refresh() }); assertSlots(true)
+      for (const view of views) assert.equal(view.container.querySelectorAll('[data-cm-context-costs]').length, 1, 'one cost card after repeated enable/refresh')
+      await settle(() => manager.choose(false)); assertSlots(false)
+      for (const view of views) assert.equal(view.container.querySelectorAll('[data-cm-context-costs]').length, 0, 'no costs after repeated disable')
+    }
+    await settle(() => manager.choose(true)); assertSlots(true)
+    await settle(() => manager.dispose()); assertSlots(false)
+    await settle(() => { manager = ui.createContextIntegration(env.ctx, api, store, () => 'en', createPortal); prompt.root.render(h(ui.ContextPrompt, { manager, getLocale: () => 'en' })) }); assertSlots(true)
+    await settle(() => manager.choose(false)); assertSlots(false)
     failSave = true
     await settle(() => manager.preview())
     await settle(() => prompt.container.querySelector('.cm-context-primary').click())
     assert.equal(prompt.container.querySelector('dialog'), null, 'save failure cannot trap the dialog')
     assert.equal(manager.getSnapshot().enabled, false); assert.equal(manager.getSnapshot().error, 'save')
     await settle(() => { for (const view of views) view.root.unmount(); prompt.root.unmount(); manager.dispose(); env.dispose() })
-    console.log('[ok] dsh-context ' + version + ': real tab/sidebar/modal, opt-in, two sessions, prompt previews/dismissal, reload, switch, save failure and original registrations')
+    console.log('[ok] dsh-context ' + version + ': published host header, tab/sidebar/modal, two sessions, repeated toggles/refresh, enabled reload, prompt dismissal, save failure and original registrations')
   }
 } finally {
   await act(async () => { for (const root of mounts) root.unmount() })

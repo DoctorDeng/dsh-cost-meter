@@ -3,13 +3,30 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync,
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
-import { parseQwenSummary, queryQwenCli, resolveQwenCli, QWEN_CLI_ARGS } from '../lib/qwen-cli.js'
+import { parseQwenSummary, parseQwenSubscription, queryQwenCli, resolveQwenCli, QWEN_CLI_ARGS, QWEN_SUBSCRIPTION_ARGS } from '../lib/qwen-cli.js'
 import { applyConfigPatch, sanitizeConfig } from '../lib/store.js'
 import { TYPERT } from '../lib/typert.host.js'
 import { apply } from '../lib/index.js'
 
 const plan = { subscribed: true, status: 'valid', totalCredits: 25000, remainingCredits: 18000, usedPct: 28, resetDate: '2026-10-01T00:00:00Z', addonRemaining: 1.25 }
 const summary = { token_plan: plan, free_tier: [{ secret: 'PRIVATE_FREE_TIER' }], pay_as_you_go: { secret: 'PRIVATE_PAYG' } }
+const subscription = { individual: { status: 'active', monthlyCredits: { total: 45000, usedPct: 0.00169, resetTime: '2026-11-14T00:00:00+08:00' } }, recentOrders: [{ secret: 'PRIVATE_ORDER' }] }
+const personal = parseQwenSubscription(subscription, 'en').windows
+assert.equal(personal.monthly.percent, 0.00169, 'usedPct is percent, not a ratio; preserve small usage')
+assert.equal(personal.monthly.resetsAt, '2026-11-13T16:00:00.000Z')
+assert.equal(personal.monthlyCredits.text, 'Monthly total: 45,000 Credits (CLI)')
+assert.ok(!JSON.stringify(personal).includes('PRIVATE'))
+for (const percent of [0, 28, 100]) {
+  const actual = parseQwenSubscription({ individual: { status: 'active', weeklyCredits: { usedPct: percent } } }).windows
+  assert.deepEqual(actual, { weekly: { percent, resetsAt: '' } }, 'unknown absolute Credits remain unknown')
+}
+for (const patch of [{ total: 0 }, { total: -1 }, { total: '45000' }, { usedPct: -1 }, { usedPct: 101 }, { usedPct: NaN }, { usedPct: '0' }, { usedPct: null }, { usedPct: undefined }, { resetTime: 'invalid' }, { resetTime: 0 }]) {
+  assert.throws(() => parseQwenSubscription({ individual: { status: 'active', monthlyCredits: { ...subscription.individual.monthlyCredits, ...patch } } }), { code: 'invalid' })
+}
+for (const status of ['none', 'expired', 'unknown', 'inactive']) {
+  assert.throws(() => parseQwenSubscription({ individual: { ...subscription.individual, status } }), { code: 'unavailable' })
+}
+assert.throws(() => parseQwenSubscription({ individual: { status: 'active' } }), { code: 'unavailable' })
 const windows = parseQwenSummary(summary, 'en').windows
 assert.equal(windows.quota.percent, 28)
 assert.equal(windows.quota.resetsAt, '')
@@ -59,7 +76,8 @@ try {
   writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@qianwenai/qianwen-cli', type: 'module', bin: { qianwen: 'dist/bin/qianwen.js' } }))
   writeFileSync(join(bin, 'qianwen.cmd'), '@echo SHOULD_NOT_EXECUTE_THIS_SHIM\r\nexit /b 99\r\n')
   const program = `import fs from 'node:fs';
-const config = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, 'utf8'));
+let config = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, 'utf8'));
+if (process.argv[2] === 'subscription') config = config.subscription ?? config;
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + '\\n');
 if (config.wait) await new Promise(r => setTimeout(r, config.wait));
 if (config.stderr) process.stderr.write(config.stderr);
@@ -79,6 +97,13 @@ process.stdout.write(config.raw ?? JSON.stringify(config.payload));
   setResponse({})
   assert.equal((await queryQwenCli('en', options)).windows.quota.percent, 28)
   assert.deepEqual(JSON.parse(readFileSync(calls, 'utf8').trim()), QWEN_CLI_ARGS)
+  setResponse({ payload: { token_plan: { subscribed: false } }, subscription: { payload: subscription } })
+  assert.deepEqual((await queryQwenCli('en', options)).windows, personal)
+  assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n').slice(-2).map(JSON.parse), [QWEN_CLI_ARGS, QWEN_SUBSCRIPTION_ARGS])
+  for (const [response, expected] of [[{ exit: 2, stderr: 'SECRET_AUTH' }, 'auth'], [{ raw: 'SECRET_INVALID' }, 'invalid'], [{ payload: { individual: { status: 'expired' } } }, 'unavailable'], [{ wait: 4000 }, 'timeout']]) {
+    setResponse({ payload: { token_plan: { subscribed: false } }, subscription: response })
+    await assert.rejects(queryQwenCli('en', { ...options, timeoutMs: response.wait ? 2000 : 15000 }), e => e.code === expected && !e.message.includes('SECRET'))
+  }
   for (const [response, expected] of [
     [{ exit: 2, stderr: 'SECRET_AUTH_OUTPUT' }, 'auth'],
     [{ exit: 3, stderr: 'SECRET_NETWORK_OUTPUT' }, 'failed'],
@@ -124,6 +149,15 @@ process.stdout.write(config.raw ?? JSON.stringify(config.payload));
   const afterRefresh = count()
   await api.getState(); await api.getState()
   assert.equal(count(), afterRefresh, 'polls reuse the CLI result')
+  setResponse({ payload: { token_plan: { subscribed: false } }, subscription: { payload: subscription, wait: 150 } })
+  const fallbackStart = count()
+  const [fallback] = await Promise.all([api.refreshCodingPlan('qwen'), api.refreshCodingPlan('qwen')])
+  assert.equal(fallback.ok, true)
+  assert.deepEqual(fallback.state.codingPlans.qwen.windows, parseQwenSubscription(subscription, 'en').windows)
+  codec(fallback.state)
+  await api.getState(); await api.getState()
+  assert.equal(count(), fallbackStart + 2, 'concurrent fallback and polls reuse one pair of commands')
+  assert.equal(fallback.state.planStats.providers.qwen, undefined)
   assert.equal(state.planStats.providers.qwen, undefined, 'no estimates from an unknown CLI billing period')
   const readLedger = () => JSON.parse(readFileSync(join(process.env.DSH_HOME, 'storages', 'cost-meter', 'ledger.json'), 'utf8'))
   await until(() => existsSync(join(process.env.DSH_HOME, 'storages', 'cost-meter', 'ledger.json')) && readLedger().config.codingPlans.qwen.quotaSource === 'cli')

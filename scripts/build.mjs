@@ -113,13 +113,13 @@ if (!cssMatch) throw new Error('client CSS source not found')
 const css = runInNewContext(cssMatch[1], Object.create(null), { timeout: 1000 })
 const cssResult = await transform(css, { loader: 'css', minify: true, charset: 'utf8', target: 'es2022' })
 if (cssResult.warnings.length) throw new Error('client CSS contains build warnings')
-// Store the repeated native-theme prefix once, then restore it before injection.
+// Store repeated native-theme and component prefixes once; restore before injection.
 // This is lossless text packing: the actual stylesheet and cascade do not change.
 const compactCss = cssResult.code.trim()
-assert.ok(!compactCss.includes('\x01'), 'CSS packing marker must be unused')
-const packedCss = compactCss.replaceAll('--dsw-alias-', '\x01')
-assert.equal(packedCss.replaceAll('\x01', '--dsw-alias-'), compactCss)
-src = src.replace(cssMatch[0], () => `const css = ${javascriptLiteral(packedCss)}.replaceAll("\\x01","--dsw-alias-")`)
+assert.ok(!/[\x01\x02]/.test(compactCss), 'CSS packing markers must be unused')
+const packedCss = compactCss.replaceAll('--dsw-alias-', '\x01').replaceAll('.cm-', '\x02')
+assert.equal(packedCss.replaceAll('\x01', '--dsw-alias-').replaceAll('\x02', '.cm-'), compactCss)
+src = src.replace(cssMatch[0], () => `const css = ${javascriptLiteral(packedCss)}.replaceAll("\\x01","--dsw-alias-").replaceAll("\\x02",".cm-")`)
 const result = await transform(src, {
   minify: true,
   keepNames: false,
@@ -130,7 +130,7 @@ const result = await transform(src, {
   // 输出,比默认 \uXXXX 转义(每字 6 字节)省一半以上,给 256 KiB 单文件上限留出余量。
   charset: 'utf8',
 })
-const header = '// This file is generated from the src/client/*.js fragments via `node scripts/build.mjs` (esbuild). Do not edit directly.\n'
+const header = '// Generated from src/client/*.js by node scripts/build.mjs; do not edit.\n'
 const outPath = resolve(projectRoot, 'lib/client.js')
 writeFileSync(outPath, header + result.code)
 // 字节口径与 test/verify.mjs 的门禁一致(UTF-8 字节而非 UTF-16 字符数,中文文案算多字节)。
