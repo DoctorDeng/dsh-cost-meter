@@ -2,15 +2,17 @@
 
 [English](README.md) | **简体中文**
 
+交流与反馈：[加入微信交流群 →](#交流与反馈) · 微信交流群已开放，欢迎您加入。
+
 <div align="center">
 
 **DeepSeek Harness 会话费用统计插件(界面中英双语)**
 
 本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;周末与中国法定假日全天按谷价,分别标注) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 170+ 模型 ID 价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 / 千问 / 小米 MiMo 十一家,含 Volcano Ark AK/SK 签名与 MiMo 控制台 Cookie 查询) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
 
-[![version](https://img.shields.io/badge/version-1.8.24-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.8.26-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-**v1.8.24** 修复千问个人 Token Plan 有订阅却读不到额度的问题，并修复按模型统计中长名称遮住计费方式下拉框和 Plan 标签的问题。详见 [更新记录](CHANGELOG.md)。
+**v1.8.26** 修复自定义渠道的套餐匹配，支持手动选择套餐和按名称特征自动归属，并恢复能完整核对的近期用量。详见 [套餐归属说明](docs/token-plan-stats.md#自定义渠道如何关联套餐)。
 
 桌面端用户请按 [Desktop 安装说明](docs/install-troubleshooting.md#desktop-安装与更新)，使用应用自带的 CLI 和 `desktop` Profile。
 
@@ -89,7 +91,7 @@
 
 千问 Token Plan 可在卡片内选择[官方 CLI 订阅额度](docs/qwen-cli-quota.md)，需在 DSH 主机以同一系统账号安装 CLI 并运行 `qianwen auth login`。默认保留本地估算；CLI 模式显示账号当前 Credits，不修改本地账本。
 
-千问 Token Plan 的本地 Credits 仅统计 `qwen`、`qwen-tokenplan`、`qianwen-tokenplan`、`qwen-token-plan`、`qianwen-token-plan` 订阅 provider（大小写不敏感，可带 `llm-` 前缀）；显式归类为 API 的调用不计。`qianwen` 按量 provider 即使使用相同模型名也不会计入订阅额度。自定义渠道名需使用上述订阅名称之一，模型不在抵扣表中时需补充三项费率。
+千问 Token Plan 的本地 Credits 统计归属千问套餐的 Plan 调用。保留 `qwen`、`qwen-tokenplan` 等订阅别名，自定义渠道也可在「按模型统计 → 计费方式」选择千问套餐，或使用明确的厂商名与套餐特征自动识别。显式 API 调用不计；`qianwen` 按量渠道不会仅因同名模型自动归入。模型不在抵扣表中时需补充三项费率。
 
 小米 MiMo Token Plan 的额度查询使用**控制台 Cookie**(而非 API Key):登录 `platform.xiaomimimo.com` 后按 F12 →「网络」→ 找到 `balanceAlertConfig` 请求,把请求头 `cookie` 整段粘贴进「设置 → 费用 → 额度」的 MiMo 卡片(需含 `serviceToken` 与 `userId`,DSH 凭据库以 `MIMO_COOKIE` 托管)。卡片显示套餐/补偿积分窗口与周期截止重置(北京时间)及余额行。控制台 Cookie 过期后，按卡片提示重新复制。此控制台查询不接受 Token Plan 推理专用 Key(`tp-*` / `ttp-*`)。本地套餐统计按自然月汇总；补偿积分和余额只展示查询结果，不用无法区分归属的本地调用估算。
 
@@ -323,22 +325,22 @@ Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安�
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.8.24`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.8.26`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.24/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.8.26/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.24
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.8.26
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.24.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.8.26.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):
@@ -512,6 +514,15 @@ dsh --profile web --port 3099                           # 真机启动(观察启
 - Token Plan 统计的「每 1% 额度/满窗」为估算值:各家额度接口只返回百分比且读数存在个位级量化(显示 1% 的真实值可能在 0.5%~1.5%),插件以连续可信段的首尾差分推算以压低量化误差(跨度不足 5 个百分点时标注「读数精度受限」,样本超 7 天回退当前用量折算,窗口边界按小时对齐);服务端百分比统计的是该账号全部用量——同一 Key 在其它机器/CLI 的消耗不在本地账本,估算偏低属预期,仅供跨套餐横向比较;
 - Plan/API 双轨分类基于渠道与配置推断,混合订阅/按量使用同一厂商 Key 的场景(如 Kimi 订阅 + PAYG 混用)可在设置中按 provider:model 手动覆盖。
 - 安装/更新插件后需重启 `dsh web` 生效。
+
+## 交流与反馈
+
+使用交流、问题反馈和功能建议，欢迎加入微信交流群。
+
+<p align="center">
+  <a href="docs/community-wechat.jpg"><img src="docs/community-wechat.jpg" alt="dsh-cost-meter 微信交流群二维码" width="320" /></a><br />
+  <a href="docs/community-wechat.jpg">查看二维码大图</a>
+</p>
 
 ## 更新历史
 

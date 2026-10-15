@@ -83,7 +83,7 @@ const phrases = []
 // 这是唯一能靠构建解决、又不改动任何界面文案的字节来源。
 const TOKEN_BYTES = 2
 const tokenBase = 0x0180
-const tokenLast = tokenBase + 255
+const tokenLast = 0x07ff
 const tokenRange = `[${String.fromCharCode(tokenBase)}-${String.fromCharCode(tokenLast)}]`
 assert.ok(dictionaryStrings.every(value => !new RegExp(tokenRange).test(value)), 'phrase tokens must be unused')
 const phraseBytes = phrase => Buffer.byteLength(phrase)
@@ -96,8 +96,8 @@ for (const [phrase] of candidates) {
   const token = String.fromCharCode(tokenBase + phrases.length)
   phrases.push(phrase)
   for (const row of packedMessages) row[1] = row[1].split(phrase).join(token)
-  // 256 个槽位(见上方 unused 断言)用满即止。
-  if (phrases.length === 256) break
+  // U+0180..U+07FF 都是 UTF-8 双字节，实际使用前验证它们未出现在字典中。
+  if (phrases.length === tokenLast - tokenBase + 1) break
 }
 const restorePhrases = packed => packed.replace(new RegExp(tokenRange, 'g'), token => phrases[token.charCodeAt(0) - tokenBase])
 const unpacked = Object.fromEntries(packedMessages.map(([locale, packed]) => {
@@ -116,10 +116,10 @@ if (cssResult.warnings.length) throw new Error('client CSS contains build warnin
 // Store repeated native-theme and component prefixes once; restore before injection.
 // This is lossless text packing: the actual stylesheet and cascade do not change.
 const compactCss = cssResult.code.trim()
-assert.ok(!/[\x01\x02]/.test(compactCss), 'CSS packing markers must be unused')
-const packedCss = compactCss.replaceAll('--dsw-alias-', '\x01').replaceAll('.cm-', '\x02')
-assert.equal(packedCss.replaceAll('\x01', '--dsw-alias-').replaceAll('\x02', '.cm-'), compactCss)
-src = src.replace(cssMatch[0], () => `const css = ${javascriptLiteral(packedCss)}.replaceAll("\\x01","--dsw-alias-").replaceAll("\\x02",".cm-")`)
+assert.ok(!/[\x01-\x05]/.test(compactCss), 'CSS packing markers must be unused')
+const packedCss = compactCss.replaceAll('font-size:', '\x05').replaceAll('color:var(--dsw-alias-', '\x04').replaceAll('var(--dsw-alias-', '\x01').replaceAll('.cm-', '\x02').replaceAll('background:', '\x03')
+assert.equal(packedCss.replaceAll('\x05', 'font-size:').replaceAll('\x04', 'color:var(--dsw-alias-').replaceAll('\x01', 'var(--dsw-alias-').replaceAll('\x02', '.cm-').replaceAll('\x03', 'background:'), compactCss)
+src = src.replace(cssMatch[0], () => `const css = ${javascriptLiteral(packedCss)}.replaceAll("\\x05","font-size:").replaceAll("\\x04","color:var(--dsw-alias-").replaceAll("\\x01","var(--dsw-alias-").replaceAll("\\x02",".cm-").replaceAll("\\x03","background:")`)
 const result = await transform(src, {
   minify: true,
   keepNames: false,
@@ -144,7 +144,7 @@ console.log('✓ lib/client.js within DSH STORE per-file bound (262144)')
 
 // DSH 0.2.0-rc.2 package-local chunks use the host's require.async contract.
 // Each on-demand screen has readable source and a bounded runtime asset.
-for (const chunk of ['statistics', 'openrouter']) {
+for (const chunk of ['statistics', 'openrouter', 'community']) {
   const source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
   const result = await transform(source, { minify: true, target: 'es2022', charset: 'utf8', legalComments: 'none' })
   for (const [name, text] of [[`src/${chunk}/index.js`, source], [`lib/client.${chunk}.js`, result.code]]) {

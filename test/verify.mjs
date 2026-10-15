@@ -131,7 +131,7 @@ function readClientSource() {
 // classic script 语法错误不触发 error 事件、宿主只报「loaded without registering」,
 // 而本套件此前只做字符串断言、从不解析该文件——语法错误一路溜到线上。
 // 这里用 vm.Script 整份编译(只编译不执行,window 引用无碍),任何语法错误当场失败。
-for (const browserBundle of ['../lib/client.js', '../lib/client.statistics.js', '../lib/client.openrouter.js']) {
+for (const browserBundle of ['../lib/client.js', '../lib/client.statistics.js', '../lib/client.openrouter.js', '../lib/client.community.js']) {
   const src = readFileSync(new URL(browserBundle, import.meta.url), 'utf8')
   new vm.Script(src, { filename: browserBundle })
 }
@@ -1082,6 +1082,7 @@ await assert.rejects(queryCodingPlan('nobody', 'sk-x', 'zh', stubT), error => er
 
 // 5.6) 端点白名单全部为官方域名(凭据安全)。
 const officialHosts = {
+  factory: ['api.factory.ai'],
   anthropic: ['api.anthropic.com'],
   zai: ['api.z.ai', 'open.bigmodel.cn'],
   minimax: ['www.minimax.cn', 'www.minimaxi.com', 'www.minimax.io'],
@@ -6745,6 +6746,7 @@ await import('./core-boundaries.mjs')
 await import('./go-credentials.mjs')
 await import('./balance-credentials.mjs')
 await import('./account-balance.mjs')
+await import('./factory-quota.mjs')
 await import('./qwen-cli.mjs')
 await import('./bailian-cli.mjs')
 await import('./minimax-endpoint.mjs')
@@ -6755,6 +6757,8 @@ await import('./custom-balance-ui.mjs')
 await import('./custom-balance-post.mjs')
 await import('./balance-display-currency.mjs')
 await import('./settings-regressions.mjs')
+await import('./plan-provider-matching.mjs')
+await import('./community-client.mjs')
 await import('./client-dictionaries.mjs')
 await import('./javascript-literal.mjs')
 await import('./scoped-billing.mjs')

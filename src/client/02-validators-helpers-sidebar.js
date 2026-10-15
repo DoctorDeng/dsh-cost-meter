@@ -192,6 +192,7 @@
                 refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
                 apiKey: typeof e.apiKey === 'string' ? e.apiKey : '',
                 ...(id === 'minimax' ? { baseUrl: typeof e.baseUrl === 'string' ? e.baseUrl : '' } : {}),
+                ...(id === 'factory' ? { orgId: typeof e.orgId === 'string' ? e.orgId : '', factoryPool: ['core', 'both'].includes(e.factoryPool) ? e.factoryPool : 'standard' } : {}),
                 ...(id === 'qwen' ? { quotaSource: ['cli', 'bailian'].includes(e.quotaSource) ? e.quotaSource : 'local' } : {}),
                 // SCNet / 千问本地计量字段(issue #26/#78):其余厂商无此键,缺省剔除。
                 ...(typeof e.planCredits === 'number' && Number.isFinite(e.planCredits) && e.planCredits > 0 ? { planCredits: e.planCredits } : {}),
@@ -298,6 +299,7 @@
         planBilling: {
           providers: parseBillingClasses(v.planBilling?.providers),
           models: parseBillingClasses(v.planBilling?.models, true),
+          modelPlans: Object.fromEntries(Object.entries(v.planBilling?.modelPlans ?? {}).filter(([key, value]) => key.includes(':') && PLAN_PROVIDER_IDS_LOCAL.includes(value))),
         },
       }
     }
@@ -1031,15 +1033,35 @@
       qwen: ['qwen', 'qwen-tokenplan', 'qianwen-tokenplan', 'qwen-token-plan', 'qianwen-token-plan'],
       scnet: ['scnet', 'scnet-tokenplan', 'scnet-token-plan'],
       mimo: ['mimo', 'xiaomimimo', 'mimo-token-plan', 'xiaomi-token-plan', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-ams'],
+      factory: ['factory', 'droid', 'factory-a', 'factory-g', 'factory-o'],
     }
-    const PLAN_PROVIDER_IDS_LOCAL = ['anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'mimo', 'go']
-    function planProviderIdOfLocal(provider) {
+    const PLAN_PROVIDER_IDS_LOCAL = ['anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go']
+    const PLAN_NAME_HINTS_LOCAL = {
+      anthropic: 'anthropic|claude', zai: 'z[._-]?ai|zhipu|glm|智谱', minimax: 'minimax|海螺',
+      kimi: 'kimi|moonshot|moonshotai|月之暗面', openrouter: 'openrouter', siliconflow: 'siliconflow|硅基',
+      commandcode: 'commandcode', scnet: 'scnet|sugon|超算',
+      volcengine: 'volcengine|volcano|volc|ark|火山|方舟', qwen: 'qwen|qianwen|千问|通义',
+      mimo: 'mimo|xiaomi|小米', factory: 'factory|droid', go: 'opencode(?:[-_\\s]?go)?|zen|go',
+    }
+    const PLAN_NAME_MATCHERS_LOCAL = Object.entries(PLAN_NAME_HINTS_LOCAL).map(([id, hints]) => [id, new RegExp('(?:^|[^a-z0-9])(?:' + hints + ')(?=$|[^a-z0-9])')])
+    function inferPlanProviderIdLocal(provider, modelId) {
+      for (const raw of [provider, modelId]) {
+        const text = String(raw ?? '').normalize('NFKC').replace(/([a-zA-Z0-9\u3400-\u9fff])(?=(?:Coding|Token|Plan|Subscription))/g, '$1-').replace(/([a-z0-9])((?:coding|token)?plan|subscription)$/i, '$1-$2').toLowerCase()
+        if (!/(?:^|[^a-z0-9])(?:(?:coding|token)[-_\s]*)?plan(?:$|[^a-z0-9])|(?:^|[^a-z0-9])subscription(?:$|[^a-z0-9])|套餐|订阅/.test(text)) continue
+        const matches = PLAN_NAME_MATCHERS_LOCAL.filter(([, pattern]) => pattern.test(text))
+        if (matches.length) return matches.length === 1 ? matches[0][0] : null
+      }
+      return null
+    }
+    function planProviderIdOfLocal(provider, config, modelId) {
       const name = String(provider ?? '').trim().toLowerCase().replace(/^llm-/, '')
+      const assigned = config?.planBilling?.modelPlans?.[provider + ':' + modelId] ?? config?.planBilling?.modelPlans?.[name + ':' + modelId]
+      if (PLAN_PROVIDER_IDS_LOCAL.includes(assigned)) return assigned
       if (name.length === 0) return null
       for (const [id, aliases] of Object.entries(PLAN_PROVIDER_ALIASES_LOCAL)) {
         if (aliases.includes(name)) return id
       }
-      return PLAN_PROVIDER_IDS_LOCAL.includes(name) ? name : null
+      return PLAN_PROVIDER_IDS_LOCAL.includes(name) ? name : inferPlanProviderIdLocal(provider, modelId)
     }
     function enabledPlanSetOfLocal(config) {
       const out = new Set()
@@ -1071,7 +1093,7 @@
       return false
     }
     function billingClassOfLocal(provider, modelId, config) {
-      let planId = planProviderIdOfLocal(provider)
+      let planId = planProviderIdOfLocal(provider, config, modelId)
       if (planId === null && isRoutedThirdPartyCallLocal(provider, modelId, config)) planId = 'go'
       const models = config?.planBilling?.models
       if (models !== null && typeof models === 'object') {
@@ -2618,6 +2640,7 @@
 
     /** 通用 Coding Plan 侧边栏卡片(issue #31):每窗口一行进度条;文本窗口(余额等)整行文本。 */
     function codingPlanWindowLabel(name, t) {
+      if (name.startsWith('core_')) return 'Core · ' + codingPlanWindowLabel(name.slice(5), t)
       if (name === 'fiveHour' || name === '5h') return '5h'
       if (name === 'weekly' || name === 'week' || name === '7d') return name === '7d' ? '7d' : t('goShortWeekly')
       if (name === 'monthly' || name === 'month') return t('goShortMonthly')
@@ -2803,6 +2826,7 @@
       volcengine: 'Ark',
       qwen: 'Qwen',
       mimo: 'MiMo',
+      factory: 'Factory',
     }
 
     function QuotaStrip(props) {
@@ -2873,7 +2897,11 @@
           const live = state.codingPlans?.[rowDef.id]
           if (config.codingPlans?.[rowDef.id]?.enabled !== true || !live || live.status !== 'ok') continue
           const windows = live.windows !== null && typeof live.windows === 'object' ? live.windows : {}
-          const entries = Object.entries(windows)
+          const allEntries = Object.entries(windows)
+          const groups = rowDef.id === 'factory'
+            ? [allEntries.filter(([name]) => !name.startsWith('core_')), allEntries.filter(([name]) => name.startsWith('core_'))]
+            : [allEntries]
+          for (const [group, entries] of groups.entries()) {
           if (entries.length === 0) continue
           const vendor = STRIP_VENDOR_SHORT[rowDef.id] ?? rowDef.id
           const segs = []
@@ -2893,7 +2921,7 @@
               segs.push({ name, pct: null, text: typeof win?.text === 'string' ? win.text : '—' })
               continue
             }
-            if (shown >= 2) continue // 每家最多两个百分比段,更多窗口进悬停提示
+            if (shown >= (rowDef.id === 'factory' ? 3 : 2)) continue
             shown += 1
             segs.push({ name, pct: Math.round(simpleBarByDirection(pct, barDirectionOf(config, 'plan')).width) })
             worst = Math.max(worst, pct >= 100 ? 2 : pct >= 80 ? 1 : 0)
@@ -2901,12 +2929,13 @@
           if (live.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }))
           if (segs.length === 0) continue
           chips.push({
-            key: rowDef.id,
-            label: vendor,
+            key: rowDef.id + (group ? ':core' : ''),
+            label: vendor + (rowDef.id === 'factory' ? group ? ' Core' : ' Standard' : ''),
             level: ['ok', 'warn', 'over'][worst],
             tip: detailParts.join('; '),
             segs,
           })
+          }
         }
       }
       // Codex chip(issue #59):dsh-codex-connect 在位且已登录时出现;已用口径与各家一致。
@@ -2936,7 +2965,7 @@
           .then(() => (key === 'budget' ? api.reload()
             : key === 'go' ? api.refreshGoQuota()
               : key === 'codex' ? fetchCodexQuota(true, config.codexQuotaEnabled === true)
-                : api.refreshCodingPlan(key)))
+                : key === 'factory:core' ? api.refreshCodingPlan('factory') : api.refreshCodingPlan(key)))
           .catch(error => { setErrs(m => ({ ...m, [key]: error?.message ?? String(error) })) })
           .finally(() => setBusyKey(null))
       }

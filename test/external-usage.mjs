@@ -53,7 +53,8 @@ try {
     const dir = join(root, 'storages', 'cost-meter')
     mkdirSync(dir, { recursive: true })
     const ledgerPath = join(dir, 'ledger.json')
-    writeFileSync(ledgerPath, JSON.stringify({ version: 1, config: { hideOfficialBalance: true }, days: {} }))
+    // This read-only snapshot test is independent of the one-time startup repair.
+    writeFileSync(ledgerPath, JSON.stringify({ version: 1, config: { hideOfficialBalance: true, goQuota: { enabled: false } }, days: {}, migrations: ['plan-hours-attribution-v1'] }))
     process.env.DSH_HOME = root
     let svc
     apply({

@@ -16,10 +16,12 @@
       useEffect(() => {
         let active = true
         setError('')
+        if (typeof load !== 'function') return
         load().then(page => { loadedPages.set(load, page); if (active) setPage(() => page) }, e => { if (active) setError(String(e.message ?? e)) })
         return () => { active = false }
       }, [props.api, props.load, retry])
       if (Page) return el(Page, { ...props, formatMoneyUsd, formatTokens, resolveLocale })
+      if (props.quiet) return null
       return el('div', { className: error ? '' : 'cm-loading', role: error ? 'alert' : 'status', 'aria-label': resolveLocale(props.state?.config) === 'en' ? 'Loading' : '正在读取' }, error || el(Fragment, null, el('i'), el('i'), el('i')), error ? el('button', { className: 'cm-btn', onClick: () => setRetry(n => n + 1) }, '↻') : null)
     }
 
@@ -874,19 +876,24 @@
       }, label)
       // 计费方式标记(issue #64):Plan 行附「Plan 订阅」小标签(费用为等值口径)。
       const classChip = r => r.cls === 'plan'
-        ? el('span', { className: 'cm-plan-tag', title: t('billingClassLabel') }, t('billingClassPlan'))
+        ? el('span', { className: 'cm-plan-tag', title: t('billingClassLabel') + ' · ' + (planProviderLabelOf(planProviderIdOfLocal(r.provider, config, r.model), t) || t('billingClassPlan')) }, t('billingClassPlan'))
         : null
       const classSelect = r => el('select', { className: 'cm-input', title: t('billingClassLabel'),
-        value: config.planBilling?.models?.[r.key] ?? 'auto', disabled: draft === null,
+        value: config.planBilling?.models?.[r.key] === 'plan' && config.planBilling?.modelPlans?.[r.key] ? 'plan:' + config.planBilling.modelPlans[r.key] : config.planBilling?.models?.[r.key] ?? 'auto', disabled: draft === null,
         onChange: event => {
           const models = { ...(draft.planBilling?.models ?? {}) }
-          if (event.target.value === 'auto') delete models[r.key]
-          else models[r.key] = event.target.value
-          setDraft({ ...draft, planBilling: { ...draft.planBilling, models } })
+          const modelPlans = { ...(draft.planBilling?.modelPlans ?? {}) }
+          const value = event.target.value
+          delete modelPlans[r.key]
+          if (value.startsWith('plan:')) { models[r.key] = 'plan'; modelPlans[r.key] = value.slice(5) }
+          else if (value === 'auto') delete models[r.key]
+          else models[r.key] = value
+          setDraft({ ...draft, planBilling: { ...draft.planBilling, models, modelPlans } })
         } },
         el('option', { value: 'auto' }, t('billingClassAuto')),
         el('option', { value: 'plan' }, t('billingClassPlan')),
-        el('option', { value: 'api' }, t('billingClassApi')))
+        el('option', { value: 'api' }, t('billingClassApi')),
+        PLAN_PROVIDER_IDS_LOCAL.map(id => el('option', { key: id, value: 'plan:' + id }, t('billingClassPlan') + ' · ' + planProviderLabelOf(id, t))))
       const barRow = (name, frac, barClass, valueText, tagNode) => el('div', { className: 'cm-mstats-row' },
         tagNode ? el('div', { className: 'cm-mstats-label' },
           el('span', { className: 'cm-mstats-name', title: name }, name), tagNode)
@@ -1578,6 +1585,7 @@
       { id: 'volcengine', labelKey: 'codingPlanVolcengine' },
       { id: 'qwen', labelKey: 'codingPlanQwen' },
       { id: 'mimo', labelKey: 'codingPlanMimo' },
+      { id: 'factory', labelKey: 'codingPlanFactory' },
     ]
 
     /** 单个 Coding Plan 订阅卡片(11 家共用:开关在标题行,展示/间隔/计划额度/凭据收在展开区)。 */
@@ -1644,7 +1652,7 @@
                   wide: true,
                   direction: barDirectionOf(config, 'plan'),
                 })
-                : Object.entries(windows).map(([name, win]) => quotaWindowRow(t, name.replace(/_/g, ' '), win, barDirectionOf(config, 'plan'), false, name)))
+                : Object.entries(windows).map(([name, win]) => quotaWindowRow(t, codingPlanWindowLabel(name, t), win, barDirectionOf(config, 'plan'), false, name)))
               : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried')),
             el('div', { className: 'cm-go-time' }, t('goQuotaFetchedAt', {
               time: live.fetchedAt > 0 ? new Date(live.fetchedAt).toLocaleTimeString() : '—',
@@ -1655,6 +1663,16 @@
               ? el('p', { className: 'cm-note' }, live.message)
               : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried'))
       const configNode = el(Fragment, null,
+        planId === 'factory' ? el(Fragment, null,
+          el('div', { className: 'cm-field' },
+            el('label', null, t('factoryPool')),
+            el('select', { className: 'cm-input', 'aria-label': t('factoryPool'), value: cfgEntry.factoryPool ?? 'standard', onChange: e => setPlan('factoryPool', e.target.value) },
+              el('option', { value: 'standard' }, 'Standard'),
+              el('option', { value: 'core' }, 'Droid Core'),
+              el('option', { value: 'both' }, t('factoryPoolBoth')))),
+          el('div', { className: 'cm-field' },
+            el('label', null, t('factoryOrg')),
+            el('input', { className: 'cm-input', 'aria-label': t('factoryOrg'), value: cfgEntry.orgId ?? '', onChange: e => setPlan('orgId', e.target.value) }))) : null,
         planId === 'minimax' ? el('div', { className: 'cm-field' },
           el('label', null, t('minimaxOrigin')),
           el('input', { className: 'cm-input', type: 'url', value: cfgEntry.baseUrl ?? '', placeholder: 'https://www.minimax.cn',
@@ -1762,13 +1780,13 @@
               el('p', { className: 'cm-note' }, t('volcengineNote')))
             : el(Fragment, null,
               el('div', { className: 'cm-field' },
-                el('label', null, planId === 'mimo' ? 'Cookie (platform.xiaomimimo.com)' : t('codingPlanKeyLabel'))),
+                el('label', null, planId === 'mimo' ? 'Cookie (platform.xiaomimimo.com)' : planId === 'factory' ? 'Factory Token' : t('codingPlanKeyLabel'))),
               el(CredentialField, {
                 target: 'codingPlans.' + planId,
                 configured: live.keyConfigured === true,
                 source: live.keySource,
                 t, api,
-                placeholder: planId === 'mimo' ? 'api-platform_serviceToken=…; userId=…' : 'sk-…',
+                placeholder: planId === 'mimo' ? 'api-platform_serviceToken=…; userId=…' : planId === 'factory' ? 'FACTORY_API_KEY' : 'sk-…',
               })))
       return el(QuotaCard, {
         name: t(labelKey), enabled, saved: config.codingPlans?.[planId], busy, open, errorMsg: msg,
@@ -2143,6 +2161,7 @@
               onClick: () => setTab(id),
             }, label))),
           saveBadge),
+        el(BillingStatistics, { state, api, load: api.loadCommunity, locale, quiet: true }),
         // 操作结果提示(价格同步/历史导入/清除):全局展示,不随触发按钮所在标签页。
         cmMsg(message),
         tab === 'statistics' ? el(BillingStatistics, { state, api }) : null,
@@ -2710,7 +2729,8 @@
           // (z-ai / Kimi / Qwen 等)不随该按钮更新——随插件版本发布维护,可在「拓展价格表」
           // 挂载/编辑或用「模型名匹配」为任意模型指定价格条目。
           el('p', { className: 'cm-note' }, t('syncScopeNote'))))
-        : null)
+        : null,
+        el(BillingStatistics, { state, api, load: api.loadCommunity, locale, quiet: true, footer: true }))
     }
 
     // ── 插件主体 ────────────────────────────────────────────────────────────
@@ -2813,11 +2833,13 @@
       const api = {
         loadStatistics: () => loadPage('statistics'),
         loadOpenRouter: () => loadPage('openrouter'),
+        loadCommunity: () => loadPage('community'),
         reload,
         updateConfig: async patch => {
           const { activeLocale: _local, ...savedPatch } = patch
           const state = await call('updateConfig', [savedPatch])
           store.set({ status: 'ready', error: null, state })
+          if (patch.planBilling) setTimeout(() => { void reload() }, 1500)
           return state
         },
         fetchPrices: async () => receive(costMeter.fetchPrices()),

@@ -21,6 +21,16 @@
 | 每 1% 额度 ≈ | 由采样**首尾差分**推算:每 1% 百分比 ≈ 多少 token / 多少等值金额 |
 | 满窗 100% ≈ | 每 1% × 100,即这个窗口吃满时的总量折算 |
 
+### 自定义渠道如何关联套餐
+
+额度查询使用对应厂商的账号凭据；本地用量使用调用记录里的 `provider:model`。能查到额度，不代表自定义渠道已经关联到这家套餐。
+
+在 **设置 → 费用 → 用量 → 按模型统计 → 计费方式** 中，可以为任意已记录的模型选择 **Plan 订阅 · 火山方舟 Coding Plan** 等具体套餐。支持全部已接入的套餐，选择会保存到 `planBilling.modelPlans`，无需改动 DSH 的 Provider ID。千问和 SCNet 的本地 Credits 也使用这份归属。
+
+自动模式保留现有渠道别名，并识别 Provider ID 或 Model ID 中明确的“厂商名 + 套餐特征”：例如 `my-ark-coding-plan`、`MiniMaxTokenPlan`、`火山方舟CodingPlan`。特征包括 `Plan`、`Coding Plan`、`Token Plan`、`Subscription`、`套餐`、`订阅`；同时出现多个厂商时不自动选择。自动计费方式仍跟随该套餐的启用开关或厂商级设置；手动选择具体套餐或 API 优先。只有 `doubao`、`claude` 等共享模型名时，不据此推断订阅。
+
+关联变更后，完整历史日按新归属汇总；近期 48 小时从现有会话日志恢复小时统计。恢复前会核对 Token、调用次数与已记录金额，日志缺失或不完整时保留现有记录。不会重新增加调用次数或费用。升级恢复只执行一次，后续仅在归属变化或导入历史时后台执行。
+
 ### 估算方法与精度
 
 - **首尾差分**:把样本切成「连续可信段」做端点差分——中间读数的量化误差两两抵消;差分跨度 ≥5 个百分点时结果可信(方法列无标注),不足时波动较大并标注**「读数精度受限」**。
@@ -53,6 +63,16 @@ For subscription channels (OpenCode Go, MiniMax, manually-flagged Codex, …) no
 | This period actual (local ledger) | Tokens and catalog-price equivalent cost of calls made **inside dsh only**, within the same window |
 | Per 1% quota ≈ | End-to-end sample delta estimate: how many tokens / how much equivalent cost one percentage point represents |
 | Full window (100%) ≈ | Per-1% × 100 — what a fully consumed window adds up to |
+
+### Assigning custom providers to a plan
+
+Quota queries use vendor account credentials; local usage uses the recorded `provider:model` key. A successful quota query does not automatically associate an arbitrary custom provider with that subscription.
+
+Open **Settings → Cost → Usage → Model statistics → Billing class** and choose a specific **Plan subscription · vendor** for any recorded model. All supported plan families are selectable. The assignment is saved in `planBilling.modelPlans`; changing the DSH Provider ID is unnecessary. Local Qwen and SCNet Credits use the same assignment.
+
+Auto mode keeps existing provider aliases and recognizes an explicit vendor name plus a subscription marker in the Provider ID or Model ID, such as `my-ark-coding-plan` or `MiniMaxTokenPlan`. Markers include `Plan`, `Coding Plan`, `Token Plan`, `Subscription`, `套餐` and `订阅`. Ambiguous names containing multiple vendors are not assigned. Auto billing classification follows the plan's enable switch or vendor-level setting; an explicit plan or API choice takes precedence. A shared model name such as `doubao` or `claude` alone does not identify a subscription.
+
+Complete historical days follow the new assignment. Recent hourly usage is recovered from existing session logs for the last 48 hours, after checking tokens, call counts and recorded costs. Missing or incomplete logs leave existing records intact. Recovery does not add calls or costs. Upgrade recovery runs once; subsequent background recovery runs only after attribution changes or a history import.
 
 ### Method & precision
 

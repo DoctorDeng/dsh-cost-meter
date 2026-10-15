@@ -46,6 +46,7 @@ jobs:
           node test/session-costs-browser.mjs
           node test/pricing-theme-browser.mjs
           node test/model-stats-browser.mjs
+          node test/factory-quota-browser.mjs
       - name: Save context regression browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,6 +59,8 @@ jobs:
             .tmp-pricing-theme-browser/report.json
             .tmp-model-stats-browser/*.png
             .tmp-model-stats-browser/report.json
+            .tmp-factory-quota-browser/*.png
+            .tmp-factory-quota-browser/report.json
           if-no-files-found: ignore
           retention-days: 7
           include-hidden-files: true
@@ -326,4 +329,4 @@ jobs:
       # 的产物差异都会让 CI 变红,杜绝把过期 bundle 发布出去。
       - name: Check client bundle is in sync with src
         shell: bash
-        run: node scripts/build.mjs && git diff --exit-code lib/client.js lib/client.statistics.js
+        run: node scripts/build.mjs && git diff --exit-code lib/client.js lib/client.statistics.js lib/client.openrouter.js lib/client.community.js
