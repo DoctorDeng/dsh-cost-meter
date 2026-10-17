@@ -1,3 +1,4 @@
+import { frozenAmounts } from '../lib/exchange-rates.js'
 import assert from 'node:assert/strict'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { resolve, join } from 'node:path'
@@ -287,7 +288,7 @@ for (const separator of ['/', ':']) {
 const work = mkdtempSync(join(tmpdir(), 'cm-model-identity-'))
 try {
   const date = localDayKey(Date.now()), file = join(work, 'ledger.json')
-  const recorded = { input: 1000, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, calls: 1, cost: 9, apiCost: 9 }
+  const recorded = { ...frozenAmounts(9, 9, sanitizeConfig(cfg())), input: 1000, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, calls: 1, cost: 9, apiCost: 9 }
   const oldKey = 'openai:gpt-6.1-sol (mini)'
   const day = { ...zeroDay(date), ...recorded, byProviderModel: { [oldKey]: { ...recorded } } }
   const ledger = new Ledger(sanitizeConfig(cfg()), { [date]: day }, file)

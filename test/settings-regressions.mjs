@@ -4,15 +4,20 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { sanitizeConfig, applyConfigPatch, zeroDay } from '../lib/store.js'
 import { parseAntigravityQuota } from '../lib/gateway-quota-adapters.js'
 import { qwenTokenPlanWindows } from '../lib/coding-plans.js'
+import { buildPriceCatalog } from '../lib/pricing.js'
 import { stateSchema } from '../lib/typert.host.js'
 
 // 执行真实组件和事件回调，再经过服务端清洗与客户端读取；不向发布产物暴露接口。
 const dir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(dir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, dir), 'utf8')).join('')
 const code = source.replace('exports.apply = apply', 'exports.test = { PlanQuotaCard, CostSection, parseConfig, makeT, codingPlanWindowLabel }; exports.apply = apply')
-let active
+let active, pricing, display
 const react = {
-  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+  Component: class {},
+  useMemo: fn => fn(),
+  createElement: (type, props, ...children) => type?.name === 'BillingStatistics' && props?.mode === 'matching'
+    ? pricing.Matching(props) : type?.name === 'BillingStatistics' && props?.displayOptions
+      ? display.DetailedSettings(props) : ({ type, props: props ?? {}, children: children.flat(Infinity) }),
   Fragment: 'fragment',
   useState: initial => {
     const runner = active, i = runner.cursor++
@@ -26,6 +31,10 @@ const react = {
     const i = active.cursor++
     return active.slots[i] ??= { current: value }
   },
+  // 单框选择器用 useId 生成 aria 关联的 id;桩只要保证同一实例稳定、不同实例互不相同。
+  useId: () => 'test-id-' + (active.cursor++),
+  // useLayoutEffect 在桩里与 useEffect 等价:测试不区分绘制时机。
+  useLayoutEffect: (effect, deps) => react.useEffect(effect, deps),
   useEffect: (effect, deps) => {
     const runner = active, i = runner.cursor++, previous = runner.slots[i]
     if (!previous || !deps || deps.some((value, index) => !Object.is(value, previous.deps?.[index]))) {
@@ -43,6 +52,15 @@ vm.runInNewContext(code, {
   setTimeout: fn => { timers.set(++timerId, fn); return timerId }, clearTimeout: id => timers.delete(id),
 })
 const ui = factory(name => name === 'react' ? react : {}).test
+vm.runInNewContext(readFileSync(new URL('../src/pricing/index.js', import.meta.url), 'utf8').replace('return { mount, CONTRIBUTION }', 'return { Matching, Catalog, RestorePrices, SearchPriceSelect }'), {
+  window: { __ModuleLoader__: { load: value => { factory = value.factory } } },
+})
+pricing = factory(name => name === 'react' ? react : {})
+const displaySource = readFileSync(new URL('../src/display/index.js', import.meta.url), 'utf8')
+  .replace('/* DISPLAY_NATIVE_SOURCE */', readFileSync(new URL('../src/display/native.js', import.meta.url), 'utf8'))
+  .replace('return { mount, DisplaySettings }', 'return { DetailedSettings }')
+vm.runInNewContext(displaySource, { window: { __ModuleLoader__: { load: value => { factory = value.factory } } } })
+display = factory(name => name === 'react' ? react : {})
 function renderer(component, props) {
   const runner = { slots: [], cursor: 0, effects: [], dirty: false }
   return () => {
@@ -63,6 +81,14 @@ const textOf = tree => typeof tree === 'string' ? tree : (tree?.children ?? []).
 const button = (tree, label) => nodes(tree).find(node => node.type === 'button' && textOf(node) === label)
 const rowFor = (tree, model) => nodes(tree).find(node => node.props.className === 'cm-match-row' && textOf(node).includes(model))
 const roundTrip = config => ui.parseConfig(sanitizeConfig(config), 'config')
+{
+ const key = 'channel:model', custom = { cacheMiss: 2, cacheHit: .1, output: 8, currency: 'CNY', multiplier: .8, separateMultipliers: true, multipliers: { 'base.output': .5 } }
+ const config = roundTrip(stateSchema.shape.config.parse(sanitizeConfig({ prices: { custom: { [key]: custom } }, priceOverrides: { [key]: '__custom__' } })))
+ assert.equal(config.prices.custom[key].currency, 'CNY')
+ assert.equal(config.prices.custom[key].multiplier, .8)
+ assert.equal(config.prices.custom[key].multipliers['base.output'], .5)
+ assert.equal(config.priceOverrides[key], '__custom__')
+}
 assert.equal(roundTrip({}).codexQuotaSidebar, true, 'old configs retain the sidebar card')
 for (const key of ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact']) {
   assert.equal(roundTrip({})[key], false)
@@ -210,7 +236,7 @@ for (const locale of ['zh', 'en']) {
   section()
   for (const fn of [...timers.values()]) fn()
   timers.clear()
-  await Promise.resolve(); await Promise.resolve()
+  for(let tick=0;tick<8;tick++) await Promise.resolve()
   section()
   assert.equal(current.config.codexQuotaSidebar, false, 'checkbox auto-save persists in both locales')
   assert.equal(codexSidebarInput().props.checked, false)
@@ -220,7 +246,7 @@ for (const locale of ['zh', 'en']) {
       checkbox().props.onChange({ target: { checked } }); section()
       for (const fn of [...timers.values()]) fn()
       timers.clear()
-      await Promise.resolve(); await Promise.resolve(); section()
+      for(let tick=0;tick<8;tick++) await Promise.resolve(); section()
       assert.equal(current.config[key], checked, `${locale}: ${key} auto-save`)
       assert.equal(checkbox().props.checked, checked)
     }
@@ -229,12 +255,13 @@ for (const locale of ['zh', 'en']) {
   tree = openPrices()
   row = rowFor(tree, 'unknown-model')
   assert.ok(row)
+  nodes(row).find(n => n.props['aria-expanded'] === false && n.type === 'button').props.onClick(); tree = section(); row = rowFor(tree, 'unknown-model')
   button(row, t('overrideRemove')).props.onClick()
   tree = section()
   assert.equal(rowFor(tree, 'unknown-model'), undefined, '删除映射后账本不会立即重新生成该行(#104)')
   for (const fn of [...timers.values()]) fn()
   timers.clear()
-  await Promise.resolve(); await Promise.resolve()
+  for(let tick=0;tick<8;tick++) await Promise.resolve()
   tree = section()
   assert.equal(rowFor(tree, 'unknown-model'), undefined, '自动保存回读后仍隐藏')
   assert.equal(current.config.priceMatchDismissed[0], key)
@@ -266,12 +293,13 @@ for (const locale of ['zh', 'en']) {
   } }
   section = renderer(ui.CostSection, () => ({ useCost: () => ({ state: current, status: 'ready' }), api: currencyApi }))
   tree = openPrices()
+  button(tree, locale === 'en' ? 'Sync & rules' : '同步与规则').props.onClick(); tree = section()
   assert.ok(textOf(tree).includes(t('pricingCnyHint', { rate: 7.2 })))
   button(tree, t('pricingCurrencyCny')).props.onClick()
   section()
   for (const fn of [...timers.values()]) fn()
   timers.clear()
-  await Promise.resolve(); await Promise.resolve()
+  for(let tick=0;tick<8;tick++) await Promise.resolve()
   assert.equal(patches.length, 1)
   assert.equal(JSON.stringify(patches[0]), JSON.stringify({ pricingCurrency: 'CNY' }))
   assert.equal(current.config.exchangeRate, 7.2)
@@ -292,3 +320,115 @@ const credits = qwenTokenPlanWindows({ '2026-09-08': { byProviderModel: { 'qwen:
 }, Date.parse('2026-09-08T00:00:00Z'))
 assert.equal(credits.used, 45.5, '带点号和连字符的模型名覆盖确实参与 Credits 折算(#103)')
 console.log('[ok] 设置交互：千问空费率/自动保存回读/模型移除与恢复/用量保留/侧栏样式/日标签通过')
+
+// #275: legacy hidden prices remain reachable after removal of the catalog panel.
+{
+  const config = roundTrip({ locale: 'zh', priceTableDisplay: { 'deepseek:deepseek-v4-flash': false, 'openai:gpt-6-astra': false } })
+  const current = { config, today: zeroDay('2026-10-15'), month: zeroDay('2026-10'), total: zeroDay(''), history: [] }
+  const section = renderer(ui.CostSection, () => ({ useCost: () => ({ state: current }), api: {} }))
+  let tree = section()
+  button(tree, '价格').props.onClick(); tree = section()
+  button(tree, '参考价格表').props.onClick(); tree = section()
+  const catalogProps = nodes(tree).find(n => n.props.mode === 'catalog').props
+  const catalog = renderer(pricing.Catalog, () => catalogProps)
+  for (const [vendor, id] of [['DeepSeek', 'deepseek-v4-flash'], ['OpenAI', 'gpt-6-astra']]) {
+    tree = catalog()
+    const search = nodes(tree).find(n => n.props['aria-label'] === '搜索已挂载价格')
+    search.props.onChange({ target: { value: id } }); tree = catalog()
+    const group = nodes(tree).find(node => node.props.className === 'cm-catalog-vendor cm-vendor-toggle' && textOf(node).includes(vendor))
+    assert.ok(group, vendor + ' is reachable')
+    const model = nodes(tree).find(n => n.props['aria-label'] === id + ' · 编辑价格')
+    assert.ok(model, id + ' is searchable regardless of legacy display flags')
+    model.props.onClick(); tree = catalog()
+    assert.ok(nodes(tree).some(node => node.props.modelId === id), id + ' hidden editor is reachable')
+  }
+  timers.clear()
+  let draft = roundTrip(config)
+  const original = JSON.stringify(draft.prices.providers.openai.models['gpt-6-astra'])
+  delete draft.prices.providers.openai.models['gpt-6-astra']
+  let reads = 0
+  const rpc = async method => { assert.equal(method, 'getPriceCatalog'); reads++; return buildPriceCatalog() }
+  const restore = renderer(pricing.RestorePrices, () => ({ state: { config }, draft, setDraft: next => { draft = next }, locale: 'zh', rpc }))
+  tree = restore(); assert.equal(reads, 0, 'closed restore panel does not fetch the catalog')
+  button(tree, '恢复内置模型').props.onClick(); tree = restore()
+  await Promise.resolve(); tree = restore()
+  const select = nodes(tree).find(node => node.type?.name === 'SearchPriceSelect')
+  assert.ok(select.props.options.some(option => option.value === 'openai:gpt-6-astra'))
+  select.props.onChange('openai:gpt-6-astra'); tree = restore()
+  button(tree, '恢复').props.onClick(); tree = restore()
+  assert.equal(JSON.stringify(draft.prices.providers.openai.models['gpt-6-astra']), original)
+  assert.deepEqual(applyConfigPatch(config, { prices: draft.prices }).errors, [])
+  assert.equal(reads, 1, 'rerenders and restores do not fetch the catalog again')
+  button(tree, '收起恢复入口').props.onClick(); restore()
+}
+console.log('[ok] #275: hidden price editors, on-demand catalog and model restore')
+// #282 concerns the channel-price selector for an unknown model, not catalog text search.
+// 单框选择器:一万个候选下仍全量可选、打字筛选、已选项不被筛掉、不误写映射。
+{
+ const options = Array.from({ length: 10000 }, (_, i) => ({ value: `vendor-${i % 7}:model-${i}`, label: `Vendor ${i % 7} / Model ${i}` }))
+ // 桩要跟踪当前值:否则「同值不重复写」永远测不到(组件读到的 value 一直没变过)。
+ let current = options[9999].value
+ const writes = []
+ const select = renderer(pricing.SearchPriceSelect, () => ({
+   options, value: current, label: '匹配渠道模型价格', placeholder: '选择价格模型', locale: 'zh',
+   onChange: value => { writes.push(value); current = value },
+ }))
+ let tree = select()
+ const combo = () => nodes(tree).find(n => n.type === 'input' && n.props.role === 'combobox')
+ const options_ = () => nodes(tree).filter(n => n.props.role === 'option')
+ const labels = () => options_().map(textOf)
+ const selectedLabel = options[9999].label
+ const searchText = option => (option.label + ' ' + option.value).toLowerCase()
+ // 关闭态:输入框显示已选标签,不建候选面板。
+ assert.equal(combo().props.value, selectedLabel, 'the closed field shows the selected label')
+ assert.equal(options_().length, 0, 'no candidate panel is built while closed')
+ // 打开:全部候选可点,不再截断(旧版截断 80 条会让后段厂商只能靠打字)。
+ combo().props.onFocus(); tree = select()
+ assert.equal(options_().length, 10000, 'every candidate is reachable, not just the first 80')
+ assert.equal(options_().filter(n => n.props['aria-selected'] === 'true').map(textOf).join(), selectedLabel, 'the selected model is marked in the list')
+ assert.deepEqual(writes, [], 'opening the list never writes a mapping')
+ // 打字筛选:多关键词 AND。期望集合由测试自己从原始候选算,不复用组件内部逻辑;
+ // 已选项与筛选词不匹配时会被有意补进列表(旧版原生下拉也始终显示当前值),要算进去。
+ combo().props.onChange({ target: { value: 'VENDOR-2 model-100' } }); tree = select()
+ const expected = options.filter(option => ['vendor-2', 'model-100'].every(word => searchText(option).includes(word))).map(option => option.label)
+ assert.ok(expected.length > 0 && expected.length < 10000, 'the probe query narrows the list')
+ const selectedStillShown = !expected.includes(selectedLabel)
+ assert.equal(labels().length, expected.length + (selectedStillShown ? 1 : 0), 'the filtered list holds exactly the matches plus the current choice')
+ assert.ok(labels().every(label => expected.includes(label) || label === selectedLabel), 'every displayed row is a real match or the current choice')
+ assert.deepEqual(writes, [], 'filtering does not change a saved mapping')
+ // 已选项在筛选词不匹配时仍留在列表里(旧版原生下拉一直显示当前值)。
+ combo().props.onChange({ target: { value: 'does-not-exist' } }); tree = select()
+ assert.ok(textOf(tree).includes('没有匹配的模型'), 'an unmatched query says so')
+ assert.equal(labels().join(), selectedLabel, 'the selected model survives a non-matching query')
+ assert.deepEqual(writes, [], 'an empty result set never writes a mapping')
+ // Escape 关掉列表并丢弃未提交的筛选词,输入框回到已选标签。
+ combo().props.onKeyDown({ key: 'Escape', preventDefault() {}, stopPropagation() {} }); tree = select()
+ assert.equal(options_().length, 0, 'Escape closes the list')
+ assert.equal(combo().props.value, selectedLabel, 'Escape restores the selected label')
+ // 选中一个候选:只写一次,且同值不重复写。
+ combo().props.onFocus(); tree = select()
+ options_().find(n => textOf(n) === options[2].label).props.onClick(); tree = select()
+ assert.deepEqual(writes, [options[2].value], 'picking a candidate writes exactly once')
+ combo().props.onFocus(); tree = select()
+ options_().find(n => textOf(n) === options[2].label).props.onClick(); tree = select()
+ assert.deepEqual(writes, [options[2].value], 're-picking the same value does not write again')
+}
+// A slow first write must not overtake or erase the next setting.
+{
+ timers.clear()
+ let current = { config: roundTrip({ locale: 'zh' }), today: zeroDay('2026-10-16'), month: zeroDay('2026-10'), total: zeroDay(''), history: [] }
+ const writes = [], releases = []; let inFlight = 0, maximum = 0
+ const api = { updateConfig: patch => { writes.push(patch); maximum = Math.max(maximum, ++inFlight); return new Promise(resolve => releases.push(() => { current = { ...current, config: roundTrip(applyConfigPatch(current.config, patch).config) }; inFlight--; resolve() })) } }
+ const section = renderer(ui.CostSection, () => ({ useCost: () => ({ state: current, status: 'ready' }), api }))
+ let tree = section()
+ const change = decimals => { const node = nodes(tree).find(n => n.props.draft && n.props.setDraft); assert.ok(node); node.props.setDraft({ ...node.props.draft, decimals }); tree = section(); for (const fn of [...timers.values()]) fn(); timers.clear() }
+ change(3); for(let i=0;i<8;i++) await Promise.resolve(); assert.equal(writes.length, 1)
+ change(5); for(let i=0;i<8;i++) await Promise.resolve(); assert.equal(writes.length, 1)
+ releases.shift()(); for(let i=0;i<12;i++) await Promise.resolve(); tree = section()
+ // Store notifications can restart the debounce while the second draft remains dirty.
+ for(const fn of [...timers.values()]) fn(); timers.clear(); for(let i=0;i<12;i++) await Promise.resolve()
+ assert.equal(writes.length, 2); assert.equal(writes[1].decimals, 5); assert.equal(maximum, 1)
+ releases.shift()(); for(let i=0;i<12;i++) await Promise.resolve(); tree = section(); assert.equal(current.config.decimals, 5)
+ timers.clear()
+}
+console.log('[ok] #282 channel-price filtering and serialized autosave races')

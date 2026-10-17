@@ -34,13 +34,16 @@ import React from ${literal(req.resolve('react'))};
 import {createRoot} from ${literal(req.resolve('react-dom/client'))};
 window.__ModuleLoader__={load:mod=>window.costUI=mod.factory(name=>name==='react'?React:{Tooltip:({children})=>children})};
 ${client}
+window.__ModuleLoader__={load:mod=>window.displayUI=mod.factory(()=>React)};
+${readFileSync('lib/client.display.js','utf8')}
+const Display=window.displayUI.mount({effect:()=>{}});
 const {CostSection,parseConfig,CodingPlanBox,QuotaStrip}=window.costUI.preview;
 let state=${literal(initialState)};state.config=parseConfig(state.config,'config');
 window.patches=[];window.refreshes=0;window.credentials=[];window.listeners=new Set();
 function publish(){for(const listener of window.listeners) listener({...state});return state}
 const windowsOf=pool=>pool==='both'?{...${literal(standard)},...${literal(core)}}:pool==='core'?${literal(core)}:${literal(standard)};
-window.changeLocale=locale=>{state={...state,config:{...state.config,locale}};publish()};
-const api={loadOpenRouter:async()=>()=>null,updateConfig:async patch=>{window.patches.push(patch);state={...state,config:{...state.config,...patch}};state.codingPlans.factory={...state.codingPlans.factory,windows:windowsOf(state.config.codingPlans.factory.factoryPool)};return publish()},refreshCodingPlan:async id=>{if(id!=='factory')throw Error('unexpected provider');window.refreshes++;return {ok:true,state:publish()}},setCredential:async(target,value)=>{window.credentials.push({target,value});state={...state,codingPlans:{...state.codingPlans,factory:{...state.codingPlans.factory,keyConfigured:true}}};return {ok:true,state:publish()}},clearCredential:async()=>({ok:true,state:publish()})};
+window.changeLocale=locale=>{state={...state,config:{...state.config,locale,activeLocale:locale}};publish()};
+const api={loadDisplay:async()=>Display,loadOpenRouter:async()=>()=>null,updateConfig:async patch=>{window.patches.push(patch);state={...state,config:{...state.config,...patch}};state.codingPlans.factory={...state.codingPlans.factory,windows:windowsOf(state.config.codingPlans.factory.factoryPool)};return publish()},refreshCodingPlan:async id=>{if(id!=='factory')throw Error('unexpected provider');window.refreshes++;return {ok:true,state:publish()}},setCredential:async(target,value)=>{window.credentials.push({target,value});state={...state,codingPlans:{...state.codingPlans,factory:{...state.codingPlans.factory,keyConfigured:true}}};return {ok:true,state:publish()}},clearCredential:async()=>({ok:true,state:publish()})};
 function useCost(){const[value,setValue]=React.useState(state);React.useEffect(()=>{window.listeners.add(setValue);return()=>window.listeners.delete(setValue)},[]);return{state:value,status:'ready'}}
 function App(){const {state}=useCost();return React.createElement(React.Fragment,null,React.createElement('div',{id:'sidebar'},React.createElement(CodingPlanBox,{id:'factory',state,wide:true,api})),React.createElement('div',{id:'strip'},React.createElement(QuotaStrip,{useCost,api})),React.createElement(CostSection,{useCost,api}))}
 createRoot(document.getElementById('root')).render(React.createElement(App));
@@ -106,7 +109,7 @@ try {
   await card.getByRole('button',{name:'刷新',exact:true}).click()
   await page.waitForFunction(count=>window.refreshes>count,before)
   await page.getByRole('tab',{name:'显示',exact:true}).click()
-  await page.locator('select.cm-input').filter({has:page.locator('option[value="en"]')}).selectOption('en')
+  await page.getByLabel('界面语言',{exact:true}).selectOption('en')
   await page.waitForFunction(()=>window.patches.some(p=>p.locale==='en'))
   await page.getByRole('tab',{name:'Quotas',exact:true}).click()
   if(!await card.getByRole('combobox',{name:'Quota pool'}).count()) await card.getByRole('button',{name:'Factory (Droid)',exact:true}).click()

@@ -1,5 +1,10 @@
 # AGENTS.md — 给 AI 助手的仓库须知
 
+## Issue 与 PR 贡献署名
+
+- 修复或实现他人提出的 issue、讨论或代码建议时，在 PR 正文注明其 GitHub 账号、原始链接和具体贡献；不能只写 `Fixes #编号`。
+- 按实际情况区分问题报告、需求建议、复现、定位和代码贡献，不虚构署名或贡献。
+
 ## npm 发布令牌的位置
 
 - npm 发布令牌存放在 **Windows 用户级环境变量 `NPM_TOKEN`** 中（经 `setx` 持久化于注册表 `HKCU\Environment\NPM_TOKEN`；新开终端 / 登录会话自动可用）。

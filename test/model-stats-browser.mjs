@@ -7,6 +7,7 @@ import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 import { sanitizeConfig, zeroDay } from '../lib/store.js'
+import { PLAN_PROVIDER_IDS } from '../lib/plan-billing.js'
 import { javascriptLiteral as literal } from '../scripts/javascript-literal.mjs'
 
 const uiModules = resolve(process.env.DSH_TEST_UI_MODULES ?? process.env.DSH_TEST_NODE_MODULES ?? '.tmp-context-host/node_modules')
@@ -38,7 +39,7 @@ import {createRoot} from ${literal(req.resolve('react-dom/client'))};
 window.__ModuleLoader__={load:mod=>window.costUI=mod.factory(name=>name==='react'?React:{Tooltip:({children})=>children})};
 ${client}
 const {CostSection,parseConfig}=window.costUI.preview;
-const state=${literal(initialState)};state.config=parseConfig(state.config,'config');
+const state=${literal(initialState)};state.config=parseConfig(state.config,'config');state.config.hideTodayCost=new URLSearchParams(location.search).has('hide-today');
 window.patches=[];
 const api={loadOpenRouter:async()=>()=>null,updateConfig:async patch=>{window.patches.push(patch)}};
 createRoot(document.getElementById('root')).render(React.createElement(CostSection,{useCost:()=>({state,status:'ready'}),api}));
@@ -53,7 +54,7 @@ const dark = { ...midnight, '--dsw-alias-label-primary': '#ececee', '--dsw-alias
 const html = '<!doctype html><html style="color-scheme:light"><head><meta charset="utf-8"><style>body{margin:0;padding:24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:13px/1.5 system-ui}#root{max-width:900px;margin:auto}</style></head><body><div id="root"></div><select id="host-control"><option>Host control</option><option>Other plugin</option></select><script src="/app.js"></script></body></html>'
 const server = createServer((request, response) => {
   if (request.url === '/app.js') { response.setHeader('content-type', 'text/javascript'); response.end(compiled.outputFiles[0].contents) }
-  else if (request.url === '/') { response.setHeader('content-type', 'text/html; charset=utf-8'); response.end(html) }
+  else if (request.url.split('?')[0] === '/') { response.setHeader('content-type', 'text/html; charset=utf-8'); response.end(html) }
   else { response.statusCode = 404; response.end() }
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -70,6 +71,23 @@ await page.route('**/*', route => {
 const output = resolve('.tmp-model-stats-browser')
 mkdirSync(output, { recursive: true })
 try {
+  for (const hidden of [false, true]) {
+    await page.goto(url + (hidden ? '?hide-today=1' : ''))
+    await page.locator('.cm-overview-grid .cm-card').first().waitFor()
+    await page.evaluate(tokens => { for (const [key,value] of Object.entries(tokens)) document.documentElement.style.setProperty(key,value) }, light)
+    for (const width of [900, 560, 390]) {
+      await page.locator('#root').evaluate((node, width) => { node.style.maxWidth = width + 'px' }, width)
+      const layout = await page.locator('.cm-overview-grid .cm-card').evaluateAll(cards => cards.map(node => ({ top: node.getBoundingClientRect().top, width: node.getBoundingClientRect().width, scroll: node.scrollWidth, client: node.clientWidth })))
+      assert.equal(layout.length, hidden ? 2 : 3)
+      if (width > 460) {
+        assert.ok(layout.every(card => Math.abs(card.top-layout[0].top)<1), 'overview cards share one row at '+width)
+        assert.ok(layout.every(card => Math.abs(card.width-layout[0].width)<1), 'overview cards fill the available row equally')
+      } else assert.equal(new Set(layout.map(card => card.top)).size, layout.length, 'narrow overview stacks all cards without a partial row')
+      assert.ok(layout.every(card => card.scroll<=card.client+1), 'card text stays inside the card')
+      checks.push({overview:true,width,hidden,cards:layout.length,sameRow:layout.every(card=>Math.abs(card.top-layout[0].top)<1)})
+      await page.screenshot({path:join(output,`overview-${hidden?'two':'three'}-${width}.png`)})
+    }
+  }
   await page.goto(url)
   await page.getByRole('tab', { name: '用量', exact: true }).click()
   await page.getByRole('button', { name: '按模型统计(token 与费用)', exact: true }).click()
@@ -108,7 +126,8 @@ try {
     }
   }
   const select = page.locator('.cm-mstats-row select').first()
-  assert.equal(await select.locator('option[value^="plan:"]').count(), 13, 'each supported subscription family is selectable')
+  assert.deepEqual(await select.locator('option[value^="plan:"]').evaluateAll(options => options.map(option => option.value.slice(5)).sort()),
+    [...PLAN_PROVIDER_IDS].sort(), 'selectable subscription families match server billing classification')
   await select.selectOption('plan:volcengine')
   await page.waitForFunction(() => window.patches.length === 1)
   assert.deepEqual(await page.evaluate(() => window.patches[0]), { planBilling: { ...initialState.config.planBilling, models: { [longKey]: 'plan' }, modelPlans: { [longKey]: 'volcengine' } } })
@@ -122,6 +141,12 @@ try {
   await select.selectOption('auto')
   await page.waitForFunction(() => window.patches.length === 4)
   assert.deepEqual(await page.evaluate(() => window.patches[3]), { planBilling: { ...initialState.config.planBilling, models: {}, modelPlans: {} } })
+  for (const [i, id] of ['codex', 'volcengine-agent', 'tencent-coding', 'tencent-token', 'baidu-coding', 'opendesign'].entries()) {
+    await select.selectOption('plan:' + id)
+    await page.waitForFunction(count => window.patches.length === count, 5 + i)
+    assert.equal(await select.inputValue(), 'plan:' + id)
+    assert.deepEqual(await page.evaluate(() => window.patches.at(-1)), { planBilling: { ...initialState.config.planBilling, models: { [longKey]: 'plan' }, modelPlans: { [longKey]: id } } })
+  }
   assert.deepEqual(external, [])
   assert.deepEqual(errors, [])
   writeFileSync(join(output, 'report.json'), JSON.stringify({ checks, errors, external, billingChangesSaved: true }, null, 2) + '\n')

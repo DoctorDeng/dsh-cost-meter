@@ -3,9 +3,11 @@ import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import vm from 'node:vm'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { sanitizeConfig, localDayKey } from '../lib/store.js'
-import { billingStatistics, statisticsQuery } from '../lib/billing-statistics.js'
+import { billingStatistics, statisticsQuery, ledgerStatisticsQuery } from '../lib/billing-statistics.js'
 import { getSessionBilling } from '../lib/turn-cost.js'
+import { cachedStatistics } from '../lib/statistics-cache.js'
 import { billingStatisticsSchema, sessionBillingSchema, TYPERT } from '../lib/typert.host.js'
 import { NATIVE_SEARCH_USAGE_EVENT } from '../lib/native-search-events.js'
 
@@ -71,10 +73,37 @@ try {
   assert.equal(detail.callShares.reduce((n, row) => n + row.calls, 0), 62)
   assert.ok(Math.abs(detail.callShares.reduce((n, row) => n + row.cost, 0) - detail.cost) < 1e-12)
   assert.equal(detail.callShares.reduce((n, row) => n + row.tokens, 0), 62 * 180, 'overlapping reasoning tokens are not added again')
+  for (const share of detail.callShares.filter(row => !row.other)) {
+    assert.deepEqual(share.call, detail.calls[share.index], 'rank entries carry their exact call identity and rates')
+    assert.equal(share.call.sessionId, 'parent')
+    assert.equal(share.call.logSeq, share.index + 2)
+    assert.equal(share.call.atMs, at + share.index + 1)
+  }
+  assert.equal(detail.callShares.at(-1).call, null, 'the combined remainder is not one inspectable call')
   const expensiveRecords = records.map((row, i) => i === records.length - 1 ? { ...row, data: { ...row.data, usage: { inputTokens: 10000 } } } : row)
   const expensiveCtx = { get: () => ({ get: () => ({ header: { createdAt: at }, snapshotEvents: () => expensiveRecords }) }) }
   const expensive = await getSessionBilling(detailLedger, expensiveCtx, q)
   assert.equal(expensive.callShares[0].index, 61, 'a high-cost call on the second page ranks first')
+  assert.equal(expensive.callShares[0].call.logSeq, 63)
+  assert.equal(expensive.callShares[0].call.atMs, at + 62)
+  assert.equal(expensive.callShares[0].call.rows[0].tokens, 10000)
+  const capturedCall = structuredClone(expensive.callShares[0].call)
+  const backfilledRecords = [...expensiveRecords, { type: 'assistant/message', seq: 200, time: at + .5, data: { turn: 99, step: 0, usage: { inputTokens: 1 } } }]
+  const backfilledCtx = { get: () => ({ get: () => ({ header: { createdAt: at }, snapshotEvents: () => backfilledRecords }) }) }
+  const backfilled = await getSessionBilling(detailLedger, backfilledCtx, q)
+  assert.equal(backfilled.callShares[0].index, 62, 'a late historical record can move the old chronological index')
+  assert.deepEqual(backfilled.callShares[0].call, capturedCall, 'the reference remains the same call after an index shift')
+
+  // Upgrade a persisted pre-popup cache without replaying the complete log on open.
+  const legacyLedger = { ...detailLedger, path: join(root, 'legacy-ledger.json') }
+  const legacyValue = { ...detail, calls: [...detail.calls, ...page2.calls], callShares: detail.callShares.map(({ call, ...row }) => row) }
+  const legacyQuery = { ...ledgerStatisticsQuery(legacyLedger, q), offset: 0, turnOffset: 0 }
+  await cachedStatistics(legacyLedger, ['billing-v2', resolveDshHome(), legacyQuery], { source: async () => 'legacy', build: async () => legacyValue, valid: () => true })
+  const restartedLedger = { ...legacyLedger }
+  const migrated = await getSessionBilling(restartedLedger, ctx, { ...q, background: true })
+  assert.equal(migrated.refreshing, true, 'a valid older snapshot paints before background refresh')
+  assert.deepEqual(migrated.callShares[0].call, detail.calls[0], 'same-snapshot indexes upgrade to exact references')
+  await getSessionBilling(restartedLedger, ctx, q)
   assert.equal(detail.totalTurns, 62)
   assert.equal(detail.turns.length, 25)
   assert.equal(detail.calls[0].turn, 0)
@@ -126,9 +155,9 @@ try {
     assert.equal(item.result.typeSymbol, host.result.typeSymbol)
     const sample = {
       getBillingStatistics: stats,
-      getSessionBilling: detail,
+      getSessionBilling: { ...detail, refreshing: false, generatedAt: detail.generatedAt ?? 0, refreshFailed: false },
       getTurnInspection: { found: false, turn: 0, input: '', inputTruncated: false, tools: [], totalTools: 0, offset: 0 },
-      getSessionTrajectory: { cost: 0, apiCost: 0, totalSteps: 0, offset: 0, shares: [], groups: [], steps: [] },
+      getSessionTrajectory: { refreshing: false, generatedAt: 0, refreshFailed: false, tiles: [], cost: 0, apiCost: 0, totalSteps: 0, totalCalls: 0, matchingSteps: 0, order: 'time', offset: 0, shares: [], groups: [], operations: [], operationGroups: [], distribution: [], hierarchy: [], steps: [] },
       getCallInspection: { found: false, kind: 'model', input: '', injected: '', skills: '', precedingTools: '', output: '', reasoning: '', truncated: false, tools: [], totalTools: 0, offset: 0 },
       getContextCosts: { status: 'unavailable', sessionId: 's', generatedAt: at, revision: 0, provider: '', model: '', basis: 'api', priced: false, source: 'none', linked: false, contextTokens: 0, components: [], rates: null, longContext: null, lastCall: null },
       getContextIntegration: { version: '', compatible: false, reason: 'missing' },

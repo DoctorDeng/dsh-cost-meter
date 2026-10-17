@@ -5,7 +5,7 @@
       return modelStatsRows(state, state.config, t, period).map(r => ({ ...r, label: r.key === 'deepseek:legacy' ? r.label : prettyProviderKey(r.key), cost: displayCostOf(r, state.config) }))
         .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens || a.key.localeCompare(b.key))
     }
-    function SidebarModelCosts({ state, wide }) {
+    function SidebarModelCosts({ state, wide, preview = false }) {
       const cfg = { ...MODEL_SIDEBAR_DEFAULTS, ...state.config.sidebarModels }
       const t = makeT(resolveLocale(state.config))
       const readOpen = () => {
@@ -15,7 +15,11 @@
       const [open, setOpen] = useState(readOpen)
       const [period, setPeriod] = useState(cfg.period)
       useEffect(() => setPeriod(cfg.period), [cfg.period])
-      useEffect(() => setOpen(readOpen()), [cfg.defaultOpen, cfg.remember])
+      const lastDefault = useRef(cfg.defaultOpen)
+      useEffect(() => {
+        setOpen(preview && lastDefault.current !== cfg.defaultOpen ? cfg.defaultOpen : readOpen())
+        lastDefault.current = cfg.defaultOpen
+      }, [cfg.defaultOpen, cfg.remember])
       const rows = sidebarModelRows(state, period, t)
       const total = rows.reduce((n, r) => n + r.cost, 0)
       const money = n => formatMoneyUsd(n, state.config)
@@ -24,15 +28,15 @@
       const summaryNode = cfg.summary === 'top' && rows.length ? el(Fragment, null, el('span', { className: 'cm-bal-label' }, rows[0].label), el('span', { className: 'cm-bal-amt' }, money(rows[0].cost))) : el('span', { className: 'cm-bal-label' }, summary)
       const toggle = () => {
         setOpen(!open)
-        try { if (cfg.remember) window.localStorage.setItem(MODEL_OPEN_KEY, open ? '0' : '1') } catch (_) {}
+        try { if (cfg.remember && !preview) window.localStorage.setItem(MODEL_OPEN_KEY, open ? '0' : '1') } catch (_) {}
       }
-      if (!wide || state.config.sidebarSimple) return el('div', { className: 'cm-foot cm-num' + (wide ? '' : ' cm-foot-rail'), title: summary + ' · ' + title }, wide ? summaryNode : el(WalletIcon, { size: 16 }))
+      if (!wide || state.config.sidebarSimple) return el('div', { 'data-cm-display': 'models', className: 'cm-foot cm-num' + (wide ? '' : ' cm-foot-rail'), title: summary + ' · ' + title }, wide ? summaryNode : el(WalletIcon, { size: 16 }))
       const shown = rows.slice(0, cfg.topN)
       if (rows.length > cfg.topN) shown.push(rows.slice(cfg.topN).reduce((out, r) => {
         for (const k of ['cost', 'input', 'output', 'cacheRead', 'cacheWrite']) out[k] += r[k]
         return out
       }, { key: 'other', label: t('modelsOther'), cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }))
-      return el('div', { className: 'cm-bbox cm-model-costs' },
+      return el('div', { 'data-cm-display': 'models', className: 'cm-bbox cm-model-costs' },
         el('button', { type: 'button', className: 'cm-collapse-h', 'aria-expanded': String(open), title, onClick: toggle },
           el('span', { className: 'cm-caret' + (open ? ' open' : '') }), summaryNode),
         open ? el(Fragment, null,

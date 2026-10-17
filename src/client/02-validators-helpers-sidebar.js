@@ -35,6 +35,7 @@
           if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) continue
           const num = x => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : 0)
           out[key] = {
+            ...parseFrozenMoney(raw),
             ...mapFields(raw, ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'cost'], num),
             // API 渠道金额(issue #64):缺席 = 旧数据按 cost 全额 API 口径。
             apiCost: raw.apiCost === undefined ? num(raw.cost) : num(raw.apiCost),
@@ -43,9 +44,12 @@
       }
       return out
     }
+    const frozenMoneyFields = ['costCny', 'apiCostCny', 'costEur', 'apiCostEur']
+    const parseFrozenMoney = row => Object.fromEntries(frozenMoneyFields.filter(key => Number.isFinite(row?.[key])).map(key => [key, row[key]]))
     function parseUsageFields(v, path) {
       needObject(v, path)
       const out = {
+        ...parseFrozenMoney(v),
         reasoning: v.reasoning === undefined ? 0 : needNum(v.reasoning, path + '.reasoning'),
         apiCost: v.apiCost === undefined ? undefined : needNum(v.apiCost, path + '.apiCost'),
         byModel: aggregateModelMap(v.byModel, path + '.byModel'),
@@ -54,8 +58,12 @@
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'calls', 'cost']) out[key] = needNum(v[key], path + '.' + key)
       return out
     }
+    function parseMetering(v) {
+      return v == null ? undefined : { source: needStr(v.source, 'source'), requestId: needStr(v.requestId, 'requestId'), attempt: needNum(v.attempt, 'attempt'),
+        complete: needBool(v.complete, 'complete'), status: needStr(v.status, 'status'), upstream: needStr(v.upstream, 'upstream') }
+    }
     function parseTurnRows(rows) {
-      return (Array.isArray(rows) ? rows : fail('rows', 'array')).map(r => ({ provider: needStr(r.provider, 'provider'), model: needStr(r.model, 'model'), bucket: needStr(r.bucket, 'bucket'), tokens: needNum(r.tokens, 'tokens'), rate: needNum(r.rate, 'rate'), cost: needNum(r.cost, 'cost'), priced: needBool(r.priced, 'priced'), plan: needBool(r.plan, 'plan') }))
+      return (Array.isArray(rows) ? rows : fail('rows', 'array')).map(r => ({ provider: needStr(r.provider, 'provider'), model: needStr(r.model, 'model'), bucket: needStr(r.bucket, 'bucket'), tokens: needNum(r.tokens, 'tokens'), ...(r.requests === undefined ? {} : { requests: needNum(r.requests, 'requests') }), rate: needNum(r.rate, 'rate'), cost: needNum(r.cost, 'cost'), priced: needBool(r.priced, 'priced'), plan: needBool(r.plan, 'plan') }))
     }
     function parseSession(v, path) {
       return {
@@ -85,7 +93,7 @@
     }
     function parsePrice(v, path) {
       needObject(v, path)
-      const out = parsePriceTier(v, path)
+      const out = { ...parsePriceTier(v, path), ...priceMultiplierSettings(v) }
       for (const key of ['offPeak', 'peak', 'legacyBase', 'longContext']) {
         if (v[key] === undefined) continue
         out[key] = parsePriceTier(v[key], path + '.' + key, ['cacheWrite', 'reasoning', 'aboveInputTokens'])
@@ -104,12 +112,12 @@
     }
     function parseConfig(v, path) {
     const parseCustomEntry = e => (e == null ? undefined : {
-      ...(e.adapter === 'aliyun' ? { adapter: 'aliyun' } : {}),
+      ...(['aliyun', 'tokenrhythm'].includes(e.adapter) ? { adapter: e.adapter } : {}),
       enabled: e.enabled === true,
       label: typeof e.label === 'string' ? e.label : '',
       labelEn: typeof e.labelEn === 'string' ? e.labelEn : '',
       display: oneOf(e.display, ['sidebar', 'settings', 'off'], 'both'),
-      unit: ['CNY', 'EUR', 'CREDITS'].includes(e.unit) ? e.unit : 'USD',
+      unit: e.adapter === 'tokenrhythm' ? 'CNY' : ['CNY', 'EUR', 'CREDITS'].includes(e.unit) ? e.unit : 'USD',
       convertToDisplayCurrency: e.convertToDisplayCurrency === true,
       refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
       request: e.request && typeof e.request === 'object' ? e.request : { url: '' },
@@ -129,6 +137,7 @@
         // 会话列表附显 ID 自上线以来实际从未生效(v1.5.38 起一并修复)。
         showSessionId: v.showSessionId === true,
         hideOfficialBalance: v.hideOfficialBalance === true,
+        hideBudget: v.hideBudget === true,
         hideTodayCost: v.hideTodayCost === true,
         ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost'], value => value === true),
         sessionCostCompact: v.sessionCostCompact === true,
@@ -151,6 +160,8 @@
         symbol: typeof v.symbol === 'string' ? v.symbol : '¥',
         decimals: needNum(v.decimals, path + '.decimals'),
         exchangeRate: needNum(v.exchangeRate, path + '.exchangeRate'),
+        exchangeRateAuto: v.exchangeRateAuto !== false,
+        fxRates: v.fxRates, exchangeRateDate: v.exchangeRateDate ?? '', exchangeRateCheckedAt: v.exchangeRateCheckedAt ?? 0,
         peakEnabled: v.peakEnabled === true,
         peakEffectiveAt: typeof v.peakEffectiveAt === 'string' ? v.peakEffectiveAt : '',
         peakWindows: Array.isArray(v.peakWindows)
@@ -193,6 +204,7 @@
                 apiKey: typeof e.apiKey === 'string' ? e.apiKey : '',
                 ...(id === 'minimax' ? { baseUrl: typeof e.baseUrl === 'string' ? e.baseUrl : '' } : {}),
                 ...(id === 'factory' ? { orgId: typeof e.orgId === 'string' ? e.orgId : '', factoryPool: ['core', 'both'].includes(e.factoryPool) ? e.factoryPool : 'standard' } : {}),
+                ...(id === 'opendesign' ? { workspaceId: typeof e.workspaceId === 'string' ? e.workspaceId : '' } : {}),
                 ...(id === 'qwen' ? { quotaSource: ['cli', 'bailian'].includes(e.quotaSource) ? e.quotaSource : 'local' } : {}),
                 // SCNet / 千问本地计量字段(issue #26/#78):其余厂商无此键,缺省剔除。
                 ...(typeof e.planCredits === 'number' && Number.isFinite(e.planCredits) && e.planCredits > 0 ? { planCredits: e.planCredits } : {}),
@@ -208,6 +220,7 @@
         })(),
         prices: {
           models,
+          ...(v.prices?.custom ? { custom: v.prices.custom } : {}),
           default: parsePrice(v.prices?.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, path + '.prices.default'),
           providers: v.prices?.providers && typeof v.prices.providers === 'object' ? v.prices.providers : {},
           // 官方价格币种(issue #47):usageSplit 回退计价据此决定 CNY→USD 折算。
@@ -430,6 +443,11 @@
         // Token Plan 统计(issue #64):宽容解析,缺失/畸形回落 null(UI 隐藏面板)。
         planStats: parsePlanStats(v.planStats),
         history: Array.isArray(v.history) ? v.history.map((d, i) => parseDay(d, path + '.history[' + i + ']')) : [],
+        billionContext: v.billionContext?.protocol === 1 ? { protocol: 1, connected: v.billionContext.connected === true, failed: v.billionContext.failed === true,
+          requests: Number(v.billionContext.requests) || 0, unreported: Number(v.billionContext.unreported) || 0, partial: Number(v.billionContext.partial) || 0, uncovered: Number(v.billionContext.uncovered) || 0,
+          detected: v.billionContext.detected === true, version: typeof v.billionContext.version === 'string' ? v.billionContext.version.slice(0, 100) : '',
+          compatibility: ['needs_update', 'changed', 'bridge_missing', 'ready'].includes(v.billionContext.compatibility) ? v.billionContext.compatibility : 'unknown',
+          noticeId: typeof v.billionContext.noticeId === 'string' ? v.billionContext.noticeId.slice(0, 240) : '' } : undefined,
         externalUsage: v.externalUsage && Array.isArray(v.externalUsage.sources) ? {
           fetchedAt: Number(v.externalUsage.fetchedAt) || 0,
           stale: v.externalUsage.stale === true,
@@ -437,9 +455,12 @@
           combined: Object.fromEntries(['today', 'month', 'total', 'history'].map(k => [k, k === 'history' ? (v.externalUsage.combined.history ?? []).map(d => parseDay(d, path + '.external.history')) : parseDay(v.externalUsage.combined[k], path + '.external.' + k)])),
         } : null,
         config: parseConfig(v.config, path + '.config'),
+        // 价格表版本号:宿主在版本未变时会省略 config.prices(占载荷 56%),
+        // 客户端据此沿用上一份,并按同一版本号回传以避免重复下发。
+        pricesRev: typeof v.pricesRev === 'string' ? v.pricesRev : undefined,
         reconcile: v.reconcile === null || v.reconcile === undefined ? undefined : { ok: v.reconcile.ok === true, message: typeof v.reconcile.message === 'string' ? v.reconcile.message : '' },
-        // 扩展价格表目录(宿主只读下发;缺失时 UI 自动隐藏目录面板)。
-        priceCatalog: v.priceCatalog !== null && typeof v.priceCatalog === 'object' && !Array.isArray(v.priceCatalog) ? v.priceCatalog : null,
+        // 手改过价格的 OpenRouter 模型 id(缺失/畸形回落空表:不显示任何锁定标记)。
+        priceLockIds: Array.isArray(v.priceLockIds) ? v.priceLockIds.filter(id => typeof id === 'string') : [],
         meta: {
           ...(supportedLocale(v.meta?.locale) ? { locale: supportedLocale(v.meta.locale) } : {}),
           now: typeof v.meta?.now === 'number' ? v.meta.now : Date.now(),
@@ -501,6 +522,15 @@
     const CONTRIBUTION = {
       package: 'dsh-cost-meter',
       descriptors: [
+        {
+          method: 'getStateSince',
+          // Keep getState zero-argument: DSH checks the exact client argument count.
+          parameters: [rpcParam('pricesRev', 'PricesRev', codecOf(v => {
+            if (typeof v !== 'string') fail('pricesRev', 'price table revision')
+            return v
+          }))],
+          result: strictCodec('CostState', stateCodec),
+        },
         ...['getState', 'getLocalState'].map(method => ({ method, result: strictCodec('CostState', stateCodec) })),
         {
           method: 'updateConfig',
@@ -509,6 +539,14 @@
         },
         {
           method: 'fetchPrices',
+          },
+        {
+          method: 'releasePriceLock',
+          // 与宿主侧 manifest 同口径:非空字符串 id;结果形如 FetchPricesResult。
+          parameters: [rpcParam('id', 'PriceLockId', codecOf(v => {
+            if (typeof v !== 'string' || v.length === 0) fail('id', 'OpenRouter model id')
+            return v
+          }))],
           },
         {
           method: 'refreshBalance',
@@ -557,9 +595,9 @@
         },
         {
           id: 'dsh-cost-meter#costMeter/getTurnCost', service: 'costMeter', namespace: 'costMeter', method: 'getTurnCost', invocation: { kind: 'direct' },
-          parameters: [rpcParam('sessionId', 'SessionId', codecOf(v => needStr(v, 'sessionId'))), ...['startSeq', 'endSeq'].map(name => rpcParam(name, 'TurnSeq', codecOf(v => { if (!Number.isSafeInteger(v) || v < 0) fail(name, 'nonnegative integer'); return v })))],
-          result: strictCodec('TurnCost', codecOf(v => ({ found: needBool(v.found, 'found'), cost: needNum(v.cost, 'cost'), apiCost: needNum(v.apiCost, 'apiCost'), rows: parseTurnRows(v.rows),
-            calls: (Array.isArray(v.calls) ? v.calls : fail('calls', 'array')).map(c => ({ kind: needStr(c.kind, 'kind'), provider: needStr(c.provider, 'provider'), model: needStr(c.model, 'model'), atMs: needNum(c.atMs, 'atMs'), cost: needNum(c.cost, 'cost'), apiCost: needNum(c.apiCost, 'apiCost'), plan: needBool(c.plan, 'plan'), priced: needBool(c.priced, 'priced'), longContext: needBool(c.longContext, 'longContext'), rows: parseTurnRows(c.rows) })) }))),
+          parameters: [rpcParam('sessionId', 'SessionId', codecOf(v => needStr(v, 'sessionId'))), ...['startSeq', 'endSeq'].map(name => rpcParam(name, 'TurnSeq', codecOf(v => { if (!Number.isSafeInteger(v) || v < 0) fail(name, 'nonnegative integer'); return v }))), { ...rpcParam('displayCurrency', 'DisplayCurrency', codecOf(v => { if (v !== undefined && !['USD', 'CNY', 'EUR'].includes(v)) fail('displayCurrency', 'currency'); return v })), acceptsUndefined: true }],
+          result: strictCodec('TurnCost', codecOf(v => ({ ...parseFrozenMoney(v), found: needBool(v.found, 'found'), ...(v.inherited === undefined ? {} : { inherited: needBool(v.inherited, 'inherited') }), cost: needNum(v.cost, 'cost'), apiCost: needNum(v.apiCost, 'apiCost'), rows: parseTurnRows(v.rows),
+            calls: (Array.isArray(v.calls) ? v.calls : fail('calls', 'array')).map(c => ({ kind: needStr(c.kind, 'kind'), provider: needStr(c.provider, 'provider'), model: needStr(c.model, 'model'), atMs: needNum(c.atMs, 'atMs'), cost: needNum(c.cost, 'cost'), apiCost: needNum(c.apiCost, 'apiCost'), plan: needBool(c.plan, 'plan'), priced: needBool(c.priced, 'priced'), longContext: needBool(c.longContext, 'longContext'), rows: parseTurnRows(c.rows), ...(c.metering ? { metering: parseMetering(c.metering) } : {}) })) }))),
         },
         {
           method: 'getTopSessions',
@@ -598,6 +636,25 @@
     }
     /** 一档价格补齐(v1.6.9 起与 lib/pricing.js completeTier 同口径的客户端镜像):
      *  只认非负有限数字,补齐 cacheMiss/cacheHit 缺省;子档(offPeak/peak/legacyBase)同规则。 */
+    function priceMultiplierSettings(entry) {
+      return Object.fromEntries(['multiplier', 'separateMultipliers', 'multipliers'].filter(key => entry?.[key] !== undefined).map(key => [key, entry[key]]))
+    }
+    function priceFactor(entry, path) {
+      return (entry.separateMultipliers ? entry.multipliers?.[path] : undefined) ?? entry.multiplier ?? 1
+    }
+    function multipliedTier(price, entry, path = 'base') {
+      const tier = {}
+      for (const field of ['cacheHit', 'cacheMiss', 'cacheWrite', 'output', 'reasoning']) {
+        if (price[field] !== undefined) tier[field] = price[field] * priceFactor(entry, path + '.' + field)
+      }
+      if (price.longContext) tier.longContext = { ...multipliedTier(price.longContext, entry, 'longContext'), aboveInputTokens: price.longContext.aboveInputTokens }
+      return tier
+    }
+    function cnyPrice(entry) {
+      const settings = priceMultiplierSettings(entry)
+      if (settings.multipliers) settings.multipliers = Object.fromEntries(Object.entries(settings.multipliers).filter(([path]) => path.startsWith('cny.')).map(([path, value]) => [path.replace('cny.', 'base.'), value]))
+      return { ...entry.cny, ...settings }
+    }
     function normalizeClientTier(raw) {
       if (raw === null || typeof raw !== 'object') return undefined
       const n = key => {
@@ -615,6 +672,7 @@
     function normalizeClientPrice(raw) {
       const base = normalizeClientTier(raw)
       if (base === undefined) return null
+      Object.assign(base, priceMultiplierSettings(raw))
       if (raw.billingMode === 'utc-peak') base.billingMode = 'utc-peak'
       // 峰谷/历史子档必须随主档一起保留:usageSplit 回退计价与 Plan 拆分靠 tierFor
       // 取子档,剥掉会把峰时调用按基础价(= 谷价)重算、低估约一半(v1.6.9 审计修复)。
@@ -680,30 +738,29 @@
     const LEGACY_BASE_BOUNDARY_MS = Date.parse('2026-08-16T16:00:00Z')
     function tierFor(entry, atMs, peak) {
       const base = priceAt(entry, atMs) ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
-      const asTier = price => ({ cacheHit: price.cacheHit, cacheMiss: price.cacheMiss, output: price.output, reasoning: price.reasoning ?? 0,
-        ...(price.cacheWrite === undefined ? {} : { cacheWrite: price.cacheWrite }), ...(price.longContext === undefined ? {} : { longContext: price.longContext }) })
+      const asTier = (price, path = 'base') => ({ reasoning: 0, ...multipliedTier(price, base, path) })
       if (base.billingMode === 'utc-peak') {
         if (peak?.enabled !== true || !Number.isFinite(atMs)) return asTier(base)
         const date = new Date(atMs), day = date.getUTCDay(), hour = date.getUTCHours()
         const high = day > 0 && day < 6 && ((hour >= 1 && hour < 4) || (hour >= 6 && hour < 10))
-        return asTier((high ? base.peak : base.offPeak) ?? base)
+        return asTier((high ? base.peak : base.offPeak) ?? base, (high ? base.peak : base.offPeak) ? (high ? 'peak' : 'offPeak') : 'base')
       }
       // 峰谷时代之前按当时的基础价计费(历史正确;与 lib/pricing.js tierFor 同分支,
       // v1.6.9 审计修复:客户端镜像此前缺该分支,分界前回放桶会按当前价重算)。
       if (Number.isFinite(atMs) && atMs < LEGACY_BASE_BOUNDARY_MS) {
         const lb = base.legacyBase
-        return lb === undefined ? asTier(base) : asTier(lb)
+        return lb === undefined ? asTier(base) : asTier(lb, 'legacyBase')
       }
       if (peak?.enabled !== true) return asTier(base)
       // 非有限(如 Date.parse('') 的 NaN)视同「未知生效时刻」,与服务端 tierFor 同口径。
       const effectiveAtMs = typeof peak.effectiveAtMs === 'number' && Number.isFinite(peak.effectiveAtMs) ? peak.effectiveAtMs : undefined
       if (isPeakHour(atMs, effectiveAtMs, peak.windows, peak.holidays)) {
         const p = base.peak
-        return p === undefined ? asTier(base) : asTier(p)
+        return p === undefined ? asTier(base) : asTier(p, 'peak')
       }
       if (effectiveAtMs !== undefined && atMs >= effectiveAtMs) {
         const off = base.offPeak
-        return off === undefined ? asTier(base) : asTier(off)
+        return off === undefined ? asTier(base) : asTier(off, 'offPeak')
       }
       return asTier(base)
     }
@@ -809,9 +866,10 @@
       }
     }
 
-    const SCOPED_PRICE_PROVIDERS = new Set(['openrouter', 'opencode-zen', 'opencode-go', 'zen', 'opencode'])
+    const OPENDESIGN_PROVIDER_IDS = ['opendesign', 'open-design', 'open-design-api', 'amr-link.open-design.ai']
+    const SCOPED_PRICE_PROVIDERS = new Set(['openrouter', 'opencode-zen', 'opencode-go', 'opencode-go-plus', 'zen', 'opencode', ...OPENDESIGN_PROVIDER_IDS])
     const MODEL_VENDOR_PREFIXES = {
-      openai: /^(?:gpt|o\d|codex)/i, anthropic: /^claude/i, google: /^gemini/i,
+      openai: /^(?:gpt|o\d|codex)/i, anthropic: /^claude/i, google: /^gemini/i, stepfun: /^step-/i,
       deepseek: /^deepseek/i, moonshot: /^kimi/i, 'z-ai': /^glm/i, xai: /^grok/i,
       alibaba: /^qwen/i, minimax: /^minimax/i, tencent: /^(?:hunyuan|hy\d)/i,
       xiaomi: /^mimo/i, upstage: /^solar/i, nvidia: /^nemotron/i, mistral: /^mistral/i,
@@ -883,6 +941,10 @@
       let targetProvider = provider
       let targetModel = modelId
       const override = overrides[provider + ':' + modelId]
+      if (override === '__custom__') {
+        const entry = prices.custom?.[provider + ':' + modelId]
+        return { entry: entry ?? null, priced: !!entry, billingMode: 'flat', matched: true, currency: entry?.currency ?? 'USD' }
+      }
       // 「本地模型(零消耗)」哨兵(与 pricing.js 同口径):覆盖目标 __local__ →
       // 未定价(token 照记、费用 0),matched=true 表示已人工指定。
       if (override === '__local__') return { entry: null, priced: false, billingMode: 'flat', matched: true }
@@ -898,11 +960,13 @@
           return { entry: prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 }, priced: prices.default?.unpriced !== true, billingMode: 'deepseek-peak', matched: false }
         }
       }
-          if (['zen', 'opencode'].includes(targetProvider)) {
+          if (['zen', 'opencode', 'opencode-go-plus'].includes(targetProvider)) {
         const own = priceModelHit(targetModel, prices.providers?.[targetProvider]?.models ?? {}, 'opencode-go', mode, prices)
         if (own === null) targetProvider = 'opencode-go'
         else targetModel = own
       }
+      if (OPENDESIGN_PROVIDER_IDS.includes(targetProvider) && targetProvider !== 'opendesign'
+        && priceModelHit(targetModel, prices.providers?.[targetProvider]?.models ?? {}, targetProvider, mode, prices) === null) targetProvider = 'opendesign'
       // 本地推理来源零价守卫(与 pricing.js 同口径,置于覆盖之后、目录匹配之前)。
       if (isLocalOriginClient(targetProvider, targetModel)) {
         return { entry: null, priced: false, billingMode: 'flat', matched: false }
@@ -976,12 +1040,13 @@
     }
     function resolveClientPrice(provider, modelId, config) {
       let result = resolveClientPriceRaw(provider, modelId, config)
+      if (result.currency) return result
       if (!result.priced) {
         const normalized = String(provider ?? '').trim().toLowerCase().replace(/^llm-/, '') || 'deepseek'
         result = legacyDeepseekOverride(normalized, config?.priceOverrides?.[normalized + ':' + modelId], config?.prices ?? {}, config?.priceMatch === 'exact' ? 'exact' : 'auto') ?? result
       }
       if (result.priced && config?.prices?.currency === 'CNY' && result.entry?.cny) {
-        return { ...result, entry: result.entry.cny, currency: 'CNY' }
+        return { ...result, entry: cnyPrice(result.entry), currency: 'CNY' }
       }
       return { ...result, currency: result.priced && result.billingMode === 'deepseek-peak' && config?.prices?.currency === 'CNY' ? 'CNY' : 'USD' }
     }
@@ -1021,6 +1086,9 @@
      * 预算/卡片/徽章/表格等全部金额展示统一走这里,保证同一开关下口径一致。
      */
     function displayCostOf(entry, config) {
+      const suffix = { CNY: 'Cny', EUR: 'Eur' }[config?.currency]
+      const saved = suffix && entry?.[(config?.showTotalWithPlan ? 'cost' : 'apiCost') + suffix]
+      if (Number.isFinite(saved)) return saved / (config.exchangeRate || 1)
       if (config !== null && typeof config === 'object' && config.showTotalWithPlan === true) {
         return Number(entry?.cost) || 0
       }
@@ -1029,14 +1097,24 @@
     // ── Plan/API 双轨分类(issue #64):与 lib/plan-billing.js 同逻辑的镜像实现
     //    (bundle 无法导入 Node 模块,修改时两处同步)。──
     const PLAN_PROVIDER_ALIASES_LOCAL = {
-      go: ['go', 'zen', 'opencode', 'opencode-go'],
+      opendesign: OPENDESIGN_PROVIDER_IDS,
+      go: ['go', 'zen', 'opencode', 'opencode-go', 'opencode-go-plus'],
+      codex: ['codex', 'openai-codex', 'dsh-openai-codex'],
+      'volcengine-agent': ['volcengine-agent', 'ark-agent-plan', 'volcengine-agent-plan'],
+      'tencent-coding': ['tencent-coding', 'tencent-coding-plan', 'tokenhub-coding-plan'],
+      'tencent-token': ['tencent-token', 'tencent-token-plan', 'tokenhub-token-plan'],
+      'baidu-coding': ['baidu-coding-plan', 'qianfan-coding-plan'],
+
       qwen: ['qwen', 'qwen-tokenplan', 'qianwen-tokenplan', 'qwen-token-plan', 'qianwen-token-plan'],
       scnet: ['scnet', 'scnet-tokenplan', 'scnet-token-plan'],
       mimo: ['mimo', 'xiaomimimo', 'mimo-token-plan', 'xiaomi-token-plan', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-ams'],
       factory: ['factory', 'droid', 'factory-a', 'factory-g', 'factory-o'],
     }
-    const PLAN_PROVIDER_IDS_LOCAL = ['anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go']
+    const PLAN_PROVIDER_IDS_LOCAL = ['opendesign', 'anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go', 'codex', 'volcengine-agent', 'tencent-coding', 'tencent-token', 'baidu-coding']
     const PLAN_NAME_HINTS_LOCAL = {
+      opendesign: 'opendesign|open[._-]?design',
+      codex: 'codex|chatgpt', 'baidu-coding': 'baidu|qianfan|百度|千帆',
+      'tencent-coding': 'tencent|tokenhub|腾讯',
       anthropic: 'anthropic|claude', zai: 'z[._-]?ai|zhipu|glm|智谱', minimax: 'minimax|海螺',
       kimi: 'kimi|moonshot|moonshotai|月之暗面', openrouter: 'openrouter', siliconflow: 'siliconflow|硅基',
       commandcode: 'commandcode', scnet: 'scnet|sugon|超算',
@@ -1046,10 +1124,19 @@
     const PLAN_NAME_MATCHERS_LOCAL = Object.entries(PLAN_NAME_HINTS_LOCAL).map(([id, hints]) => [id, new RegExp('(?:^|[^a-z0-9])(?:' + hints + ')(?=$|[^a-z0-9])')])
     function inferPlanProviderIdLocal(provider, modelId) {
       for (const raw of [provider, modelId]) {
-        const text = String(raw ?? '').normalize('NFKC').replace(/([a-zA-Z0-9\u3400-\u9fff])(?=(?:Coding|Token|Plan|Subscription))/g, '$1-').replace(/([a-z0-9])((?:coding|token)?plan|subscription)$/i, '$1-$2').toLowerCase()
-        if (!/(?:^|[^a-z0-9])(?:(?:coding|token)[-_\s]*)?plan(?:$|[^a-z0-9])|(?:^|[^a-z0-9])subscription(?:$|[^a-z0-9])|套餐|订阅/.test(text)) continue
+        const text = String(raw ?? '').normalize('NFKC').replace(/([a-zA-Z0-9\u3400-\u9fff])(?=(?:Coding|Token|Agent|Plan|Subscription))/g, '$1-').replace(/([a-z0-9])((?:coding|token|agent)?plan|subscription)$/i, '$1-$2').toLowerCase()
+        if (!/(?:^|[^a-z0-9])(?:(?:coding|token|agent)[-_\s]*)?plan(?:$|[^a-z0-9])|(?:^|[^a-z0-9])subscription(?:$|[^a-z0-9])|套餐|订阅/.test(text)) continue
         const matches = PLAN_NAME_MATCHERS_LOCAL.filter(([, pattern]) => pattern.test(text))
-        if (matches.length) return matches.length === 1 ? matches[0][0] : null
+        if (matches.length) {
+          if (matches.length !== 1) return null
+          const id = matches[0][0]
+          if (id === 'volcengine' && /agent[-_\s]*plan|智能体.*套餐/.test(text)) return 'volcengine-agent'
+          if (id === 'tencent-coding') {
+            const token = /token[-_\s]*plan|令牌.*套餐/.test(text), coding = /coding[-_\s]*plan|编程.*套餐/.test(text)
+            return token === coding ? null : token ? 'tencent-token' : id
+          }
+          return id
+        }
       }
       return null
     }
@@ -1072,6 +1159,7 @@
         }
       }
       if (config?.goQuota?.enabled === true) out.add('go')
+      if (config?.codexQuotaEnabled === true) out.add('codex')
       return out
     }
     // 路由调用判定(与 lib/plan-billing.js 同逻辑的镜像):provider 空/deepseek
@@ -1115,6 +1203,7 @@
      */
     function usageSplit(usage, config) {
       if (!usage || !config) return { total: 0, api: 0 }
+      const cnyRate = cnyRateOfLocal(config)
       const peak = {
         enabled: config.peakEnabled === true,
         effectiveAtMs: Date.parse(config.peakEffectiveAt || ''),
@@ -1132,7 +1221,7 @@
         const resolved = resolveClientPrice(provider, modelId, config)
         if (resolved.priced) {
           const c = costOfBuckets(byModel[providerKey], tierFor(normalizeClientPrice(resolved.entry), now, { ...peak, enabled: ['deepseek-peak', 'utc-peak'].includes(resolved.billingMode) && peak.enabled }))
-          const billed = usdFromCostLocal(c, resolved.currency, config.exchangeRate)
+          const billed = usdFromCostLocal(c, resolved.currency, cnyRate)
           total += billed
           if (billingClassOfLocal(provider, modelId, config) === 'api') api += billed
         }
@@ -1153,10 +1242,15 @@
         reasoning: Math.max(0, (usage.reasoning ?? 0) - modeled.reasoning),
       }
       const leftoverCost = costOfBuckets(leftover, tierFor(priceEntryFor('default', config.prices), now, peak))
-      const leftoverBilled = usdFromCostLocal(leftoverCost, config.prices?.currency === 'CNY' ? 'CNY' : 'USD', config.exchangeRate)
+      const leftoverBilled = usdFromCostLocal(leftoverCost, config.prices?.currency === 'CNY' ? 'CNY' : 'USD', cnyRate)
       total += leftoverBilled
       api += leftoverBilled
       return { total, api }
+    }
+    function cnyRateOfLocal(config) {
+      const valid = value => typeof value === 'number' && Number.isFinite(value) && value > 0 && value < 1e6
+      if (config.currency === 'CNY' && valid(config.exchangeRate)) return config.exchangeRate
+      return valid(config.fxRates?.CNY) ? config.fxRates.CNY : 7.2
     }
     /** 快速判定:投影里是否存在 Plan 类模型(无则徽章/dock 走宿主精确成本快路径)。 */
     function usageHasPlanClass(usage, config) {
@@ -1382,14 +1476,14 @@
       const base = snapshot ? snapshot.own : projection
       if (!include || !snapshot?.subagentCount) return base
       const extra = snapshot.subagents, out = { ...base }
-      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost']) out[key] = (base?.[key] ?? 0) + (extra?.[key] ?? 0)
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost', ...frozenMoneyFields]) out[key] = (base?.[key] ?? 0) + (extra?.[key] ?? 0)
       out.apiCost = recordedApiCost(base, config) + moneyCostOf(extra)
       for (const key of ['byModel', 'byProviderModel']) {
         out[key] = { ...base?.[key] }
         for (const [id, row] of Object.entries(extra?.[key] ?? {})) {
           const combined = { ...out[key][id] }
           combined.apiCost = moneyCostOf(combined) + moneyCostOf(row)
-          for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost']) combined[field] = (combined[field] ?? 0) + (row[field] ?? 0)
+          for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost', ...frozenMoneyFields]) combined[field] = (combined[field] ?? 0) + (row[field] ?? 0)
           out[key][id] = combined
         }
       }
@@ -1401,27 +1495,48 @@
       const config = state?.config
       const [snapshot, setSnapshot] = useState(null)
       useProjectionRefresh(props, projection)
+      // Hosts may return a fresh projection object on every render (#284).
+      // Subscribe to billing values, never to that object's identity.
+      const projectionRevision = ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost', 'apiCost'].map(key => projection?.[key] ?? '').join(':')
       useEffect(() => {
         if (!props.sessionId || !props.api?.getSessionCost) return
         let active = true, pending = false
         const refresh = async () => {
-          if (pending) return
+          if (pending || (typeof document !== 'undefined' && document.hidden)) return
           pending = true
           try {
             const value = await props.api.getSessionCost(props.sessionId)
             if (active) setSnapshot({ id: props.sessionId, include: config?.includeSubagentCost === true, value })
-          } catch { /* 旧服务无 RPC 时保留投影显示。 */ }
+          } catch {
+            // Older hosts may not provide this RPC. Finish the loading state,
+            // retaining an existing ledger snapshot or the projection fallback.
+            if (active) setSnapshot(previous => previous?.id === props.sessionId && previous.include === (config?.includeSubagentCost === true) ? previous : { id: props.sessionId, include: config?.includeSubagentCost === true, value: null })
+          }
           finally { pending = false }
         }
         void refresh()
         const timer = config?.includeSubagentCost === true ? setInterval(refresh, 10000) : null
-        return () => { active = false; if (timer !== null) clearInterval(timer) }
-      }, [props.sessionId, state?.meta?.now, projection, config?.includeSubagentCost])
-      const saved = snapshot && snapshot.id === props.sessionId && snapshot.include === (config?.includeSubagentCost === true) ? snapshot.value : null
-      return { usage: mergeSessionUsage(projection, saved, config?.includeSubagentCost === true, config), config }
+        const onVisible = () => { if (!document.hidden) void refresh() }
+        if (typeof document !== 'undefined') document.addEventListener?.('visibilitychange', onVisible)
+        return () => { active = false; if (timer !== null) clearInterval(timer); if (typeof document !== 'undefined') document.removeEventListener?.('visibilitychange', onVisible) }
+      }, [props.sessionId, state?.meta?.now, projectionRevision, config?.includeSubagentCost])
+      const current = snapshot && snapshot.id === props.sessionId && snapshot.include === (config?.includeSubagentCost === true) ? snapshot : null
+      const saved = current?.value
+      return { usage: mergeSessionUsage(projection, saved, config?.includeSubagentCost === true, config), config,
+        pending: !!props.sessionId && !!props.api?.getSessionCost && !current,
+        unrecorded: saved?.found === false && (!config?.includeSubagentCost || !saved.subagentCount) }
+    }
+
+    function sessionCostStatus(state) {
+      const en = resolveLocale(state.config) === 'en'
+      return state.pending ? (en ? 'Loading session cost…' : '正在读取本会话费用…') : state.unrecorded ? (en ? 'Session cost: no ledger records' : '本会话暂无账本记录') : !state.usage ? (en ? 'Session cost unavailable' : '本会话费用暂不可用') : ''
     }
 
     function sessionCostParts(usage, config) {
+      if (Number.isFinite(usage?.costCny) || Number.isFinite(usage?.costEur)) {
+        const total = displayCostOf(usage, { ...config, showTotalWithPlan: true }), api = displayCostOf(usage, { ...config, showTotalWithPlan: false })
+        return { cost: config.showTotalWithPlan ? total : api, planPart: config.showTotalWithPlan ? 0 : Math.max(0, total - api) }
+      }
       // Plan/API 双轨(issue #64):会话内存在 Plan 类模型时,徽章显示真金白银
       // (API)金额并在悬停明细中单列 Plan 等值;「含 Plan 总额」开启时回到
       // 单一总额口径(v1.6.0);无 Plan 用量时保持宿主精确成本快路径。
@@ -1437,7 +1552,7 @@
 
     function modelCostDetail(usage, config) {
       return Object.entries(usage?.byProviderModel ?? {}).filter(([, row]) => row.input || row.output || row.cacheRead || row.cacheWrite || row.reasoning)
-        .map(([id, row]) => id + ' ' + formatMoneyUsd(row.cost, config)).join('; ')
+        .map(([id, row]) => id + ' ' + formatMoneyUsd(displayCostOf(row, { ...config, showTotalWithPlan: true }), config)).join('; ')
     }
 
     function TurnCost(props) {
@@ -1458,25 +1573,28 @@
       const en = resolveLocale(config) === 'en'
       const names = en ? { input: 'Input', output: 'Output', cacheRead: 'Cache read', cacheWrite: 'Cache write', reasoning: 'Reasoning' } : { input: '输入', output: '输出', cacheRead: '缓存读取', cacheWrite: '缓存写入', reasoning: '推理' }
       const money = n => formatMoneyUsd(n, { ...config, decimals: Math.max(8, config.decimals ?? 2) })
-      const kinds = en ? { model: 'Model call', compaction: 'Context compaction', search: 'Native search' } : { model: '模型调用', compaction: '上下文压缩', search: '原生搜索' }
+      const kinds = en ? { model: 'Model call', compaction: 'Context compaction', search: 'Native search', fetch: 'Web fetch' } : { model: '模型调用', compaction: '上下文压缩', search: '原生搜索', fetch: '网页抓取' }
       const rowView = (row, i) => el('div', { key: i, style: { marginBottom: 4, overflowWrap: 'anywhere' } },
-        row.provider + ':' + row.model + ' · ' + names[row.bucket] + (row.plan ? ' (Plan)' : '') + ': ' + row.tokens.toLocaleString() + ' × ' + (row.priced ? money(row.rate) : '?') + ' / 1,000,000 ≈ ' + (row.priced ? money(row.cost) : '?'),
+        row.provider + ':' + row.model + ' · ' + (names[row.bucket] || (row.bucket === 'fetchRequests' ? (en ? 'Fetch requests' : '抓取请求') : (en ? 'Search requests' : '搜索请求'))) + (row.plan ? ' (Plan)' : '') + ': ' + (row.requests ? row.requests + (en ? ' requests' : ' 次') : row.tokens.toLocaleString()) + ' × ' + (row.priced ? money(row.rate) : '?') + (row.requests ? ' ≈ ' : ' / 1,000,000 ≈ ') + (row.priced ? money(row.cost) : '?'),
         !row.priced ? (en ? ' (price unavailable)' : '（未配置价格）') : row.bucket === 'reasoning' && row.rate === 0 ? (en ? ' (no separate charge)' : '（不单独收费）') : '')
       return el('details', { className: 'cm-note', style: { fontSize: 12, marginTop: 6 } },
-        el('summary', { style: { cursor: 'pointer' } }, en ? 'Turn cost' : '本轮费用', value?.found ? ' ≈ ' + money(config.showTotalWithPlan ? value.cost : value.apiCost) + (value.rows.some(r => !r.priced) ? (en ? ' + unpriced usage' : ' + 未定价用量') : '') : error ? ' ⚠' : ''),
-        error ? el('div', { role: 'alert' }, error) : !value ? (en ? 'Loading…' : '加载中…') : !value.found ? (en ? 'Complete usage records unavailable' : '没有完整用量记录') :
+        el('summary', { style: { cursor: 'pointer' }, title: en ? 'Log estimate at configured prices; session cost uses recorded ledger amounts.' : '本轮按日志和配置价格估算，本会话按账本已入账金额汇总。' }, en ? 'Turn cost' : '本轮费用', value?.found ? ' ≈ ' + money(displayCostOf(value, config)) + (value.rows.some(r => !r.priced) ? (en ? ' + unpriced usage' : ' + 未定价用量') : '') : value?.inherited ? (en ? ' · inherited history' : ' · 继承历史') : error ? ' ⚠' : ''),
+        error ? el('div', { role: 'alert' }, error) : !value ? (en ? 'Loading…' : '加载中…') : !value.found ? value.inherited ? (en ? 'Inherited usage is not billed again in this conversation.' : '继承的历史用量不在本会话重复计费。') : (en ? 'Complete usage records unavailable' : '没有完整用量记录') :
           el(Fragment, null, el('p', null, en ? 'Estimated from recorded usage and configured prices; rates per 1M tokens.' : '按已记录用量和配置价格估算；单价单位为每百万 Token。'),
-            el('p', null, 'API ≈ ' + money(value.apiCost) + ' · Plan ≈ ' + money(value.cost - value.apiCost) + (en ? ' (equivalent)' : '（等值）')),
+            el('p', null, 'API ≈ ' + money(displayCostOf(value, { ...config, showTotalWithPlan: false })) + ' · Plan ≈ ' + money(displayCostOf(value, { ...config, showTotalWithPlan: true }) - displayCostOf(value, { ...config, showTotalWithPlan: false })) + (en ? ' (equivalent)' : '（等值）')),
             value.rows.map(rowView),
             el('details', null, el('summary', { style: { cursor: 'pointer' } }, (en ? 'Individual calls' : '逐次调用明细') + ' (' + value.calls.length + ')'),
               value.calls.map((call, i) => el('details', { key: i, style: { margin: '6px 0' } },
                 el('summary', { style: { cursor: 'pointer', overflowWrap: 'anywhere' } }, '#' + (i + 1) + ' ' + kinds[call.kind] + ' · ' + call.provider + ':' + call.model + ' · ' + new Date(call.atMs).toLocaleTimeString() + ' · ' + (call.plan ? 'Plan ' : 'API ') + (call.priced ? '≈ ' + money(call.cost) : (en ? 'price unavailable' : '未配置价格')) + (call.longContext ? (en ? ' · long context' : ' · 长上下文价格') : '')),
+                call.metering ? el('p', null, 'billion-context · ' + call.metering.upstream + (call.metering.attempt > 1 ? (en ? ' · Retry ' : ' · 重试 ') + call.metering.attempt : '') + (!call.metering.complete ? (en ? ' · partial usage' : ' · 用量回执不完整') : '')) : null,
                 call.rows.map(rowView))))))
     }
 
     function SessionCost(props) {
-      const { usage, config } = useSessionUsage(props)
-      if (!usage || !config || (billedInput(usage) + (usage?.output ?? 0)) === 0) return null
+      const state = useSessionUsage(props), { usage, config } = state
+      if (!config) return null
+      const status = sessionCostStatus(state)
+      if (status) return el('div', { className: 'cm-chip' }, status)
       const t = makeT(resolveLocale(config))
       const { cost, planPart } = sessionCostParts(usage, config)
       const detail = [
@@ -1494,19 +1612,20 @@
         ...(planPart > 0 ? [t('sessionDetailPlan', { amount: formatMoneyUsd(planPart, config) })] : []),
         modelCostDetail(usage, config),
       ].filter(Boolean).join('; ')
-      return el(Tooltip, { label: detail, side: 'top', delayMs: 500 },
+      return el(Tooltip, { portal: true, label: detail, side: 'top', delayMs: 500 },
         el('div', { className: 'cm-chip' }, planPart > 0
           ? t('costChipPlan', { amount: formatMoneyUsd(cost, config) })
           : t('cost', { amount: formatMoneyUsd(cost, config) })))
     }
 
     function DockLine(props) {
-      const { usage, config } = useSessionUsage(props)
-      if (!usage || !config) return null
+      const state = useSessionUsage(props), { usage, config } = state
+      if (!config) return null
+      const status = sessionCostStatus(state)
+      if (status) return el('div', { className: 'cm-root', role: 'status', title: status }, status)
       const input = usage.input ?? 0
       const cache = (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0)
       const output = usage.output ?? 0
-      if (input + cache + output === 0) return null
       const t = makeT(resolveLocale(config))
       const { cost, planPart } = sessionCostParts(usage, config)
       // 缓存写入属于输入分母，但不是缓存命中；无输入时显示未知。
@@ -1522,9 +1641,13 @@
       const fullLine = t(planPart > 0 ? 'sessionLineSplit' : 'sessionLine', values)
       const modelDetail = modelCostDetail(usage, config)
       const compact = config.sessionCostCompact === true
-      // 紧凑模式只留金额;悬停保留完整费用行和模型分项。
-      return el('div', { className: 'cm-root', title: compact ? [fullLine, modelDetail].filter(Boolean).join('; ') : modelDetail },
-        compact ? t(planPart > 0 ? 'sessionLineSplitCompact' : 'sessionLineCompact', values) : fullLine)
+      // Keep the amount visible when native or peer-plugin statistics grow.
+      // Token and Plan details may truncate; the full line remains on hover.
+      const amount = t('sessionLineCompact', values)
+      const line = compact ? t(planPart > 0 ? 'sessionLineSplitCompact' : 'sessionLineCompact', values) : fullLine
+      return el('div', { className: 'cm-root cm-session-cost', title: [fullLine, modelDetail].filter(Boolean).join('; ') },
+        el('span', { className: 'cm-session-amount' }, amount),
+        el('span', { className: 'cm-session-detail' }, line.slice(amount.length)))
     }
 
     // ── 侧边栏:余额行 + 预算图框/今日徽章(纵向堆叠,位于设置按钮上方) ──────
@@ -1599,6 +1722,7 @@
 
     function segmentsForCustomBalance(state, config, custom = null, entryCfg = null) {
       const target = custom ?? state.customBalance
+      if ((entryCfg ?? config?.customBalance)?.adapter === 'tokenrhythm') return { cap: null, ...computeBalanceSegments({ remaining: target?.remaining, cap: null }) }
       // 全局 budgetCap 是货币金额，不适用于积分；积分只接受同一响应的上限。
       const cap = resolveBalanceCap(customBalanceUnitOf(config, target, entryCfg) === 'CREDITS' ? null : config, target)
       const remaining = Number(target?.remaining) || 0
@@ -1699,8 +1823,8 @@
       const refresh = useClickRefresh(api ? () => api.refreshBalance() : null)
       if (!balance || balance.status === 'off') return null
       if (balance.status === 'error') {
-        return el(Tooltip, { label: [t('balanceQueryFailed', { message: balance.message || t('unknownError') }), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
-          el('div', { className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+        return el(Tooltip, { portal: true, label: [t('balanceQueryFailed', { message: balance.message || t('unknownError') }), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
+          el('div', { 'data-cm-display': 'balance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
             wide ? el(Fragment, null, t('balance'), ' ', el('span', { className: 'cm-num' }, t('queryFailed'))) : '⚠'))
       }
       const detail = [
@@ -1714,8 +1838,8 @@
         ...(state.reconcile?.ok === false ? ['⚠ ' + state.reconcile.message] : []),
         ...clickRefreshTipLines(t, refresh),
       ].join('; ')
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+        el('div', { 'data-cm-display': 'balance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
           wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, t('balance'), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
     }
 
@@ -1745,8 +1869,8 @@
           el('span', { className: 'cm-balance-name' }, el('span', { className: 'cm-bbox-label' }, t('balance')), rechargeLinkEl(t)),
           el('span', { className: 'cm-bbox-pct cm-num cm-bal-amt' }, remaining)),
         el(BalanceBar, { segments, direction: barDirectionOf(config, 'balance') }))
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-bbox clickable' + (wide ? '' : ' rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+        el('div', { 'data-cm-display': 'balance', className: 'cm-bbox clickable' + (wide ? '' : ' rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
           wide ? body : el('div', { className: 'cm-bbox-rail cm-num' }, Math.round(segments.remainingPct) + '%')))
     }
 
@@ -1760,6 +1884,7 @@
     // 多配置形态(v1.7.0,issue #79):unit/label 优先读条目自身配置,旧单条
     // customBalance 作为回落(兼容旧快照/旧宿主)。
     function customBalanceUnitOf(config, custom, entryCfg) {
+      if ((entryCfg ?? config?.customBalance)?.adapter === 'tokenrhythm') return 'CNY'
       if ((entryCfg ?? config?.customBalance)?.adapter === 'aliyun' && ['CNY', 'USD', 'EUR'].includes(custom?.unit)) return custom.unit
       const unit = entryCfg?.unit ?? config?.customBalance?.unit
       if (['CNY', 'EUR', 'USD', 'CREDITS'].includes(unit)) return unit
@@ -1786,6 +1911,7 @@
     // 参数化(custom, entryCfg);旧调用路径(全局 customBalance)由外层包装传入。
     function customBalanceDetailText(custom, config, t, state, entryCfg = null) {
       const remaining = formatCustomBalanceMoney(custom.remaining, config, custom, entryCfg)
+      if ((entryCfg ?? config?.customBalance)?.adapter === 'tokenrhythm') return t('customBalanceRemaining', { amount: remaining })
       const formatAmt = v => formatCustomBalanceMoney(v, config, custom, entryCfg)
       if (state && config.balance?.showProgressBar === true) {
         const segments = segmentsForCustomBalance(state, config, custom, entryCfg)
@@ -1856,7 +1982,7 @@
       const visible = visibleCustomEntries(state, config)
       if (visible.length === 0) return null
       return el(Fragment, null, visible.map(({ index, entry, snapshot }) =>
-        el(CustomBalanceEntryBox, { key: 'cb-' + index, state, wide, api, t, index, entry, snapshot })))
+        el(entry.adapter === 'tokenrhythm' ? CustomBalanceEntryRow : CustomBalanceEntryBox, { key: 'cb-' + index, state, wide, api, t, index, entry, snapshot })))
     }
 
     function CustomBalanceEntryBox(props) {
@@ -1867,8 +1993,8 @@
       const refresh = useClickRefresh(api ? () => api.refreshCustomBalance(index) : null)
       const view = customBalanceBoxBody(state, config, t, snapshot, entry)
       const detail = [customBalanceDetailText(snapshot, config, t, state, entry), ...clickRefreshTipLines(t, refresh)].join(' · ')
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-bbox clickable' + (view.level === 'ok' ? '' : ' ' + view.level) + (wide ? '' : ' rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+        el('div', { 'data-cm-display': 'customBalance', className: 'cm-bbox clickable' + (view.level === 'ok' ? '' : ' ' + view.level) + (wide ? '' : ' rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
           wide ? view.body : el('div', { className: 'cm-bbox-rail cm-num' }, view.rail)))
     }
 
@@ -1890,14 +2016,14 @@
       const refresh = useClickRefresh(api ? () => api.refreshCustomBalance(index) : null)
       const label = resolveCustomBalanceLabel(entry ?? config.customBalance ?? {}, resolveLocale(config))
       if (custom.status === 'error') {
-        return el(Tooltip, { label: [custom.message || t('unknownError'), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
-          el('div', { className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+        return el(Tooltip, { portal: true, label: [custom.message || t('unknownError'), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
+          el('div', { 'data-cm-display': 'customBalance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
             wide ? el(Fragment, null, el('span', { className: 'cm-bal-label', title: label }, label), el('span', { className: 'cm-num cm-bal-amt' }, t('queryFailed'))) : '⚠'))
       }
       const amount = formatCustomBalanceMoney(custom.remaining, config, custom, entry)
       const detail = [customBalanceDetailText(custom, config, t, state, entry), ...clickRefreshTipLines(t, refresh)].join(' · ')
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+        el('div', { 'data-cm-display': 'customBalance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
           wide ? el(Fragment, null, el('span', { className: 'cm-bal-label', title: label }, label), el('span', { className: 'cm-num cm-bal-amt' }, amount)) : el(WalletIcon, { size: 16 })))
     }
 
@@ -1969,7 +2095,7 @@
       }
       if (chips.length === 0) return null
       return el('div', { className: 'cm-corner' },
-        chips.map(c => el(Tooltip, { key: c.key, label: c.tip, side: 'top', delayMs: 500 },
+        chips.map(c => el(Tooltip, { portal: true, key: c.key, label: c.tip, side: 'top', delayMs: 500 },
           el('span', { className: 'cm-corner-chip' + (c.key === 'model-top' ? ' cm-model-top' : '') + (c.level === 'ok' ? '' : ' ' + c.level) }, c.text))))
     }
 
@@ -2173,8 +2299,8 @@
       const chipText = view.nextIntoPeak
         ? t('nextPeakIn', { time: countdownText(view, now, t) })
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
-      return el(Tooltip, { label: t(keys.notice), side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-peak-strip ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off') },
+      return el(Tooltip, { portal: true, label: t(keys.notice), side: 'right', delayMs: 300 },
+        el('div', { 'data-cm-display': 'peak', className: 'cm-peak-strip ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off') },
           el('div', { className: 'cm-peak-track' },
             el('div', { className: 'cm-peak-segment cm-peak-high' }),
             el('div', { className: 'cm-peak-segment cm-peak-low' }),
@@ -2196,8 +2322,8 @@
       const chipText = view.nextIntoPeak
         ? t('nextPeakIn', { time: countdownText(view, now, t) })
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
-      return el(Tooltip, { label: t(keys.notice), side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-peak-classic ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off') },
+      return el(Tooltip, { portal: true, label: t(keys.notice), side: 'right', delayMs: 300 },
+        el('div', { 'data-cm-display': 'peak', className: 'cm-peak-classic ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off') },
           el('div', { className: 'cm-peak-classic-marker', style: { left: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } }),
           el('div', { className: 'cm-peak-track' },
             el('div', { className: 'cm-peak-segment cm-peak-high' }),
@@ -2222,7 +2348,7 @@
       // 时段状态:容器与圆点共用。圆点自身必须带状态类,颜色由 .cm-peak-dot-circle.<阶段> 命中
       // (展开/收起两种容器的类名不同,把选色挂在容器上会让收起态丢失峰时/周末配色)。
       const phase = view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el('div', { className: 'cm-peak-dot ' + phase, 'aria-label': detail.join('; ') },
           el('span', { className: 'cm-peak-dot-circle ' + phase }),
           el('span', { className: 'cm-peak-dot-text' }, t(keys.chip) + ' · ' + chipText)))
@@ -2247,7 +2373,7 @@
         ? t('nextPeakIn', { time: countdownText(view, now, t) })
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       const detail = [t(keys.notice), chipText]
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el('div', { className: 'cm-peak-rail ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
           el('div', { className: 'cm-peak-rail-track' },
             el('div', { className: 'cm-peak-rail-segment cm-peak-rail-high' }),
@@ -2271,7 +2397,7 @@
         ? t('nextPeakIn', { time: countdownText(view, now, t) })
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       const detail = [t(keys.notice), chipText]
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el('div', { className: 'cm-peak-rail-classic ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off'), 'aria-label': detail.join('; ') },
           el('div', { className: 'cm-peak-rail-classic-track' },
             el('div', { className: 'cm-peak-rail-classic-segment peak' }),
@@ -2295,7 +2421,7 @@
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       const detail = [t(keys.notice), chipText]
       const phase = view.weekend ? 'weekend' : view.inPeak ? 'peak' : 'off'
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el('div', { className: 'cm-peak-rail-dot ' + phase, 'aria-label': detail.join('; ') },
           el('span', { className: 'cm-peak-dot-circle ' + phase }),
           el('span', { className: 'cm-peak-rail-label' }, t(keys.short))))
@@ -2334,7 +2460,7 @@
           detail
             ? el(Fragment, null,
               // 今日金额行受 hideTodayCost 门控(issue #46);金额为真金白银口径(issue #64)。
-              config.hideTodayCost === true ? null : el('div', { className: 'cm-bbox-line cm-num' },
+              config.hideTodayCost === true ? null : el('div', { 'data-cm-display': 'today', className: 'cm-bbox-line cm-num' },
                 config.sidebarTodayMetric === 'tokens'
                   ? t('today') + ' ' + sidebarTodayValue(today, config, t)
                   : t('todayShare', {
@@ -2398,8 +2524,8 @@
             : '')),
         t('goQuotaFetchedAt', { time: goQuota.fetchedAt > 0 ? new Date(goQuota.fetchedAt).toLocaleTimeString() : '—' }),
       ].join('; ')
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-        el('div', { className: 'cm-bbox' + (view.level === 'ok' ? '' : ' ' + view.level) + (wide ? '' : ' rail') },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+        el('div', { 'data-cm-display': 'go', className: 'cm-bbox' + (view.level === 'ok' ? '' : ' ' + view.level) + (wide ? '' : ' rail') },
           wide ? view.body : el('div', { className: 'cm-bbox-rail cm-num' }, view.rail)))
     }
 
@@ -2505,9 +2631,9 @@
       const rail = el(Fragment, null,
         el('div', { className: 'cm-bbox-rail cm-num' }, fiveView.text),
         el('div', { className: 'cm-bbox-rail cm-num' }, sevenView.text))
-      return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
-          ...hoverProps, className: 'cm-bbox cm-mm' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '')
+          ...hoverProps, 'data-cm-display': 'plan', className: 'cm-bbox cm-mm' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '')
             + (refresh ? ' clickable' + (refresh.busy ? ' busy' : '') : ''),
           ...(refresh ? clickableRefreshProps(refresh.busy, refresh.run) : {}),
         },
@@ -2611,8 +2737,9 @@
       const { state, wide } = props
       const t = makeT(resolveLocale(state.config))
       const enabled = state.config?.codexQuotaEnabled === true && state.config?.codexQuotaSidebar !== false
-      const snap = useCodexQuota(enabled)
-      const refresh = useClickRefresh(() => fetchCodexQuota(true, enabled))
+      const cached = useCodexQuota(enabled && !props.preview)
+      const snap = props.preview && state.displayPreviewCodex ? state.displayPreviewCodex : cached
+      const refresh = useClickRefresh(props.preview ? null : () => fetchCodexQuota(true, enabled))
       if (!enabled || snap.status !== 'ok') return null
       const win = snap.windows.weekly ?? null
       if (win === null) return null
@@ -2629,9 +2756,9 @@
         el('div', { className: 'cm-mm-title' }, t('codexQuotaTitle')),
         view.row)
       const rail = el('div', { className: 'cm-bbox-rail cm-num' }, view.label === null ? '—' : view.label + '%')
-      return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
-          ...hoverProps, className: 'cm-bbox cm-mm clickable' + (view.level === 'ok' ? '' : ' ' + view.level)
+          ...hoverProps, 'data-cm-display': 'codex', className: 'cm-bbox cm-mm clickable' + (view.level === 'ok' ? '' : ' ' + view.level)
             + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
           ...clickableRefreshProps(refresh.busy, refresh.run),
         },
@@ -2695,8 +2822,8 @@
       const railText = pcts.length > 0
         ? pcts.slice(0, 2).map(p => simpleBarByDirection(p, planDirection).label + '%').join(' ')
         : (typeof entries[0][1]?.text === 'string' ? entries[0][1].text : '—')
-      return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
-        el('div', { ...hoverProps, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+      return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
+        el('div', { ...hoverProps, 'data-cm-display': 'plan', className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
           wide === false
             ? el('div', { className: 'cm-bbox-rail cm-num' }, railText)
             : el(Fragment, null,
@@ -2792,7 +2919,7 @@
       const pcts = rows.filter(r => r.view).map(r => r.view.label).filter(p => p !== null)
       const railText = pcts.length > 0 ? pcts.slice(0, 2).map(p => p + '%').join(' ') : (rows[0].text ?? '—')
       const rail = el('div', { className: 'cm-bbox-rail cm-num' }, railText)
-      return el(Tooltip, { label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
           ...hoverProps, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
           ...clickableRefreshProps(refresh.busy, refresh.run),
@@ -2826,7 +2953,7 @@
       volcengine: 'Ark',
       qwen: 'Qwen',
       mimo: 'MiMo',
-      factory: 'Factory',
+      factory: 'Factory', opendesign: 'OpenDesign',
     }
 
     function QuotaStrip(props) {
@@ -2992,7 +3119,7 @@
           if (!busy && api) tipLines.push(t('clickToRefresh'))
           if (busy) tipLines.push(t('refreshing'))
           if (err) tipLines.push('⚠ ' + t('balanceRefreshFailed', { message: err }))
-          return el(Tooltip, { key: c.key, label: tipLines.join('; '), side: 'bottom', delayMs: 400 },
+          return el(Tooltip, { portal: true, key: c.key, label: tipLines.join('; '), side: 'bottom', delayMs: 400 },
             el('span', {
               className: 'cm-qchip' + (api ? ' action' : '') + (c.level === 'ok' ? '' : ' ' + c.level),
               ...(api ? clickableRefreshProps(busy, () => doRefresh(c.key)) : {}),
@@ -3142,7 +3269,7 @@
       const pct = amount > 0 ? Math.min(999, used / amount * 100) : null
       const level = pct === null ? 'ok' : pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
 
-      if (budget.enabled === true) {
+      if (budget.enabled === true && config.hideBudget !== true) {
         // 预算圆角方形图框(渲染在设置按钮上方、余额行下方)。
         const todayApi = displayCostOf(today, config)
         const todayUsed = todayApi * (Number.isFinite(rate) && rate > 0 ? rate : 1)
@@ -3160,13 +3287,13 @@
             total: formatMoneyUsd(displayCostOf(state.total, config), config),
           }),
         ].join('; ')
-        if (props.summary === true) return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-          el('div', { className: 'cm-simple-summary' + (level === 'ok' ? '' : ' ' + level), tabIndex: 0 },
+        if (props.summary === true) return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+          el('div', { 'data-cm-display': 'budget', className: 'cm-simple-summary' + (level === 'ok' ? '' : ' ' + level), tabIndex: 0 },
             el('span', null, t('todayBudget', { period: t(PERIOD_KEYS[budget.period] ?? 'periodMonth') })),
             el('span', { className: 'cm-num' }, todayValue + ' / ' + formatMoneyValue(amount, config))))
         const view = budgetBoxBody(state, config, t)
-        return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
-          el('div', { className: 'cm-bbox' + (level === 'ok' ? '' : ' ' + level) + (wide ? '' : ' rail') },
+        return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+          el('div', { 'data-cm-display': 'budget', className: 'cm-bbox' + (level === 'ok' ? '' : ' ' + level) + (wide ? '' : ' rail') },
             wide ? view.body : el('div', { className: 'cm-bbox-rail cm-num' }, view.rail)))
       }
 
@@ -3181,9 +3308,9 @@
         t('monthCost', { amount: formatMoneyUsd(displayCostOf(state.month, config), config) }),
         t('totalCost', { amount: formatMoneyUsd(displayCostOf(state.total, config), config) }),
       ].join('; ')
-      return el(Tooltip, { label: detail, side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el(Fragment, null,
-          el('div', { className: 'cm-foot' + (wide ? '' : ' cm-foot-rail') },
+          el('div', { 'data-cm-display': 'today', className: 'cm-foot' + (wide ? '' : ' cm-foot-rail') },
             wide ? el(Fragment, null, t('today'), ' ', el('span', { className: 'cm-num' }, todayValue)) : el(WalletIcon, { size: 16 })),
           wide ? peakNoticeEl(state, config, t) : null))
     }
@@ -3326,8 +3453,11 @@
       }
       useProjectionRefresh(props, projectionUsage)
       const state = costStore?.state
-      const wide = !!props.wide
-      if (!state) return null
+      return state ? renderSidebarFooter(state, !!props.wide, props.api) : null
+    }
+
+    // Shared presentation only: no store, projection or quota subscription.
+    function renderSidebarFooter(state, wide, api, preview = false) {
       const config = state.config
       const t = makeT(resolveLocale(config))
       const showBalance = (config.balance?.display === 'sidebar' || config.balance?.display === 'both')
@@ -3357,12 +3487,13 @@
         })
       const plansOn = sidebarPlanIds.length > 0
       // 网关额度侧边栏卡片(issue #96):按来源 display 门控,卡片本体见 GatewayQuotaBox。
-      const gatewayNodes = gatewaySidebarCards(state, config, wide, props.api)
+      const gatewayNodes = gatewaySidebarCards(state, config, wide, api)
       // Codex 周额度(issue #59):客户端探测 dsh-codex-connect,ok 时并入侧边栏;
       // 其余显示全关时也要为它保留渲染入口(模块装载即有被动探测,快照同步读)。
-      const codexOn = config.codexQuotaEnabled === true && config.codexQuotaSidebar !== false && codexQuotaCache.status === 'ok'
-        && codexQuotaCache.windows.weekly !== null
-      const budgetOn = (config.budget ?? {}).enabled === true
+      const codexSnapshot = preview && state.displayPreviewCodex ? state.displayPreviewCodex : codexQuotaCache
+      const codexOn = config.codexQuotaEnabled === true && config.codexQuotaSidebar !== false && codexSnapshot.status === 'ok'
+        && codexSnapshot.windows.weekly !== null
+      const budgetOn = (config.budget ?? {}).enabled === true && config.hideBudget !== true
       const showToday = config.sidebar !== false && config.hideTodayCost !== true
       const modelsOn = config.sidebarModels?.enabled === true
       if (!modelsOn && !showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && gatewayNodes.length === 0) return null
@@ -3375,21 +3506,22 @@
       // simple 模式(上游 v1.7.18 极简侧栏):宽栏摘要行;预算开启时由 BudgetBoxContent
       // 合并为一条「今日 / 预算」摘要(上游 #123),余额仍走原图框/行。
       if (mergedBudget) nodes.push(el(BudgetBoxContent, { state, wide, summary: true }))
-      else if (simple && wide && showToday) nodes.push(el('div', { className: 'cm-simple-summary' },
+      else if (simple && wide && showToday) nodes.push(el('div', { 'data-cm-display': 'today', className: 'cm-simple-summary' },
         el('span', null, t('today')), el('span', { className: 'cm-num' }, sidebarTodayValue(state.today, config, t))))
       // 展开态:今日费用 + 官方余额 + 峰谷条合并为一张卡(含今日/累计 Token 量,见 TodayBalanceCard);
       // 收起(rail)态与 simple 模式维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
-      if (wide && !simple) nodes.push(el(TodayBalanceCard, { state, wide, api: props.api, showBalance, showBalanceBar, showToday }))
-      else if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: props.api }))
-      else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: props.api }))
-      if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { state, wide, api: props.api }))
-      else if (showCustomBalance) nodes.push(el(CustomBalanceRowContent, { state, wide, api: props.api }))
+      // 上游已把本函数改为 renderSidebarFooter(state, wide, api, preview):此处一律用形参 api(没有 props)。
+      if (wide && !simple) nodes.push(el(TodayBalanceCard, { state, wide, api: api, showBalance, showBalanceBar, showToday }))
+      else if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: api }))
+      else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: api }))
+      if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { state, wide, api: api }))
+      else if (showCustomBalance) nodes.push(el(CustomBalanceRowContent, { state, wide, api: api }))
       const afterBalance = nodes.length
       if (plansOn) nodes.push(...sidebarPlanIds.map(id => id === 'minimax'
-        ? el(MiniMaxPlanBox, { state, wide, api: props.api })
-        : el(CodingPlanBox, { id, state, wide, api: props.api })))
+        ? el(MiniMaxPlanBox, { state, wide, api: api })
+        : el(CodingPlanBox, { id, state, wide, api: api })))
       nodes.push(...gatewayNodes)
-      if (codexOn) nodes.push(el(CodexPlanBox, { state, wide, api: props.api }))
+      if (codexOn) nodes.push(el(CodexPlanBox, { state, wide, api, preview }))
       if (goOk && budgetOn && wide && !simple) {
         // 同时出现:合并为一张卡片(Go 在上、预算在下,细分隔线),各自保留预警色与自己的详细信息开关。
         const goView = goBoxBody(state, config, t)
@@ -3397,9 +3529,9 @@
         const level = goView.level === 'over' || budgetView.level === 'over' ? 'over'
           : goView.level === 'warn' || budgetView.level === 'warn' ? 'warn' : 'ok'
         nodes.push(el('div', { className: 'cm-bbox cm-bbox-pair' + (level === 'ok' ? '' : ' ' + level) },
-          el('div', { className: 'cm-bbox-section' + (goView.level === 'ok' ? '' : ' ' + goView.level) }, goView.body),
+          el('div', { 'data-cm-display': 'go', className: 'cm-bbox-section' + (goView.level === 'ok' ? '' : ' ' + goView.level) }, goView.body),
           el('div', { className: 'cm-bbox-divider' }),
-          el('div', { className: 'cm-bbox-section' + (budgetView.level === 'ok' ? '' : ' ' + budgetView.level) }, budgetView.body)))
+          el('div', { 'data-cm-display': 'budget', className: 'cm-bbox-section' + (budgetView.level === 'ok' ? '' : ' ' + budgetView.level) }, budgetView.body)))
       } else {
         if (goOk) nodes.push(el(GoQuotaBox, { state, wide }))
         if (budgetOn && !mergedBudget) nodes.push(el(BudgetBoxContent, { state, wide }))
@@ -3414,6 +3546,6 @@
       // 收起(rail)态:无论预算/Go 额度开关状态,统一在图框下方追加竖向峰谷进度条(受 peakNotice 等门控,内部自行返回 null)。
       if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
       if (modelsOn) nodes.splice(config.sidebarModels.position === 'first' ? 0 : config.sidebarModels.position === 'afterBalance' ? afterBalance : nodes.length, 0,
-        el(SidebarModelCosts, { key: 'models', state, wide }))
+        el(SidebarModelCosts, { key: 'models', state, wide, preview }))
       return el('div', { ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : '') }, ...nodes)
     }

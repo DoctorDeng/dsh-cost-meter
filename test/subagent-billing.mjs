@@ -172,9 +172,11 @@ const astra = DEFAULT_PROVIDER_PRICE_TABLE.openai.models['gpt-6-astra']
 const rpcPrices = stateSchema.shape.config.parse(pricedConfig).prices
 assert.equal(rpcPrices.providers.test.models.tiered.cacheWrite, 2)
 assert.deepEqual(rpcPrices.providers.test.models.tiered.longContext, shortPrice.longContext)
-const rpcCatalog = stateSchema.shape.priceCatalog.parse(buildPriceCatalog())
-assert.deepEqual(rpcCatalog.openai['GPT-6 Astra']['gpt-6-astra'].longContext, astra.longContext)
-assert.equal(rpcCatalog.openai['GPT-6 Astra']['gpt-6-astra'].cacheWrite, 12.5)
+// 内置目录沿用官方计价币种;目录条目与价格表同构,长上下文/缓存写档位由
+// config.prices 的 codec 守护(上方 rpcPrices 断言),不再单独下发目录快照。
+const builtCatalog = buildPriceCatalog()
+assert.deepEqual(builtCatalog.openai['GPT-6 Astra']['gpt-6-astra'].longContext, astra.longContext)
+assert.equal(builtCatalog.openai['GPT-6 Astra']['gpt-6-astra'].cacheWrite, 12.5)
 for (const invalid of [-1, Infinity, '25']) {
   const patch = { prices: { providers: { test: { models: { tiered: { ...shortPrice, cacheWrite: invalid } } } } } }
   assert.ok(applyConfigPatch(pricedConfig, patch).errors.length > 0)

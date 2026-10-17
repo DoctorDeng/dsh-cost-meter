@@ -90,7 +90,7 @@ try {
     await client.remote.$mount(CLIENT_CONTRIBUTION)
     const remote = client.get('remote.costMeter')
     for (const [method, args] of [
-      ['getState', []], ['updateConfig', [{ locale: 'en' }]],
+      ['getState', []], ['getStateSince', ['fixture:1']], ['updateConfig', [{ locale: 'en' }]],
       ['refreshCustomBalance', [undefined]], ['refreshCustomBalance', [0]],
       ['refreshGatewayQuota', [undefined]], ['refreshGatewayQuota', ['fixture-source']],
       ['refreshCodingPlan', ['qwen']], ['getTopSessions', [10, 'cost', 'desc']],

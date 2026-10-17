@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process'
 import vm from 'node:vm'
 import { sanitizeConfig, applyConfigPatch } from '../lib/store.js'
 import { TYPERT } from '../lib/typert.host.js'
+import { buildPriceCatalog } from '../lib/pricing.js'
 import { billingStatistics } from '../lib/billing-statistics.js'
 import { getSessionBilling } from '../lib/turn-cost.js'
 import { getTurnInspection } from '../lib/turn-inspection.js'
@@ -27,14 +28,14 @@ const React = { createElement: (type, props) => ({ type, props }) }
 const registrations = new Map(), calls = [], timers = new Set()
 const listeners = new Map()
 const config = sanitizeConfig({ locale: 'en', hideOfficialBalance: true, goQuota: { enabled: false } })
-const state = { config, meta: { now: 1, dayKey: '2026-09-30', timezone: 'UTC' } }
+const state = { config, pricesRev: 'fixture:1', meta: { now: 1, dayKey: '2026-09-30', timezone: 'UTC' } }
 const work = mkdtempSync(join(tmpdir(), 'cm-statistics-client-'))
 const ledger = { config, days: {}, path: join(work, 'ledger.json') }
 function moduleFrom(source, require) {
   let factory
   vm.runInNewContext(source, {
     window: { __ModuleLoader__: { load: value => { factory = value.factory } } }, navigator: { language: 'en' },
-    document: { querySelector: () => ({}),
+    document: { querySelector: () => null, createElement: () => ({ dataset: {}, remove() {} }), head: { appendChild() {} },
       addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn) },
       removeEventListener(name, fn) { listeners.get(name)?.delete(fn) }, hidden: false },
     setInterval: fn => { timers.add(fn); return fn }, clearInterval: fn => timers.delete(fn),
@@ -50,12 +51,13 @@ const pluginSource = file => baseline
   : readFileSync(new URL('../lib/' + file, import.meta.url), 'utf8')
 const statistics = moduleFrom(pluginSource('client.statistics.js'), () => React)
 const catalog = baseline ? null : moduleFrom(pluginSource('client.openrouter.js'), () => React)
+const pricing = baseline ? null : moduleFrom(pluginSource('client.pricing.js'), () => React)
 let loadCalls = 0, failLoad = false
 const requireMain = id => id === 'react' ? React : {}
 requireMain.async = async id => {
-  assert.ok(['./client.statistics.js', './client.openrouter.js'].includes(id)); loadCalls++
+  assert.ok(['./client.statistics.js', './client.openrouter.js', './client.pricing.js'].includes(id)); loadCalls++
   if (failLoad) { failLoad = false; throw new Error('synthetic chunk load failure') }
-  return id === './client.statistics.js' ? statistics : catalog
+  return id === './client.statistics.js' ? statistics : id === './client.pricing.js' ? pricing : catalog
 }
 const main = moduleFrom(pluginSource('client.js'), requireMain)
 const client = new Context()
@@ -67,8 +69,17 @@ class Connection extends Service {
       call: async (channel, endpoint, payload) => {
         assert.equal(channel, '/api'); calls.push([endpoint, payload.args])
         if (['costMeter/getState', 'costMeter/getLocalState'].includes(endpoint)) return { ok: true, value: state }
+        if (endpoint === 'costMeter/getStateSince') {
+          if (payload.args.pricesRev !== state.pricesRev) return { ok: true, value: state }
+          const { prices, ...rest } = state.config
+          return { ok: true, value: { ...state, config: rest } }
+        }
         if (endpoint === 'costMeter/updateConfig') { state.config = applyConfigPatch(state.config, payload.args.patch).config; return { ok: true, value: state } }
         if (endpoint === 'costMeter/getOpenRouterCatalog') return { ok: true, value: { fetchedAt: '2026-10-09T05:00:00Z', stale: false, error: '', models: [] } }
+        if (endpoint === 'costMeter/getRepricingHistory') return { ok: true, value: [] }
+        if (endpoint === 'costMeter/getPriceCatalog') return { ok: true, value: buildPriceCatalog() }
+        if (endpoint === 'costMeter/releasePriceLock') return { ok: true, value: { ok: payload.args.id !== 'missing', message: payload.args.id, state } }
+        if (endpoint === 'costMeter/repriceHistory' || endpoint === 'costMeter/repriceModelHistory') return { ok: true, value: { ok: true, message: 'synthetic recalculation' } }
         if (endpoint === 'costMeter/getContextCosts') return { ok: true, value: getContextCosts(ledger, { get: () => undefined }, payload.args.query) }
         if (endpoint === 'costMeter/getContextIntegration') return { ok: true, value: await getContextIntegration({ get: () => undefined }) }
         if (endpoint === 'costMeter/loginCodingPlan') return { ok: true, value: { ok: false, message: 'synthetic login response', state } }
@@ -102,7 +113,8 @@ try {
     const fiber = client.plugin(main); await fiber
     const entry = registrations.get('settings.section:cost-meter')
     assert.ok(entry, 'the real main apply installed its settings entry')
-    return { fiber, api: entry.options.inject().api }
+    await new Promise(resolve => setImmediate(resolve))
+    return { fiber, api: entry.options.inject().api, store: entry.options.inject().hooks.cost }
   }
   const first = await activate()
   assert.equal(loadCalls, 0, 'initial metering does not load the statistics chunk')
@@ -110,6 +122,19 @@ try {
     await assert.rejects(first.api.loadStatistics(), /Remote package "dsh-cost-meter" is already registered/)
     console.log('[ok] #210 baseline v1.8.1 reproduces duplicate Remote package on ' + req('@deepseek-ai/dsh-api-gateway/package.json').version)
   } else {
+    assert.equal(first.store.getSnapshot().status, 'ready', 'initial local read and background refresh both succeed')
+    assert.deepEqual(calls.slice(0, 2).map(([endpoint]) => endpoint), ['costMeter/getLocalState', 'costMeter/getState'])
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[1][1])), {}, 'initial refresh preserves the zero-argument contract')
+    await first.api.reload()
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/getStateSince', { pricesRev: 'fixture:1' }])
+    assert.deepEqual(JSON.parse(JSON.stringify(first.store.getSnapshot().state.config.prices)), JSON.parse(JSON.stringify(config.prices)), 'omitted prices retain the actual table, not parser defaults')
+    delete state.pricesRev
+    await first.api.reload()
+    await first.api.reload()
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/getState', {}], 'a host without a revision uses the legacy zero-argument endpoint')
+    assert.equal((await first.api.releasePriceLock('openai/gpt-4o')).ok, true)
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/releasePriceLock', { id: 'openai/gpt-4o' }], 'shipped settings wrapper uses the positional string accepted by the gateway')
+    await assert.rejects(first.api.releasePriceLock('missing'), /missing/, 'business failures reach the price editor')
     // A transient asset failure must be retryable without damaging the main face.
     failLoad = true
     await assert.rejects(first.api.loadStatistics(), /synthetic chunk load failure/)
@@ -131,7 +156,7 @@ try {
     const query = { from: '2026-09-30', to: '2026-09-30', provider: '', model: '', sessionId: 'selected', basis: 'total', offset: 0, turnOffset: 0 }
     assert.equal((await api.getBillingStatistics(query)).totals.calls, 0)
     assert.equal((await api.getSessionBilling(query)).found, false)
-    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/getSessionBilling', { query }])
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/getSessionBilling', { query: { ...query, displayCurrency: 'CNY' } }])
     const count = calls.length
     await assert.rejects(api.getBillingStatistics({ ...query, turnOffset: -1 }), /Invalid statistics query/)
     assert.equal(calls.length, count, 'strict input validation runs before transport')
@@ -144,11 +169,17 @@ try {
     assert.equal((await api.getContextCosts({ sessionId: 'selected' })).status, 'session-unavailable')
     assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/getContextCosts', { query: { sessionId: 'selected' } }])
     const prefetchStart = calls.length
-    await Promise.all([Page.prefetch({ state, sessionId: 'selected' }), Page.prefetch({ state, sessionId: 'selected' })])
-    const prefetched = calls.slice(prefetchStart).filter(([name]) => ['costMeter/getSessionBilling', 'costMeter/getContextCosts'].includes(name))
-    assert.equal(prefetched.length, 1, 'concurrent preloads share one billing request; context measurement stays off the overview critical path')
-    await Page.prefetch({ state, sessionId: 'selected' })
-    assert.equal(calls.length, prefetchStart + 1, 'immediate repeated preloads reuse the fresh snapshot')
+    const preloadResults = await Promise.all([Page.prefetch({ state, sessionId: 'selected' }), Page.prefetch({ state, sessionId: 'selected' })])
+    for (const results of preloadResults) {
+      assert.equal(results.length, 2, 'conversation preloads include billing and trajectory snapshots')
+      assert.ok(results.every(result => result.status === 'fulfilled'), 'both preload endpoints pass the real gateway and response validation')
+    }
+    assert.deepEqual(calls.slice(prefetchStart).map(([name]) => name).sort(), ['costMeter/getSessionBilling', 'costMeter/getSessionTrajectory'],
+      'concurrent preloads share one request per snapshot; context measurement and call bodies stay off the overview critical path')
+    const prefetchedCount = calls.length
+    const repeatedPreload = await Page.prefetch({ state, sessionId: 'selected' })
+    assert.ok(repeatedPreload.every(result => result.status === 'fulfilled'), 'repeated preloads return both cached snapshots')
+    assert.equal(calls.length, prefetchedCount, 'immediate repeated preloads reuse both fresh snapshots without another RPC')
     assert.equal((await first.api.loginCodingPlan('qwen')).message, 'synthetic login response')
     assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/loginCodingPlan', { provider: 'qwen' }], 'login RPC reaches the real gateway with its provider parameter')
     for (const fn of listeners.get('pointerover') ?? []) fn({ target: { closest: () => null } })
@@ -159,6 +190,19 @@ try {
     assert.equal(Prices, samePrices, 'concurrent catalog opens share one mounted contribution')
     assert.equal((await Prices({ state }).props.api.getOpenRouterCatalog()).stale, false)
     assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/getOpenRouterCatalog', {}])
+    const [History, sameHistory] = await Promise.all([first.api.loadPricing(), first.api.loadPricing()])
+    assert.equal(History, sameHistory, 'pricing settings mount only once')
+    const pricingRpc = History({ mode: 'history' }).props.rpc
+    const restoredCatalog = await pricingRpc('getPriceCatalog')
+    TYPERT.invocations.find(d => d.method === 'getPriceCatalog').result.create().parse(restoredCatalog)
+    assert.equal(JSON.stringify(restoredCatalog), JSON.stringify(buildPriceCatalog()), 'lazy catalog survives the shipped pricing gateway and host codec')
+    assert.equal((await pricingRpc('getRepricingHistory')).length, 0)
+    assert.equal((await pricingRpc('repriceHistory', true)).ok, true)
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/repriceHistory', { confirmed: true }])
+    await assert.rejects(pricingRpc('repriceHistory', 'true'), /Expected confirmation/)
+    assert.equal((await pricingRpc('repriceModelHistory', true, 'deepseek:deepseek-v4-pro')).ok, true)
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/repriceModelHistory', { confirmed: true, model: 'deepseek:deepseek-v4-pro' }])
+    await assert.rejects(pricingRpc('repriceModelHistory', true, ''), /Expected channel\/model/)
     const expectedMethods = TYPERT.invocations.filter(d => d.namespace === 'costMeter').map(d => d.method).sort()
     const actualMethods = Array.from(client.typert.remotes.list().filter(d => d.namespace === 'costMeter'), d => d.method).sort()
     assert.deepEqual(actualMethods, expectedMethods, 'all main and statistics methods coexist exactly once')
@@ -169,6 +213,7 @@ try {
     assert.equal([...listeners.values()].reduce((sum, rows) => sum + rows.size, 0), 0, 'unload removes lazy activation listeners')
     const second = await activate()
     const Reopened = await second.api.loadStatistics()
+    assert.equal(typeof await second.api.loadPricing(), 'function', 'pricing contribution supports plugin reload')
     assert.equal(typeof Reopened, 'function', 'same client modules can be mounted again after plugin reload')
     assert.equal((await Reopened({ state }).props.api.getBillingStatistics(query)).totals.calls, 0)
     await second.fiber.dispose()

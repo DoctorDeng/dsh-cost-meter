@@ -1,6 +1,6 @@
 # 模型与 Plan 适配说明
 
-更新时间:2026-10-03
+更新时间:2026-10-15
 
 当前按渠道区分的目录、完整覆盖范围、历史宿主兼容和限制见 [2026-10 价格说明](provider-pricing-2026-10.md)。
 
@@ -54,8 +54,8 @@
 |---|---|
 | DeepSeek | V4 Flash / V4 Pro(峰谷两档 + 历史基础价)、V4 Flash Vision-Exp(实验版多模态,与 Flash 同价) |
 | OpenAI | GPT-6 Astra/Sol/Luna、GPT-6.1 Sol、GPT-5.6 Sol/Terra/Luna、GPT-5.5(+Pro)、5.4 全系、5.3 Codex(+Spark)、5.2、5.1 全系、GPT-5、4.1 |
-| Anthropic | Fable 5.1/5、Opus 5.5/5/4.8/4.7/4.6、Sonnet 5.5/5/4.6、Haiku 4.5 |
-| Google | Gemini 3.8/3.7/3.6/3.5 Flash、3.5 Flash Lite、3.1 Pro、3 Flash、2.5 全系 |
+| Anthropic | Fable 5.1/5、Opus 5.5/5/4.8/4.7/4.6、Sonnet 5.5/5/4.6、Haiku 5.5/4.5 |
+| Google | Gemini 4 Argon、3.8/3.7/3.6/3.5 Flash、3.5 Flash Lite、3.1 Pro、3 Flash、2.5 全系 |
 | xAI | Grok 4.6/4.5/4.3、Grok Build |
 | Z.ai/智谱 | GLM-5.3/Flash、5.2/5.1、4.x |
 | 阿里 Qwen | Qwen3.8 Max、3.7、3.6、3.5 Plus |
@@ -81,7 +81,7 @@
 
 ## 二、Coding Plan 额度适配
 
-设置页「Coding Plan 额度」面板支持 **9 家**,各家独立启用开关 / Key / 手动刷新 / 进度条与重置时间,并可按家配置**显示位置**(侧边栏卡片 / 设置页 / 两者 / 关闭,默认设置页;v1.5.26);默认使用各家官方域名；MiniMax 可[手动指定可信 HTTPS 查询域名](minimax-quota-endpoint.md),发现链为:面板 Key → DSH 凭据库 → 环境变量 → CLI 登录态兜底。
+设置页「Coding Plan 额度」面板支持 **12 家**,各家独立启用开关 / Key / 手动刷新 / 进度条与重置时间,并可按家配置**显示位置**(侧边栏卡片 / 设置页 / 两者 / 关闭,默认设置页;v1.5.26);默认使用各家官方域名；MiniMax 可[手动指定可信 HTTPS 查询域名](minimax-quota-endpoint.md),发现链为:面板 Key → DSH 凭据库 → 环境变量 → CLI 登录态兜底。
 
 | 厂商 | 端点 | 显示内容 | 实测状态 |
 |---|---|---|---|
@@ -99,12 +99,26 @@
 
 无凭据/无订阅时面板为**软失败中性提示**,不影响其余功能。面板默认折叠,展开/折叠状态经 localStorage 记住。
 
+### 新增套餐归属（2026-10-15）
+
+在「按模型统计 → 计费方式」选择具体套餐。共有 18 种归属，额度查询仍由已有的独立开关控制。
+
+| 归属 | 识别方式与显示范围 |
+|---|---|
+| Codex / ChatGPT | codex、openai-codex 或明确的 Codex / ChatGPT 套餐名；auto 跟随 Codex 额度开关，普通 openai API 保持 API |
+| 火山 Agent Plan | 与原火山 Coding Plan 分开；匹配 ark-agent-plan 等名称，统计本地 Token 与等值费用 |
+| 腾讯 Coding Plan / Token Plan | 两种独立归属；同时出现两种产品的名称不自动选择 |
+| 百度千帆 Coding Plan | 匹配 baidu-coding-plan、千帆套餐等明确名称，普通 baidu API 保持 API |
+| OpenCode Go / Go Plus | 共用 Go 归属与该渠道参考价，opencode-go-plus 别名保留其手动价格优先级 |
+
+手动选择套餐或 API 始终优先。新增归属可用于本地调用分类；火山 Agent Plan、腾讯两种套餐、百度千帆尚未接入服务端额度查询，不显示推测的剩余额度或每 1% 总量。Codex 继续通过已安装的 dsh-openai-codex 插件只读获取额度。
+
+来源：[Codex / ChatGPT 方案](https://learn.chatgpt.com/docs/pricing)、[火山 Agent Plan](https://docs.volcengine.com/docs/ark/agent-plan-personal-plan-overview?lang=zh)、[腾讯两种独立套餐](https://cloud.tencent.com/document/product/1823/130103)、[百度千帆 Coding Plan](https://qianfan.cloud.baidu.com/qianfandev/topic/687754)、[Go / Go Plus](https://opencode.ai/v2/docs/console/go/)。
+
 ### 调研后暂不接入(如实记录)
 
 | 厂商 / 产品 | 原因 |
 |---|---|
-| 阿里云百炼 Coding Plan | 无 API-Key 化端点；已经官方百炼 CLI（`bl usage coding-plan`）作为千问卡片第三档额度来源接入，见 docs/qwen-cli-quota.md |
-| OpenAI Codex | 用量仅随 ChatGPT 会话,无独立 API-Key 端点 |
 | Gemini Code Assist | 仅组织级 Cloud API,无个人 Key 端点 |
 | GitHub Copilot 个人版 | 用量端点需 OAuth 设备流,暂不支持 |
 

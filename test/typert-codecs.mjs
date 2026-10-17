@@ -29,6 +29,11 @@ vm.runInNewContext(readFileSync(new URL('../lib/client.openrouter.js', import.me
   window: { __ModuleLoader__: { load: module => { catalogFactory = module.factory } } },
 })
 contribution.descriptors.push(...catalogFactory(() => ({})).CONTRIBUTION.descriptors)
+let pricingFactory
+vm.runInNewContext(readFileSync(new URL('../lib/client.pricing.js', import.meta.url), 'utf8'), {
+  window: { __ModuleLoader__: { load: value => { pricingFactory = value.factory } } },
+})
+contribution.descriptors.push(...pricingFactory(() => ({})).CONTRIBUTION.descriptors)
 export const CLIENT_CONTRIBUTION = contribution
 
 for (const [face, descriptors] of [['host', TYPERT.invocations], ['client', contribution.descriptors]]) {

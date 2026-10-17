@@ -1,21 +1,27 @@
 # 2026-10 模型价格目录与渠道选择 / Model pricing and routes
 
-核对日期 / Checked: 2026-10-03
+核对日期 / Checked: 2026-10-15
 
 ## 中文
 
-本次针对 #224 补齐 GPT-6 Sol/Luna、GPT-6.1 Sol、Gemini 3.8 Flash、Claude Fable 5.1、Opus 5.5 等模型，并按公开价格页面扩充其他模型。内置第三方目录包含 271 个「厂商 / 模型」条目、179 个不同模型 ID（含官方别名和历史快照 ID）；其中 269 条有可执行价格，2 条明确未核价。DeepSeek 主表单独保留。OpenRouter 仍在启动、手动同步及每小时从公开目录补充本渠道模型，静态目录的数量不是在线目录的上限。
+此前针对 #224 补齐 GPT-6 Sol/Luna、GPT-6.1 Sol、Gemini 3.8 Flash、Claude Fable 5.1、Opus 5.5 等模型，并按公开价格页面扩充其他模型。内置第三方目录包含 290 个「厂商 / 模型」条目、191 个不同模型 ID（含官方别名和历史快照 ID）；其中 288 条有可执行价格，2 条明确未核价。DeepSeek 主表单独保留。OpenRouter 仍在启动、手动同步及每小时从公开目录补充本渠道模型，静态目录的数量不是在线目录的上限。
+
+### 10 月 15 日更新
+
+新增 19 条渠道价格、12 个不同模型 ID：Claude Haiku 5.5、Gemini 4 Argon / Contributor、Mistral Large 4、GPT-5.6 Cyber、GPT-Rosalind Research / Discovery，以及 Zen / Go 的新增端点。直连 Sonnet 5.5 缓存读为 $0.10，Zen 为 $0.20；GPT-6.1 Sol 则直连缓存读 $0.10，Zen $0.20，长上下文分别翻倍。
+
+Haiku 5.5 按 100,000 输入 Token 分档，缓存读取和写入也计入阈值，超过后整次请求切换价档。Gemini 4 Argon 直连促销到 2026-11-30，之后公布价翻倍；官方没有标明切换时区，条目保留当前价和到期说明，不猜测切换时刻。Mistral Large 4 采用当前公开五折价，官方未给结束日。专项模型写入价格目录不代表账户取得调用权限。
 
 ### 先选渠道，再选模型
 
 - `openai`、`anthropic`、`google`、`xai`、`mistral`、`z-ai` 使用各自直接 API 的价格。已知厂商不会自动套用另一厂商的模型价
-- `opencode-zen` 是本次明确区分的 **Zen 按量渠道**，覆盖核对当天端点表全部 83 个模型
-- `opencode-go` 使用 **Go 订阅参考价**，覆盖全部 30 个模型；这些价格用于额度和等值费用估算，不代表每次请求额外扣款
+- `opencode-zen` 是本次明确区分的 **Zen 按量渠道**，覆盖核对当天端点表全部 87 个模型（另外保留 4 个历史 ID）
+- `opencode-go` 使用 **Go 订阅参考价**，覆盖全部 32 个模型（另外保留 3 个历史 ID）；这些价格用于额度和等值费用估算，不代表每次请求额外扣款
 - 为兼容本项目历史宿主配置，`zen` / `opencode` 仍按 Go 别名处理；用户在原渠道手写的价格条目及显式映射优先。按量 Zen 请选择 `opencode-zen` 的价格条目，不要依靠历史别名猜测。这是价格渠道键，不会创建宿主推理 Provider；宿主仍使用历史名字时，可显式映射到 `opencode-zen:<模型 ID>`，并把该宿主模型的 Plan/API 分类指定为 API。模型级 Plan/API 覆盖仍优先于自动分类
 - 缺失渠道的旧宿主兼容推断只保留旧 Go 模型集合，并且要求该模型仍在 Go 渠道表中。新增目录条目不会仅因同名就把 API 消费变成订阅
 - `openrouter` 使用完整模型 ID 精确匹配。`:free` / `:online` 等变体、其他路由及本地模型不会借用其价格
 
-例如 Gemini 3.8 Flash 的直接 Google 促销价是输入 $0.75 / 输出 $3.75，Zen 是 $1.50 / $7.50，每百万 token。Zen 的 DeepSeek Pro 为固定 $1.74 / $3.48；Go 的 Pro 为自己的峰谷参考价；均不能复用直接 DeepSeek 的当前 Flash 路由价。
+例如 Gemini 3.8 Flash 的直接 Google 促销价是输入 $0.75 / 输出 $3.75，Zen 是 $1.50 / $7.50，每百万 token。Zen 的 DeepSeek Pro 为固定 $1.74 / $3.48；Go 的 Pro 为自己的峰谷参考价；均不能与直接 DeepSeek 的独立 Pro / Flash 官方价格混用。
 
 自动匹配允许唯一的大小写、标点和日期装饰别名，以及与实际厂商一致的已知前缀，如 `openai/gpt-6.1-sol`、`anthropic/claude-opus-5.5`。不同版本、未知变体、多个候选或错误厂商前缀保持未定价。`exact` 模式要求价格表中存储的完整 ID。
 
@@ -38,9 +44,9 @@
 
 ## English
 
-The third-party catalog now contains 271 provider/model entries and 179 distinct model IDs, including official aliases and dated snapshots: 269 executable prices and 2 explicitly unpriced entries. The separate DeepSeek table remains intact. OpenRouter continues its existing public-directory refresh at startup, on manual sync and hourly.
+The third-party catalog now contains 290 provider/model entries and 191 distinct model IDs, including official aliases and dated snapshots: 288 executable prices and 2 explicitly unpriced entries. The separate DeepSeek table remains intact. OpenRouter continues its existing public-directory refresh at startup, on manual sync and hourly.
 
-Use direct vendor IDs for their own API prices, `opencode-zen` for all 83 published Zen PAYG endpoints, and `opencode-go` for all 30 published Go subscription-reference endpoints. Historical host IDs `zen` / `opencode` retain their Go meaning; manually entered prices and explicit mappings win. These are pricing keys, not newly registered inference providers. If a PAYG host uses a historical name, explicitly map its model to `opencode-zen:<model ID>` and set that host model’s Plan/API class to API. A model-level Plan/API override remains authoritative. Catalog growth does not infer new subscription usage from a bare model name.
+Use direct vendor IDs for their own API prices, `opencode-zen` for all 87 currently published Zen PAYG endpoints, and `opencode-go` for all 32 currently published Go subscription-reference endpoints. Historical host IDs `zen` / `opencode` retain their Go meaning; manually entered prices and explicit mappings win. These are pricing keys, not newly registered inference providers. If a PAYG host uses a historical name, explicitly map its model to `opencode-zen:<model ID>` and set that host model’s Plan/API class to API. A model-level Plan/API override remains authoritative. Catalog growth does not infer new subscription usage from a bare model name.
 
 Prices are USD per million tokens. Cache reads/writes and per-request context tiers are separate. OpenAI thresholds count complete input, including cached tokens; xAI's direct 200K boundary is inclusive while Zen's is exclusive. Claude generic cache writes use the published 5-minute tier; 1-hour TTL, Gemini cache storage charged per token-hour, modality-specific prices, tool fees and special processing tiers need separate accounting. Go's DeepSeek tiers use its UTC weekday schedule, not direct DeepSeek's Beijing holiday calendar.
 
@@ -54,9 +60,9 @@ The one-time upgrade preserves custom prices, supported TTL fields, explicit unp
 - [xAI API prices](https://docs.x.ai/developers/pricing)
 - [Mistral API prices](https://docs.mistral.ai/inference/pricing) and per-model alias pages
 - [Z.ai API prices](https://docs.z.ai/guides/overview/pricing)
-- [OpenCode Zen](https://opencode.ai/docs/zen), [OpenCode Go](https://opencode.ai/docs/go)
+- [OpenCode Zen](https://opencode.ai/v2/docs/console/models/), [OpenCode Go](https://opencode.ai/v2/docs/console/go/)
 - [OpenRouter public model directory](https://openrouter.ai/api/v1/models)
 
 Every new source-backed row includes `sourceUrl` and `checkedAt`. [`provider-pricing.json`](provider-pricing.json) is generated from executable code. Run `node test/check-opencode-catalog.mjs` to compare the complete current Zen/Go public endpoint and price tables, including free rows, cache writes, context tiers and peak/off-peak rows. This read-only check uses no account credentials or paid inference calls.
 
-Captured primary endpoint/price rows are checked offline in the full regression suite: [`opencode-pricing-2026-10-03.json`](../test/fixtures/opencode-pricing-2026-10-03.json). The standalone checker can also reread the live primary pages.
+Captured primary endpoint/price rows are checked offline in the full regression suite: [`opencode-pricing-2026-10-15.json`](../test/fixtures/opencode-pricing-2026-10-15.json). The standalone checker can also reread the live primary pages.

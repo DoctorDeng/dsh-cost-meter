@@ -2,6 +2,23 @@
 
 ## English
 
+### Conversation cost views
+
+The conversation **Cost details** view defaults to the treemap and offers four layouts over the same complete cost totals:
+
+- **Categories:** a donut and compact cost bars group file reading, local search, web search, file changes, commands, agent coordination, compaction, model responses and other tools across all agents. Classification uses recorded tool names only. A model step spanning different activities remains one mixed-tools item and is counted once.
+- **Treemap:** frames show activities and the smaller rectangles show named tools, with the five highest-cost tool combinations retained per activity. Switch to **By agent** to see each agent's own costs divided into activities. Areas follow costs; headings zoom in, and selecting a tile opens its calls in a detail dialog. No steps are hidden behind an undifferentiated step-count remainder.
+- **Ownership:** an expandable tree keeps the actual parent/subagent chain. The tree uses the full panel width. Each row shows cost, steps, calls, share of its parent and share of the conversation; clicking a name opens its calls. Agent totals include descendants; categories underneath contain only the agent's own calls.
+- **Step heatmap:** each fixed-size cell represents one billed step, including zero-cost and unpriced steps. Hue identifies activity; shade indicates relative cost. Scroll through large histories, filter by activity or agent, sort by time or cost, or jump to an index. Selecting a cell opens its token counts, unit prices, charges and recorded inputs, response and tools in a dialog. The viewport reads bounded metadata pages and renders only visible cells.
+
+Tool categories attribute the model-call cost of the associated step; they do not invent a separate execution price for a file read or command. Native search charges remain separate recorded billing events. Shares always use the whole conversation's selected cost basis.
+
+Web fetching has its own activity category. Official standalone Search/Fetch request fees use request counts and per-request rates, with no additional model tokens. Local HTTP fetching is not assigned an official API fee. See [billing scope](web-request-fees.md#english).
+
+The host prepares recently viewed conversations in the background at startup and refreshes them after completed turns. Conversation entry buttons also prefetch usage totals and fee categories. Calculated fees and price-independent usage metadata survive restarts; saved results appear first while changed logs refresh silently. View switches, sorting and paging share one calculation, and categories can display before call totals finish loading. Changes to price rules, plan ownership or subagent inclusion recalculate from the metadata cache; changed logs are reread. Caches are bounded and contain no message bodies, tool arguments, results or credentials.
+
+The step-cost share distribution groups many small steps into four ranges: below 0.1%, 0.1–1%, 1–5% and at least 5% of conversation costs. Each range shows step count and cumulative cost. Zero-cost and unpriced usage stay separate. Step details default to a global highest-cost-first ranking, with a trajectory-order option. Twenty rows are shown initially and more expand in place. Clicking a step opens a detail dialog. Category and agent dialogs list their steps by cost and show the selected call beside the list. Only that call’s recorded content is loaded; the close button remains visible while scrolling, and Escape returns to the underlying view. The individual-call section uses a highest-cost ranking with bars scaled to its largest call, alongside each amount and share of the whole conversation; remaining calls are summarized as text.
+
 Open a conversation and click **Cost details** in the same row as turns, speed, tokens and cache-hit statistics below its input box. **Settings → Cost → Display** has separate switches to hide the header entry, composer entry and turn cost summaries; all remain visible by default. The header entry automatically hides at viewport widths of 640px or less. The composer entry follows its own switch. Both buttons use compact 12px text. Budget chips take only their content width and no longer create an extra row. Cost badge visibility remains independent. From 1.8.13, **Amount only below the composer (full split on hover)** in the same Display tab condenses the conversation cost line to its amounts. Hover retains cache hit rate, input/cache/output tokens and model amounts; header badges and Cost details stay available. The conversation entry opens its entire retained history, shows API and Plan equivalents separately, uses the sidebar cost basis by default, and puts component details before overview charts. Switching conversations closes the previous dialog. For all conversations, open **Settings → Cost → Cost statistics**; this entry starts with the last seven calendar days, including today.
 
 - **Periods:** Today, Last 7 days, Last 30 days, All retained, and custom inclusive dates. Dates follow the host timezone shown on the page.
@@ -26,13 +43,30 @@ API costs are **estimates from reported usage and configured rates**, not provid
 
 With **Include subagents in session cost** enabled, the conversation badge, selected-conversation statistics and details include all continuous subagent descendants. The detail view lists each agent's recorded costs and identifies the owning conversation for every call, turn and step. Expanding a child turn reads that child's input and tools. Ordinary forks are excluded and inherited history is not billed twice. Disabling the setting limits the selection to the main conversation.
 
-Call details are reconstructed on demand from the selected conversations' available usage logs and native-search journals. They use call timestamps and the currently configured historical price rules, including peak/off-peak and long-context tiers. If prices changed or logs are incomplete, the page shows the stored amount and reconstructed amount separately. Missing logs and missing prices do not mean zero cost.
+Call details use the price version recorded for the call time, including peak/off-peak and long-context tiers. Editing rates, mappings or price currency affects subsequent calls. Older installations keep their existing ledger amounts and use the pre-upgrade price configuration as the baseline for available call logs; prices that were never recorded cannot be recovered. Missing logs and missing prices do not mean zero cost.
+
+**Settings → Cost → Prices → Historical pricing** offers explicit recalculation at current rates. It requires confirmation and only changes session/day records whose complete usage matches the ledger. Each run keeps before/after amounts, original price versions, and a full `.before-reprice-<timestamp>.json` ledger backup alongside the ledger. The settings show past recalculations and their original amounts. Model-price mapping selectors support provider/model keyword searches without changing the selection.
 
 Cache hit rate is `cacheRead / (input + cacheRead + cacheWrite)`. Token composition is a token-count share, not a cost share. Reported reasoning tokens can overlap output and are shown separately; the configured reasoning rate determines any additional charge.
 
 The statistics screen uses DSH's package-local asynchronous module loader. Since **1.8.2**, the main and statistics Remote contributions have distinct registration identities; their combined lifecycle is tested against the real **0.1.7-rc.2** and **0.2.0-rc.2** client registry/gateway. Older hosts without that loader show an upgrade message; existing metering and settings remain available. Both shipped client files stay below the 256 KiB per-file limit.
 
 ## 简体中文
+
+### 对话费用视图
+
+对话中的「费用明细」提供四种视图，使用同一份完整费用：
+
+- **归类占比**：圆环图配合费用条，把所有代理的读取文件、本地检索、网页搜索、文件修改、命令执行、代理协作、压缩、模型回复及其他工具分别汇总。只按已记录的工具名称分类；同一步涉及多种用途时归入「多类工具」，费用只计一次。
+- **矩形分布**（默认）：大框显示用途，小框显示具体工具；每类费用最高的五种工具组合单列，其余合并为其他工具。切到「按代理」后，每个代理的大框内展示它自身的用途分类。面积按金额分配，点击类别标题放大，点击小框弹出对应调用的详细信息，不再用「其余多少步」代替分类。
+- **父子归属**：占满面板宽度，按实际的子代理父子关系展开，显示费用、步数、调用次数、占父级和占对话的比例，点击名称弹出对应调用。代理合计包含后代；其下面的费用类别只统计自身调用。
+- **步骤热力图**：每格对应一个计费步骤，零费用和未定价步骤也保留。颜色区分类别，深浅表示相对费用；支持滚动、类别与代理筛选、金额或轨迹排序，以及按序号定位。点击格子弹出该步 Token、单价、金额及已记录的输入、回复与工具信息。只读取当前区域所需的精简元数据，避免同时渲染数千行表格。
+
+工具分类统计的是关联步骤的模型调用费用，不为读取文件、执行命令另造单价。原生搜索独立计费记录继续单独计算。占比始终以当前口径下的整段对话费用为分母。
+
+网页抓取独立分类。官方独立 Search／Fetch API 的次数费显示次数和每次单价，不增加模型 Token；本地 HTTP 抓取不套用官方请求费。[计费范围](web-request-fees.md#中文)
+
+「单步费用占比分布」把小费用归到低于 0.1%、0.1%–1%、1%–5% 和不低于 5% 四个区间，显示步数及累计金额。零费用和未定价记录单列。逐步费用明细默认按整段对话的金额从高到低排列，也可切回轨迹顺序；先显示 20 行，更多原位展开。点击步骤打开详情弹窗；点击类别或代理时，弹窗按金额排列其步骤，并在旁边显示选中调用。只读取选中调用的正文，关闭按钮始终可见，按 Escape 返回原视图。逐次调用区域用高额调用排名代替圆环图，横条相对最高单笔金额缩放，同时显示金额和占整段对话的比例；其余调用仅作文字合计。
 
 从 1.8.13 起，可在**设置 → 费用 → 显示**开启“**输入区下方只显示金额（悬停可见完整分项）**”。费用行只显示金额，悬停保留命中率、输入／缓存／输出 Token 与模型金额。API 和 Plan 等值继续使用当前展示口径，标题栏徽章及“费用明细”入口保持原有行为；默认关闭。
 
@@ -58,11 +92,37 @@ The statistics screen uses DSH's package-local asynchronous module loader. Since
 
 API 费用是按上报用量和配置单价计算的估算，不是厂商账单；Plan 费用是订阅用量的 API 等值，不代表额外扣款。外部用量快照仍在原概览中单列，这个页面统计 DSH 自身账本。
 
-逐次明细仅在进入某个对话时读取其用量日志和搜索记录，按调用时间套用当前配置中的历史价格规则，包括峰谷价和长上下文价。修改过价格或日志不完整时，页面同时显示账本金额与可用明细金额。缺少日志、缺少价格都不会被解释为免费。
+逐次明细使用调用时的价格版本，包括峰谷价和长上下文价。修改单价、模型映射或价格币种只影响后续调用。旧版升级时保留已有账本金额，并以升级前的价格配置作为可用调用日志的初始基准；此前没有保存的单价无法追回。缺少日志、缺少价格都不会被解释为免费。
+
+在“设置 → 费用 → 价格 → 历史费用”中，可选择“按当前价格重算历史”。确认前会显示警告，仅重算日志完整且用量与账本一致的会话日期记录。每次重算都保留前后金额、原价格版本，并在账本旁保存完整的 `.before-reprice-<时间戳>.json` 备份；设置中可以查看重算记录与原金额。模型价格映射下拉支持提供商和模型关键词搜索，筛选不会改变原选择。
 
 缓存命中率为 `缓存读取 / (未缓存输入 + 缓存读取 + 缓存写入)`。Token 构成展示数量占比，不是费用占比。推理 Token 可能包含在输出中，因此单独列示，不再次加入总 Token；是否另收推理费取决于配置的单价。
 
 统计页使用 DSH 的异步模块加载器。从 **1.8.2** 起，主客户端与统计模块使用各自的 Remote 注册标识；两部分组合加载的流程已通过真实 **0.1.7-rc.2** 和 **0.2.0-rc.2** 客户端 registry/gateway 验证。没有该能力的旧宿主会显示升级提示，原有计费和设置继续可用。两个客户端文件分别遵守 256 KiB 大小限制。
+
+宿主启动后在后台准备最近查看的会话，回合结束后更新对应结果；会话入口也会预加载费用总览和分类图。计费结果和独立于价格的精简用量缓存都可跨重启保留，先显示已有数据，再后台更新。分类图不必等调用汇总读完，切换视图、排序和翻页共用计算结果。确认重算、套餐归属或子代理开关改变后可利用用量缓存刷新视图，日志改变后才重新读取。缓存有容量限制，只保存计费字段，不保存对话正文、工具参数、返回内容或凭据。
+
+## Plugin compatibility / 插件兼容
+
+### 中文
+
+按截图中的版本核对了以下行为：
+
+- **dsh-codex-ui 1.1.38：**费用明细入口和会话金额继续使用 DSH 的插槽。统计栏变宽时优先保留金额，Token、缓存和 Plan 明细可缩短，悬停查看完整信息。账本仍在加载或没有当前会话记录时显示对应状态，不再短暂显示投影金额后消失。
+- **dsh-agency-agents 1.0.19：**专家通过 DSH 的标准子代理接口运行。开启“本会话费用包含子代理”即可包含专家及其后代，父账本不再次入账。普通分叉和继承的历史轮次不重复收费。
+- **billion-context：**原版 0.1.197 仍只统计上报给 DSH 的用量；本地配套兼容包 `0.1.197-cost-meter.1` 已接入内部压缩、重试和追加模型请求，费用页显示采集状态和缺失回执。原用量不重复收费，未上报的未知费用不估补，详见[逐次计费说明](billion-context-billing.md)。
+
+仅安装其他插件不能证明它影响费用；兼容验证使用本地模拟接口和固定版本的实际代码，没有发起付费模型请求。
+
+版本源码：[dsh-codex-ui](https://github.com/MichengAI/dsh-codex-ui/tree/4f82059f4df415320917b572811b0b6440179ac9)、[dsh-agency-agents](https://github.com/MichengAI/dsh-agency-agents/tree/576eeec833b34554bc89d11f70076e3e1b9eb9cd)、[billion-context](https://github.com/ranxianglei/billion-context/tree/3aeddc160864ca774e54817559d6984310e2a9ab)。
+
+### English
+
+- **dsh-codex-ui 1.1.38:** the entries use DSH slots. Composer statistics preserve the session amount while trimming secondary details, which remain available on hover. Loading and missing-ledger states stay visible without flashing a projection amount first.
+- **dsh-agency-agents 1.0.19:** experts use the standard DSH subagent interface. Enable subagent costs to include their descendants once. Ordinary forks and inherited turns are excluded from duplicate billing.
+- **billion-context:** the original 0.1.197 build exposes only its reported DSH usage. The paired local `0.1.197-cost-meter.1` build records internal compression, retries and additional model requests without charging the original host usage twice. Coverage and missing receipts remain visible; see the [request billing guide](billion-context-billing.md).
+
+Verification uses local synthetic endpoints and the pinned upstream code. No paid model request is made.
 
 ## Design references
 

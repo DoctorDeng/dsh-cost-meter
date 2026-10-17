@@ -29,33 +29,49 @@ window.__ModuleLoader__.load({
       return new Set(after.models.filter(row => old.has(row.id) && ['input', 'output', 'cachedInput', 'cacheWrite'].some(key => old.get(row.id)[key] !== row[key])).map(row => row.id))
     }
     const priceSnapshots = new WeakMap()
+    const priceSession = api => {
+      if (!priceSnapshots.has(api)) priceSnapshots.set(api, { value: null, error: '', checkedAt: 0, pending: null, changed: new Set(), query: '', sort: 'name', page: 0 })
+      return priceSnapshots.get(api)
+    }
+    const readPrices = (api, session) => {
+      if (session.pending) return session.pending
+      session.pending = Promise.resolve().then(() => api.getOpenRouterCatalog()).then(raw => {
+        const next = parseCatalog(raw)
+        if (!next.stale && next.fetchedAt !== session.value?.fetchedAt) session.changed = changedRates(session.value, next)
+        // An error response without rows must not discard the last usable table.
+        session.value = next.error && !next.models.length && session.value?.models.length ? { ...session.value, stale: true, error: next.error } : next
+        session.error = next.error
+        return session.value
+      }).catch(error => { session.error = String(error?.message ?? error); throw error }).finally(() => { session.checkedAt = Date.now(); session.pending = null })
+      return session.pending
+    }
     function PriceBrowser({ api, state, resolveLocale }) {
       const en = resolveLocale(state.config) === 'en', text = (zh, english) => en ? english : zh
-      const [value, setValue] = useState(() => priceSnapshots.get(api) ?? null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
-      const [query, setQuery] = useState(''), [sort, setSort] = useState('name'), [page, setPage] = useState(0)
-      const [changed, setChanged] = useState(new Set())
-      const refreshRef = useRef(() => {}), previous = useRef(null)
+      const session = priceSession(api)
+      const [value, setValue] = useState(() => session.value), [error, setError] = useState(() => session.error), [busy, setBusy] = useState(false)
+      const [query, setQuery] = useState(() => session.query), [sort, setSort] = useState(() => session.sort), [page, setPage] = useState(() => session.page)
+      const [changed, setChanged] = useState(() => session.changed)
+      const refreshRef = useRef(() => {})
       useEffect(() => {
         let active = true, pending = false
-        const refresh = async () => {
+        const refresh = async (force = false) => {
           if (!active || pending || document.hidden) return
+          if (!force && !session.pending && session.value && Date.now() - session.checkedAt < 60000) return
           pending = true; setBusy(true)
           try {
-            const next = await api.getOpenRouterCatalog()
-            priceSnapshots.set(api, next)
+            const next = await readPrices(api, session)
             if (!active) return
-            if (!next.stale && next.fetchedAt !== previous.current?.fetchedAt) {
-              setChanged(changedRates(previous.current, next)); previous.current = next
-            }
+            setChanged(session.changed)
             setValue(next); setError(next.error)
           } catch (e) { if (active) setError(String(e?.message ?? e)) }
           finally { pending = false; if (active) setBusy(false) }
         }
-        refreshRef.current = refresh
+        const requestRefresh = () => refresh(true)
+        refreshRef.current = requestRefresh
         void refresh()
-        const timer = setInterval(refresh, 60000)
-        document.addEventListener('visibilitychange', refresh)
-        return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', refresh) }
+        const timer = setInterval(requestRefresh, 60000)
+        document.addEventListener('visibilitychange', requestRefresh)
+        return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', requestRefresh) }
       }, [api])
       const rows = (value?.models ?? []).filter(row => (row.id + ' ' + row.name).toLowerCase().includes(query.trim().toLowerCase()))
         .sort((a, b) => (sort === 'name' ? 0 : a[sort] - b[sort]) || a.id.localeCompare(b.id))
@@ -65,10 +81,10 @@ window.__ModuleLoader__.load({
         el('div', { className: 'cm-price-head', style: { flexWrap: 'wrap' } },
           el('h3', { className: 'cm-h' }, text('OpenRouter 模型价格', 'OpenRouter model prices')),
           button(busy ? text('刷新中…', 'Refreshing…') : text('刷新价格', 'Refresh prices'), () => refreshRef.current(), busy)),
-        el('p', { className: 'cm-note' }, text('公开目录 · 美元 / 百万 tokens · 无需 API Key，不产生模型调用费用。打开时和前台每分钟刷新。', 'Public catalog · USD / million tokens · No API key or inference charges. Refreshes on opening and every minute while visible.')),
+        el('p', { className: 'cm-note' }, text('公开目录 · 美元 / 百万 tokens · 无需 API Key，不产生模型调用费用。优先显示上次价格，前台每分钟更新，也可手动刷新。', 'Public catalog · USD / million tokens · No API key or inference charges. Previous prices appear immediately; updates every minute while visible or on manual refresh.')),
         el('div', { className: 'cm-buttons' },
-          el('input', { className: 'cm-input', type: 'search', value: query, autoComplete: 'off', 'aria-label': text('搜索 OpenRouter 模型', 'Search OpenRouter models'), placeholder: text('搜索模型，例如 flash', 'Search models, e.g. flash'), style: { flex: '1 1 180px', minWidth: 0, maxWidth: '100%' }, onChange: event => { setQuery(event.target.value); setPage(0) } }),
-          el('select', { className: 'cm-input', value: sort, 'aria-label': text('价格排序', 'Price order'), onChange: event => { setSort(event.target.value); setPage(0) } },
+          el('input', { className: 'cm-input', type: 'search', value: query, autoComplete: 'off', 'aria-label': text('搜索 OpenRouter 模型', 'Search OpenRouter models'), placeholder: text('搜索模型，例如 flash', 'Search models, e.g. flash'), style: { flex: '1 1 180px', minWidth: 0, maxWidth: '100%' }, onChange: event => { session.query = event.target.value; session.page = 0; setQuery(session.query); setPage(0) } }),
+          el('select', { className: 'cm-input', value: sort, 'aria-label': text('价格排序', 'Price order'), onChange: event => { session.sort = event.target.value; session.page = 0; setSort(session.sort); setPage(0) } },
             ...[['name', text('按模型名称', 'Model name')], ['input', text('输入价格从低到高', 'Input price: low to high')], ['output', text('输出价格从低到高', 'Output price: low to high')]].map(([id, label]) => el('option', { key: id, value: id }, label)))),
         el('p', { className: 'cm-note', role: 'status' }, value?.fetchedAt ? text('最近更新：', 'Last updated: ') + new Date(value.fetchedAt).toLocaleString(en ? 'en-US' : 'zh-CN') : text('尚未取得价格', 'Prices not loaded yet')),
         error ? el('p', { className: 'cm-msg err', role: 'alert' }, (value?.models.length ? text('刷新失败，以下保留上次价格：', 'Refresh failed; previous prices are retained: ') : text('价格查询失败：', 'Price lookup failed: ')) + error) : null,
@@ -85,8 +101,8 @@ window.__ModuleLoader__.load({
           : el('p', { className: 'cm-empty' }, busy && !value ? text('正在查询公开目录…', 'Loading public catalog…') : text('没有匹配的模型。', 'No matching models.')),
         el('div', { className: 'cm-buttons' },
           el('span', { className: 'cm-note' }, rows.length ? `${current * 50 + 1}–${Math.min((current + 1) * 50, rows.length)} / ${rows.length}` : '0'),
-          button(text('上一页', 'Previous'), () => setPage(current - 1), current === 0),
-          button(text('下一页', 'Next'), () => setPage(current + 1), (current + 1) * 50 >= rows.length)),
+          button(text('上一页', 'Previous'), () => { session.page = current - 1; setPage(session.page) }, current === 0),
+          button(text('下一页', 'Next'), () => { session.page = current + 1; setPage(session.page) }, (current + 1) * 50 >= rows.length)),
         el('p', { className: 'cm-note' }, text('显示当前公开 token 参考价；— 表示目录未提供。具体路由、阶梯价格和图片、搜索等附加费用请点模型查看。优惠与实际结算以 OpenRouter 为准。', 'Current public token reference rates; — means unavailable. Open a model for routing, price tiers and extra image/search fees. Promotions and final charges are determined by OpenRouter.')))
     }
     // The host model picker exposes no per-option slot. Preserve its native title

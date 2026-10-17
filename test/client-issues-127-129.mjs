@@ -10,8 +10,9 @@ const expose = ['mergeSessionUsage', 'useSessionUsage', 'SessionCost', 'DockLine
 const element = (type, props, ...children) => ({ type, props: props ?? {}, children })
 expose.push('TurnCost')
 expose.push('QuotaStrip')
+expose.push('CONTRIBUTION')
 const nodes = value => Array.isArray(value) ? value.flatMap(nodes) : value && typeof value === 'object' ? [value, ...nodes(value.children)] : []
-const textOf = value => Array.isArray(value) ? value.map(textOf).join(' ') : value && typeof value === 'object' ? textOf(value.children) : typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+const textOf = value => Array.isArray(value) ? value.map(textOf).join('') : value && typeof value === 'object' ? textOf(value.children) : typeof value === 'string' || typeof value === 'number' ? String(value) : ''
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 
 // 每个实例拥有自己的 hook 槽位;effect 依赖变化先 cleanup,异步 setState 支持函数更新。
@@ -92,6 +93,42 @@ const config = sanitizeConfig({ locale: 'en', currency: 'USD', symbol: '$', exch
 const usage = (input, cost, apiCost) => ({ input, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, cost, ...(apiCost === undefined ? {} : { apiCost }) })
 const snapshot = (own, subagents = usage(0, 0, 0), found = true) => ({ own, subagents, found, subagentCount: subagents.input > 0 ? 1 : 0 })
 const e = environment()
+const inheritedTurn = { found: false, inherited: true, cost: 0, apiCost: 0, rows: [], calls: [] }
+const proxyMetering = { source: 'billion-context', requestId: 'id', attempt: 2, complete: false, status: 'cancelled', upstream: 'https://api.example.com' }
+const proxyCall = { kind: 'model', provider: 'fixture', model: 'm', atMs: 1, cost: 0, apiCost: 0, plan: false, priced: true, longContext: false, rows: [], metering: proxyMetering }
+assert.equal(e.ui.CONTRIBUTION.descriptors.find(row => row.method === 'getTurnCost').result.create().parse({ ...inheritedTurn, found: true, calls: [proxyCall] }).calls[0].metering.attempt, 2)
+assert.equal(e.ui.CONTRIBUTION.descriptors.find(row => row.method === 'getTurnCost').result.create().parse(inheritedTurn).inherited, true,
+  'the shipped RPC codec preserves inherited-turn identity')
+for (const locale of ['en', 'zh']) {
+  const card = e.mount(e.ui.TurnCost, { sessionId: 'fork', turn: { start: { seq: 1 }, end: { seq: 4 } },
+    useCost: pick => pick({ state: { config: { ...config, locale } } }), api: { getTurnCost: async () => inheritedTurn } })
+  await e.flush()
+  assert.match(textOf(card.tree), locale === 'en' ? /Inherited usage is not billed again/ : /继承的历史用量不在本会话重复计费/)
+  assert.doesNotMatch(textOf(card.tree), /≈/, 'inherited history is not shown as a newly charged turn')
+  card.dispose()
+}
+// The selected display position stays occupied while the authoritative ledger
+// loads, reports no record, or confirms an exact zero amount.
+for (const locale of ['en', 'zh']) {
+  const request = deferred(), local = { ...config, locale }
+  const p = { sessionId: 'missing-ledger', useProjection: () => usage(100, 5, 5),
+    useCost: pick => pick({ state: { config: local, meta: { now: 1 } } }), api: { getSessionCost: () => request.promise } }
+  const dock = e.mount(e.ui.DockLine, p), header = e.mount(e.ui.SessionCost, p)
+  assert.match(textOf(dock.tree), locale === 'en' ? /Loading session cost/ : /正在读取本会话费用/)
+  assert.doesNotMatch(textOf(dock.tree), /\$5/, 'projection is not briefly presented as a confirmed ledger amount')
+  request.resolve(snapshot(usage(0, 0, 0), usage(0, 0, 0), false)); await e.flush()
+  assert.ok(dock.tree && header.tree, 'an empty ledger response must not remove either cost entry')
+  assert.match(textOf(dock.tree), locale === 'en' ? /no ledger records/ : /暂无账本记录/)
+  assert.doesNotMatch(textOf(dock.tree), /\$0/, 'missing records do not mean free usage')
+  const zero = e.mount(e.ui.DockLine, { ...p, sessionId: 'confirmed-zero', api: { getSessionCost: async () => snapshot(usage(0, 0, 0)) } })
+  await e.flush()
+  assert.ok(zero.tree)
+  assert.match(textOf(zero.tree), /\$0/, 'a genuinely recorded zero amount stays visible')
+  const unavailable = e.mount(e.ui.DockLine, { ...p, sessionId: 'old-host', api: { getSessionCost: async () => { throw Error('unsupported') } } })
+  await e.flush()
+  assert.match(textOf(unavailable.tree), /\$5/, 'a legacy host can still fall back to its projection')
+  dock.dispose(); header.dispose(); zero.dispose(); unavailable.dispose()
+}
 // #205: show exact bucket arithmetic, keep Plan separate and reject stale replies.
 {
   const requests = []

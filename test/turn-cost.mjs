@@ -35,6 +35,23 @@ near(turnCostFromRecords(records, config, 5, 7).cost, 1800 / 1e6)
 assert.equal(turnCostFromRecords(records, config, 1, 7).found, false, 'bounds must refer to the same turn')
 assert.equal(turnCostFromRecords(records, config, 1, 3).found, false)
 
+// Forked conversations retain old turn cards, but those parent calls have already
+// been billed. Keep their creation boundary while selecting the turn's records.
+const forked = [{ type: 'session', id: 'fork', createdAt: at + 5 }, ...records.map(row => row.seq === 3
+  ? { ...row, data: { ...row.data, usage: { inputTokens: 1_000_000 } } }
+  : row.seq === 6 ? { ...row, data: { ...row.data, usage: { inputTokens: 10 } } } : row)]
+const inherited = turnCostSchema.parse(turnCostFromRecords(forked, config, 1, 4))
+assert.equal(inherited.inherited, true)
+assert.equal(inherited.found, false)
+assert.equal(inherited.cost, 0, 'parent history must not be billed again in a fork')
+assert.equal(inherited.apiCost, 0)
+assert.deepEqual(inherited.calls, [])
+const forkOwn = turnCostSchema.parse(turnCostFromRecords(forked, config, 5, 7))
+near(forkOwn.cost, 20 / 1e6)
+assert.equal(forkOwn.inherited, undefined, 'new calls in the fork remain billable')
+assert.ok(turnCostFromRecords([{ ...forked[0], id: 'parent', createdAt: at }, ...forked.slice(1)], config, 1, 4).cost > 1,
+  'the same usage is still billed in its original parent conversation')
+
 const plan = turnCostFromRecords(records, { ...config, planBilling: { models: { 'test:m': 'plan' } } }, 1, 4)
 assert.equal(plan.apiCost, 0)
 near(plan.cost, first.cost)

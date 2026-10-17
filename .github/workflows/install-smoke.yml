@@ -10,6 +10,26 @@ permissions:
   contents: read
 
 jobs:
+  billion-context-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install billing adapter and actual upstream releases
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+          mkdir -p .tmp-billion-matrix
+          npm pack billion-context@0.1.181 billion-context@0.1.190 billion-context@0.1.197 --ignore-scripts --pack-destination .tmp-billion-matrix
+      - name: Verify automatic interface compatibility and actual native/proxy billing
+        run: |
+          node test/billion-context-compatibility.mjs
+          for version in 0.1.181 0.1.190 0.1.197; do
+            DSH_TEST_BILLION_PACKAGE="$PWD/.tmp-billion-matrix/billion-context-$version.tgz" node test/billion-context-billing.mjs
+            DSH_TEST_BILLION_PACKAGE="$PWD/.tmp-billion-matrix/billion-context-$version.tgz" node test/billion-context-auto.mjs
+          done
   context-costs:
     runs-on: ubuntu-latest
     steps:
@@ -38,15 +58,25 @@ jobs:
           export DSH_CONTEXT_068="$PWD/.tmp-context-068/package/lib/client.js"
           export CM_TEST_BROWSER=/usr/bin/google-chrome
           test -x "$CM_TEST_BROWSER" || (sudo apt-get update && sudo apt-get install -y google-chrome-stable)
-          node test/context-costs.mjs
+          node test/context-costs.mjs --host
           node test/context-costs-client.mjs
           node test/context-costs-lifecycle.mjs
           node test/context-costs-regression-browser.mjs
           node test/context-costs-browser.mjs
           node test/session-costs-browser.mjs
+          node test/statistics-cache.mjs
+          node test/statistics-warmup.mjs
+          node test/cost-views-browser.mjs
           node test/pricing-theme-browser.mjs
+          node test/custom-model-prices.mjs
+          node test/price-multiplier.mjs
+          node test/billion-context-compatibility-browser.mjs
+          node test/cache-write-price-browser.mjs
           node test/model-stats-browser.mjs
           node test/factory-quota-browser.mjs
+          node test/display-settings-browser.mjs
+          git fetch --depth=1 origin tag v1.8.29
+          node test/idle-performance-browser.mjs
       - name: Save context regression browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,9 +84,15 @@ jobs:
           name: context-costs-browser-evidence
           path: |
             .tmp-context-regression-browser/*.png
+            .tmp-display-review/*
+            .tmp-idle-performance/result.json
             .tmp-context-regression-browser/report.json
             .tmp-pricing-theme-browser/*.png
             .tmp-pricing-theme-browser/report.json
+            .tmp-billion-notice-browser/*.png
+            .tmp-billion-notice-browser/report.json
+            .tmp-cache-write-price-browser/*.png
+            .tmp-cache-write-price-browser/report.json
             .tmp-model-stats-browser/*.png
             .tmp-model-stats-browser/report.json
             .tmp-factory-quota-browser/*.png
@@ -152,6 +188,7 @@ jobs:
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-native-search-host/node_modules"
           node test/native-search-host.mjs
+          node test/web-request-host.mjs
           node test/native-search-proxy.mjs
           mkdir -p .tmp-native-package
           npm pack --pack-destination .tmp-native-package
@@ -189,7 +226,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Install pinned DSH 0.2 host
+      - name: Install pinned DSH 0.2.1-alpha.5 host
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
@@ -202,6 +239,19 @@ jobs:
           node test/host-peer-compatibility.mjs
           node test/verify.mjs
           node test/market-hot-install.mjs
+      - name: Verify alpha.5 context calibration and published peer UI
+        run: |
+          export DSH_TEST_NODE_MODULES="$PWD/.tmp-next-host/node_modules"
+          export DSH_TEST_UI_MODULES="$DSH_TEST_NODE_MODULES"
+          export DSH_CONTEXT_068="$PWD/.tmp-context-068/package/lib/client.js"
+          export CM_TEST_BROWSER=/usr/bin/google-chrome
+          mkdir -p .tmp-context-068
+          npm pack dsh-context@0.68.1 --ignore-scripts --pack-destination .tmp-context-068
+          tar -xzf .tmp-context-068/dsh-context-0.68.1.tgz -C .tmp-context-068
+          node test/context-costs.mjs --host
+          node test/context-costs-regression-browser.mjs
+          node test/native-search-host.mjs
+          node test/web-request-host.mjs
       - name: Install the packed plugin and start the real Web host
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-next-host/node_modules"
@@ -329,4 +379,4 @@ jobs:
       # 的产物差异都会让 CI 变红,杜绝把过期 bundle 发布出去。
       - name: Check client bundle is in sync with src
         shell: bash
-        run: node scripts/build.mjs && git diff --exit-code lib/client.js lib/client.statistics.js lib/client.openrouter.js lib/client.community.js
+        run: node scripts/build.mjs && git diff --exit-code lib/bootstrap.js lib/client.js lib/client.statistics.js lib/client.openrouter.js lib/client.community.js lib/client.pricing.js

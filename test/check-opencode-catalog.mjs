@@ -7,12 +7,12 @@
  * Fixtures contain the independently captured audit.endpoints/audit.priceRows data.
  */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { DEFAULT_PROVIDER_PRICE_TABLE, normalizePrice } from '../lib/pricing.js'
 
 const PAGES = [
-  { provider: 'opencode-zen', fixtureProvider: 'opencode', url: 'https://opencode.ai/docs/zen' },
-  { provider: 'opencode-go', url: 'https://opencode.ai/docs/go' },
+  { provider: 'opencode-zen', fixtureProvider: 'opencode', url: 'https://opencode.ai/v2/docs/console/models/' },
+  { provider: 'opencode-go', url: 'https://opencode.ai/v2/docs/console/go/' },
 ]
 const EPS = 1e-9
 const decode = text => text.replace(/&(?:amp|lt|gt|quot|apos|nbsp|le|ge);/g, entity => ({
@@ -23,7 +23,7 @@ const decode = text => text.replace(/&(?:amp|lt|gt|quot|apos|nbsp|le|ge);/g, ent
 })
 // Source data is compared only; stripped HTML is never executed or rendered.
 const cellsOf = row => [...row.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(match =>
-  decode(match[1].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()) // codeql[js/incomplete-multi-character-sanitization]
+  decode(match[1].replace(/<(?:del|s)\b[^>]*>[\s\S]*?<\/(?:del|s)>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()) // codeql[js/incomplete-multi-character-sanitization]
 const canon = text => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '')
 const rate = text => {
   if (text === 'Free') return 0
@@ -44,7 +44,7 @@ function parsePage(html) {
 }
 
 function priceRow(row) {
-  const display = row[0]
+  const display = row[0].replace(/\s*\(\d+% off\)/gi, '')
   const context = display.match(/\((≤|>)\s*(\d+)K\s+tokens\)\s*$/)
   const peak = display.match(/\((Off-Peak|Peak)\)\s*$/)
   const match = context ?? peak
@@ -101,6 +101,8 @@ function verifyPage(page, data) {
 }
 
 // Small deterministic parsing sentinels run even when the online pages are unavailable.
+assert.deepEqual(cellsOf('<tr><td><del>$1.36</del> $0.68</td><td><s>$4.18</s> $2.09</td></tr>'), ['$0.68', '$2.09'])
+assert.equal(priceRow(['Model (50% off) (≤ 100K tokens)', '$0.1', '$0.5', '$0.01', '$0.125']).name, 'Model')
 assert.equal(rate('Free'), 0)
 assert.equal(rate('-'), undefined)
 assert.equal(priceRow(['Model (≤ 272K tokens)', '$2', '$10', '$0.2', '$2.5']).tier, 'base')
@@ -112,6 +114,8 @@ assert.equal(sample.endpoints[0][1], 'free-model')
 assert.equal(sample.priceRows[0][1], 'Free')
 
 const fixtureArg = process.argv.slice(2).find(arg => arg.startsWith('--fixture='))
+const captureArg = process.argv.slice(2).find(arg => arg.startsWith('--capture='))
+const capture = { checkedAt: new Date().toISOString().slice(0, 10), audit: {} }
 const fixture = fixtureArg ? JSON.parse(readFileSync(fixtureArg.slice('--fixture='.length), 'utf8')) : null
 let errorCount = 0, checked = 0
 for (const page of PAGES) {
@@ -127,6 +131,7 @@ for (const page of PAGES) {
       data = parsePage(await response.text())
     }
     if (!data.endpoints.length || !data.priceRows.length) throw new Error('No endpoint or price tables parsed')
+    capture.audit[page.fixtureProvider ?? page.provider] = { sourceUrl: page.url, endpoints: data.endpoints, priceRows: data.priceRows.map(row => ({ row })) }
     const result = verifyPage(page, data)
     checked += result.endpointCount; errorCount += result.errors.length
     console.log(`${page.provider}: ${result.endpointCount} endpoint IDs, ${result.rowCount} price tiers`)
@@ -135,4 +140,5 @@ for (const page of PAGES) {
   } catch (error) { console.error(`${page.provider}: ${error.message}`); errorCount++ }
 }
 console.log(`Checked ${checked} provider-scoped models; ${errorCount} errors${fixture ? ' (captured source fixture)' : ' (live primary sources)'}`)
+if (captureArg && Object.keys(capture.audit).length === PAGES.length) writeFileSync(captureArg.slice('--capture='.length), JSON.stringify(capture, null, 2) + '\n')
 process.exitCode = errorCount ? 1 : 0

@@ -15,12 +15,20 @@
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { transform } from 'esbuild'
+import { transform, build } from 'esbuild'
 import { runInNewContext } from 'node:vm'
 import assert from 'node:assert/strict'
 import { javascriptLiteral } from './javascript-literal.mjs'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+// A single import installs the local proxy observer before loading price/UI
+// dependencies. Bundle its parser too, avoiding asynchronous dependency loading
+// while the host starts other plugins in parallel.
+await build({ entryPoints: [resolve(projectRoot, 'src/bootstrap.js')], outfile: resolve(projectRoot, 'lib/bootstrap.js'),
+  bundle: true, platform: 'node', format: 'esm', external: ['./index.js'], minify: true, target: 'node20', legalComments: 'inline',
+  banner: { js: '// Generated from src/bootstrap.js by scripts/build.mjs; do not edit.\n/*! Bundles Acorn.\n' + readFileSync(resolve(projectRoot, 'node_modules/acorn/LICENSE'), 'utf8').replaceAll('\r\n', '\n') + '\n*/' } })
+assert.ok(Buffer.byteLength(readFileSync(resolve(projectRoot, 'lib/bootstrap.js'))) <= 262144, 'bootstrap exceeds DSH STORE bound')
 
 const ORDERED_FRAGMENT = /^\d{2}-[a-z0-9-]*\.js$/
 const clientDir = resolve(projectRoot, 'src/client')
@@ -62,6 +70,9 @@ const packedMessages = Object.entries(messages).map(([locale, dict]) => [locale,
 // restore them before exposing dictionaries. All translations round-trip below.
 const phraseCounts = new Map()
 for (const value of Object.values(messages).flatMap(Object.values)) {
+  for (const match of value.matchAll(/[A-Za-z][A-Za-z0-9'-]{6,}/g)) {
+    phraseCounts.set(match[0], (phraseCounts.get(match[0]) ?? 0) + 1)
+  }
   const words = [...value.matchAll(/[A-Za-z][A-Za-z0-9'-]*(?: [A-Za-z][A-Za-z0-9'-]*)+/g)]
   for (const match of words) {
     const parts = match[0].split(' ')
@@ -70,8 +81,8 @@ for (const value of Object.values(messages).flatMap(Object.values)) {
       if (phrase.length >= 8) phraseCounts.set(phrase, (phraseCounts.get(phrase) ?? 0) + 1)
     }
   }
-  for (const match of value.matchAll(/[\u3400-\u9fff]{4,}/g)) {
-    for (let i = 0; i < match[0].length; i++) for (let n = 4; n <= 16 && i + n <= match[0].length; n++) {
+  for (const match of value.matchAll(/[\u3400-\u9fff]{3,}/g)) {
+    for (let i = 0; i < match[0].length; i++) for (let n = 3; n <= 16 && i + n <= match[0].length; n++) {
       const phrase = match[0].slice(i, i + n)
       phraseCounts.set(phrase, (phraseCounts.get(phrase) ?? 0) + 1)
     }
@@ -116,10 +127,14 @@ if (cssResult.warnings.length) throw new Error('client CSS contains build warnin
 // Store repeated native-theme and component prefixes once; restore before injection.
 // This is lossless text packing: the actual stylesheet and cascade do not change.
 const compactCss = cssResult.code.trim()
-assert.ok(!/[\x01-\x05]/.test(compactCss), 'CSS packing markers must be unused')
-const packedCss = compactCss.replaceAll('font-size:', '\x05').replaceAll('color:var(--dsw-alias-', '\x04').replaceAll('var(--dsw-alias-', '\x01').replaceAll('.cm-', '\x02').replaceAll('background:', '\x03')
-assert.equal(packedCss.replaceAll('\x05', 'font-size:').replaceAll('\x04', 'color:var(--dsw-alias-').replaceAll('\x01', 'var(--dsw-alias-').replaceAll('\x02', '.cm-').replaceAll('\x03', 'background:'), compactCss)
-src = src.replace(cssMatch[0], () => `const css = ${javascriptLiteral(packedCss)}.replaceAll("\\x05","font-size:").replaceAll("\\x04","color:var(--dsw-alias-").replaceAll("\\x01","var(--dsw-alias-").replaceAll("\\x02",".cm-").replaceAll("\\x03","background:")`)
+const cssPhrases = ['color:var(--dsw-alias-', 'var(--dsw-alias-', '.cm-', 'background:', 'align-items:', 'border-radius:', 'font-size:',
+  'display:', 'padding:', 'justify-content:', 'margin:', 'gap:', 'font-weight:', 'line-height:', 'border:', 'min-width:', 'max-width:']
+const cssTokenBase = 0x0180, cssTokenRange = `[${String.fromCharCode(cssTokenBase)}-${String.fromCharCode(cssTokenBase + cssPhrases.length - 1)}]`
+assert.ok(!new RegExp(cssTokenRange).test(compactCss), 'CSS packing markers must be unused')
+let packedCss = compactCss
+for (const [i, phrase] of cssPhrases.entries()) packedCss = packedCss.replaceAll(phrase, String.fromCharCode(cssTokenBase + i))
+assert.equal(packedCss.replace(new RegExp(cssTokenRange, 'g'), token => cssPhrases[token.charCodeAt(0) - cssTokenBase]), compactCss)
+src = src.replace(cssMatch[0], () => `const cssPhrases=${javascriptLiteral(cssPhrases.join('~'))}.split("~");const css=${javascriptLiteral(packedCss)}.replace(/${cssTokenRange}/g,token=>cssPhrases[token.charCodeAt(0)-${cssTokenBase}])`)
 const result = await transform(src, {
   minify: true,
   keepNames: false,
@@ -144,8 +159,15 @@ console.log('✓ lib/client.js within DSH STORE per-file bound (262144)')
 
 // DSH 0.2.0-rc.2 package-local chunks use the host's require.async contract.
 // Each on-demand screen has readable source and a bounded runtime asset.
-for (const chunk of ['statistics', 'openrouter', 'community']) {
-  const source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
+for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'display']) {
+  let source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
+  if (chunk === 'display') {
+    source = source.replace('/* DISPLAY_NATIVE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/native.js'), 'utf8'))
+    source = source.replace('/* DISPLAY_APPEARANCE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/appearance.js'), 'utf8'))
+    for (const part of ['sidebar', 'controls', 'examples']) source = source.replace(`/* DISPLAY_${part.toUpperCase()}_SOURCE */`, readFileSync(resolve(projectRoot, `src/display/${part}.js`), 'utf8'))
+    const styles = await transform(readFileSync(resolve(projectRoot, 'src/display/preview.css'), 'utf8'), { loader: 'css', minify: true })
+    source = source.replace("'DISPLAY_STYLE_SOURCE'", () => javascriptLiteral(styles.code))
+  }
   const result = await transform(source, { minify: true, target: 'es2022', charset: 'utf8', legalComments: 'none' })
   for (const [name, text] of [[`src/${chunk}/index.js`, source], [`lib/client.${chunk}.js`, result.code]]) {
     if (Buffer.byteLength(text) > 262144) throw new Error(`${name} exceeds the 262144-byte bound`)

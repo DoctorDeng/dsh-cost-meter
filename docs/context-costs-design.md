@@ -42,12 +42,16 @@ dsh-context 主要展示上下文占用、组成、变化和注入事件。0.66.
 
 | 内容 | 展示方式 | 数据依据 |
 |---|---|---|
-| 当前上下文 | Token 总量、参考输入金额 | DSH `tokenMeter.measure()` |
+| 当前上下文 | Token 总量、参考输入金额 | DSH `contextPressure` 的用量校准总量；无校准时使用本地测量 |
 | 上下文各部分 | 系统提示、工具定义、用户输入、注入内容、技能、历史回复、工具结果、其他；逐项显示 Token、金额及占比 | 宿主组成投影与当前可见节点 |
 | 最近一次调用 | 非缓存输入、缓存读取、缓存写入、输出、单独推理费用；逐项金额、占比和合计 | 提供商返回的用量，复用本插件的计费引擎 |
 | 历史及其他环节 | 原有轮次明细、搜索和压缩费用继续保留 | 现有账本和调用明细 |
 
 当前上下文参考金额使用最近请求模型的非缓存输入单价，遵循峰谷、币种转换、长上下文及自定义价格配置。分类金额属于参考值，未计缓存折扣，不是逐项实际账单。提供商没有返回每段上下文的缓存命中情况，不能精确反推每段实际扣费。同一费率下，分类费用占比与 Token 占比相同。
+
+总量与 dsh-context 标题及宿主输入区占用环使用同一份 `contextPressure`，依次读取 `projectedTokens`、`pressureTokens`。旧宿主缺少该投影时，优先用 `contextTimeline` 中最近请求的 prompt 用量加后续上下文变化，最后回退 `tokenMeter.measure()`。DSH 0.2.0-rc.2 和 0.2.1-alpha.4 的本地测量会拒绝低于文本估算的用量锚点；代理压缩后的真实输入可能更小，因此不能用这个本地估算下限覆盖已有的用量校准值。[#293](https://github.com/Han-1413141/dsh-cost-meter/issues/293)
+
+组成分类按校准总量等比例分配，页面明确标记为估算，不把原始文本比例当作代理压缩后逐段实测的 Token 或账单。长上下文费率也使用同一个校准总量；已发生调用和会话累计费用不受此展示修正影响。联动区使用 USD，独立统计视图跟随费用显示币种。
 
 最近一次调用使用该次调用的输入长度、发生时段与提供商用量单独计价，输入、缓存、输出之间不重复计数。历史回复留在当前上下文时属于输入。两组金额不相加；Plan 显示 API 等值，未知价格与零单价分别显示。
 
@@ -102,5 +106,7 @@ The selected API, Plan or combined cost basis is saved in plugin configuration a
 Expand **Display and integration settings → dsh-context integration** to enable or disable the optional integration or reopen its before/after preview. Compatibility is determined from the enabled peer and its required view registration interfaces, rather than an exact release list. Published clients 0.62.0, 0.66.0 and 0.68.1 are verified. Integration starts off; dismissing the initial prompt prevents repeated automatic prompts. When enabled, costs appear inside the peer's current-context card in the conversation tab, right sidebar and `/context` overlay.
 
 Context amounts use uncached input rates as a reference; they are not itemized bills. Latest-call amounts use reported usage and configured rates, with Plan amounts shown as API equivalents. These amounts are separate and must not be added together. Unknown prices are not treated as free. Visible views react to local changes and refresh every 10 seconds; hidden views pause. No model requests or additional model API charges are introduced, and no context or ledger data is changed.
+
+The context total follows the host's usage-anchored `contextPressure` (`projectedTokens`, then `pressureTokens`), matching the composer ring and dsh-context headline. Older hosts can use the peer's latest prompt anchor plus surface movement; local measurement is the final fallback. This avoids imposing the local text estimate floor on proxy-compressed input. Components are proportional estimates, not measured post-compression attribution. Long-context thresholds use the same calibrated total; recorded call and session charges are unchanged.
 
 The current conversation is preloaded after a short idle delay. Reopening first displays its in-memory snapshot, isolated by conversation, filters and pricing rules, then refreshes in the background. Context measurement is deferred until its view is opened. Concurrent reads are coalesced; cache entries are bounded and refreshed in the background. Persisted session headers are shared for five seconds and live headers are merged every time. The first Settings view and local display-setting saves do not wait for unrelated balance/quota queries. Price settings reuse their last catalog snapshot during refresh.

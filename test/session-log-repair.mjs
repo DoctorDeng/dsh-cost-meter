@@ -15,6 +15,7 @@ import { nativeSearchRecordsFor } from '../lib/native-search-history.js'
 import { Ledger, sanitizeConfig } from '../lib/store.js'
 
 const root = mkdtempSync(join(tmpdir(), 'cm-log-repair-'))
+const hostContexts = []
 const at = Date.now() - 2000
 const data = { provider: 'deepseek-official', model: 'deepseek-v4-flash', startedAtMs: at + 1, requestId: randomUUID(), usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, cacheWriteTokens: 0, reasoningTokens: 0 } }
 const header = id => ({ type: 'session', version: 3, id, createdAt: at, isSeeded: false, delegationDepth: 0 })
@@ -91,11 +92,17 @@ try {
   if (process.env.DSH_TEST_NODE_MODULES) {
     const modules = resolve(process.env.DSH_TEST_NODE_MODULES)
     const load = name => import(pathToFileURL(join(modules, '@deepseek-ai', name, 'lib/index.js')).href)
-    const [{ Context }, { default: Persistence }, { Session }, { validateStoredEvents }] = await Promise.all([load('cordis'), load('dsh-session-persistence-jsonl'), load('dsh-session'), load('dsh-session-persistence')])
+    const [{ Context }, persistenceModule, { Session }, { validateStoredEvents }] = await Promise.all([load('cordis'), load('dsh-session-persistence-jsonl'), load('dsh-session'), load('dsh-session-persistence')])
     for (const compression of ['none', 'zstd']) {
       const sessionsRoot = join(root, 'host', compression)
-      const store = () => new Persistence(new Context(), { root: sessionsRoot, compression })
-      const persistence = store(), id = `session-native-${compression}`
+      const store = async () => {
+        const context = new Context(); hostContexts.push(context)
+        const config = { root: sessionsRoot, compression }
+        if (typeof persistenceModule.default === 'function') return new persistenceModule.default(context, config)
+        await context.plugin(persistenceModule, config).await()
+        return context.get('sessionPersistence')
+      }
+      const persistence = await store(), id = `session-native-${compression}`
       const meta = { ...Session.create(id).header, createdAt: at, delegationDepth: 0 }
       const live = Session.create(id, undefined, meta, 0)
       const titleData = title => ({ title, ...(live.header.version >= 4 ? { messageSeqs: [], source: { kind: 'user' } } : {}) })
@@ -107,18 +114,23 @@ try {
       await writer.close()
       const path = listSessionLogs(sessionsRoot)[0]
       assert.ok(path.includes(`session.v${live.header.version}.jsonl`), 'fixture is produced by the actual host writer')
-      await assert.rejects(store().open(id, 'read'), /unknown.*ignorable|unknown to this harness/)
+      await assert.rejects((await store()).open(id, 'read'), /unknown.*ignorable|unknown to this harness/)
       assert.throws(() => validateStoredEvents(live.header, structuredClone(before)), /unknown/)
       const acquireLease = (dir, sessionId) => persistence.acquireLease(sessionId, undefined, dir)
       const held = await acquireLease(dirname(path), id)
       const original = readFileSync(path)
       try {
         await assert.rejects(repairSessionLog(path, { write: true, acquireLease }), error => error.name === 'SessionAlreadyOwnedError')
+        const blocked = spawnSync(process.execPath, [resolve('lib/repair-sessions-cli.js'), '--sessions-root', sessionsRoot, '--write', '--host-modules', modules], { encoding: 'utf8', timeout: 60000 })
+        assert.equal(blocked.status, 1, blocked.stdout + blocked.stderr)
         assert.deepEqual(readFileSync(path), original, 'a running host keeps exclusive ownership')
       } finally { await held.release() }
-      const fixed = await repairSessionLog(path, { write: true, acquireLease })
-      assert.equal(fixed.changedEvents, 1)
-      assert.deepEqual((await store().list()).map(item => item.header.id), [id], 'cold host discovery ignores the adjacent noncanonical backup filename')
+      const repaired = spawnSync(process.execPath, [resolve('lib/repair-sessions-cli.js'), '--sessions-root', sessionsRoot, '--write', '--host-modules', modules], { encoding: 'utf8', timeout: 60000 })
+      assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr)
+      const fixed = repaired.stdout.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line)).find(row => row.written)
+      assert.equal(fixed.events, 1)
+      assert.deepEqual(readFileSync(fixed.backup), original, 'actual CLI keeps the untouched backup')
+      assert.deepEqual((await (await store()).list()).map(item => item.header.id), [id], 'cold host discovery ignores the adjacent noncanonical backup filename')
       const repairedBytes = readFileSync(path)
       // #140 follow-up: a canonical filename inside a backup session directory is
       // still a host artifact; its header identifies the original storage path.
@@ -126,7 +138,7 @@ try {
       mkdirSync(copiedDirectory, { recursive: true })
       const copiedPath = join(copiedDirectory, basename(path))
       writeFileSync(copiedPath, repairedBytes)
-      try { await assert.rejects(store().list(), /header id.*identify|duplicate JSONL session/) }
+      try { await assert.rejects((await store()).list(), /header id.*identify|duplicate JSONL session/) }
       finally { unlinkSync(copiedPath) }
       if (compression === 'zstd') {
         const frames = scanZstdFrames(repairedBytes)
@@ -137,12 +149,12 @@ try {
         ]) {
           writeFileSync(path, malformed)
           // DSH 0.2 lists headers lazily; opening still validates frame boundaries.
-          try { await assert.rejects(store().open(id, 'read'), /first frame is not exactly one header line/) }
+          try { await assert.rejects((await store()).open(id, 'read'), /first frame is not exactly one header line/) }
           finally { writeFileSync(path, repairedBytes) }
         }
-        assert.deepEqual((await store().list()).map(item => item.header.id), [id], 'repair retains an independently readable header with its newline')
+        assert.deepEqual((await (await store()).list()).map(item => item.header.id), [id], 'repair retains an independently readable header with its newline')
       }
-      const reader = await store().open(id, 'read')
+      const reader = await (await store()).open(id, 'read')
       const restored = (await reader.read()).events
       await reader.close()
       assert.deepEqual(restored, before.map(event => event.type === NATIVE_SEARCH_USAGE_EVENT ? { ...event, ignorable: true } : event))
@@ -165,10 +177,10 @@ try {
       for (const dispose of effects.reverse()) dispose()
       ledger.close()
       resumed.append('session/title', titleData('after repair and search'))
-      const reopened = await store().open(id, 'write')
+      const reopened = await (await store()).open(id, 'write')
       await reopened.append(resumed.snapshotEvents().slice(restored.length))
       await reopened.close()
-      const next = await store().open(id, 'read')
+      const next = await (await store()).open(id, 'read')
       assert.equal((await next.read()).events.at(-1).data.title, 'after repair and search', 'second restart and continued append work')
       await next.close()
       const cli = spawnSync(process.execPath, [resolve('lib/repair-sessions-cli.js'), '--sessions-root', sessionsRoot, '--write', '--host-modules', modules], { encoding: 'utf8' })
@@ -179,6 +191,7 @@ try {
   }
   console.log('会话日志修复：默认只读、限定事件、逐帧保留、备份、幂等、截断/竞争保护通过')
 } finally {
+  for (const context of hostContexts.reverse()) await context.fiber.dispose()
   assert.equal(dirname(root), tmpdir())
   rmSync(root, { recursive: true, force: true })
 }

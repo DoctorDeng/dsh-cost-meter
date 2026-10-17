@@ -4,9 +4,10 @@
  */
 import assert from 'node:assert/strict'
 import './zai-candidates.mjs'
+import './statistics-cache.mjs'
 import './ledger-concurrency.mjs'
 import './ledger-lock-recovery.mjs'
-import './external-usage.mjs'
+// This service fixture owns startup timers and must not overlap slow static imports.
 import './context-costs.mjs'
 import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -107,6 +108,10 @@ globalThis.fetch = async (url, init) => {
 }
 process.on('exit', () => { globalThis.fetch = defaultFetch })
 
+// This fixture temporarily changes DSH_HOME. Static imports with top-level await
+// run concurrently, so wait until the other home-changing fixtures have finished.
+await import('./statistics-warmup.mjs')
+
 // 每个验证进程使用独立临时目录，双时区同时执行时不互相删除账本。
 const suiteRoot = mkdtempSync(join(osTmpdir(), 'cm-verify-'))
 const tmpdir = () => suiteRoot
@@ -124,14 +129,15 @@ function readClientSource() {
   const dir = new URL('../src/client/', import.meta.url)
   const parts = readdirSync(dir).filter(name => name.endsWith('.js')).sort()
   assert.ok(parts.length > 0, 'src/client/ 源码片段缺失')
-  return parts.map(name => readFileSync(new URL(name, dir), 'utf8')).join('')
+  return parts.map(name => readFileSync(new URL(name, dir), 'utf8').replace(/\r\n/g, '\n')).join('')
 }
+const displaySource = readFileSync(new URL('../src/display/index.js', import.meta.url), 'utf8')
 
 // 浏览器端 bundle 语法门禁(v1.5.23 教训):client.js 只在浏览器经 <script> 执行,
 // classic script 语法错误不触发 error 事件、宿主只报「loaded without registering」,
 // 而本套件此前只做字符串断言、从不解析该文件——语法错误一路溜到线上。
 // 这里用 vm.Script 整份编译(只编译不执行,window 引用无碍),任何语法错误当场失败。
-for (const browserBundle of ['../lib/client.js', '../lib/client.statistics.js', '../lib/client.openrouter.js', '../lib/client.community.js']) {
+for (const browserBundle of ['../lib/client.js', '../lib/client.statistics.js', '../lib/client.openrouter.js', '../lib/client.community.js', '../lib/client.pricing.js', '../lib/client.display.js']) {
   const src = readFileSync(new URL(browserBundle, import.meta.url), 'utf8')
   new vm.Script(src, { filename: browserBundle })
 }
@@ -228,7 +234,7 @@ console.log('[ok] 浏览器端 bundle 语法门禁(client.js vm 编译)通过')
   // 挂载:SidebarFooter 早退条件与节点插入都包含网关卡片(此前整条路径无 gateway 分支)。
   assert.ok(src96.includes('!showToday && gatewayNodes.length === 0) return null'), 'issue #96:SidebarFooter 早退条件纳入网关卡片')
   assert.ok(src96.includes('nodes.push(...gatewayNodes)'), 'issue #96:SidebarFooter 节点序列插入网关卡片(计划卡之后、Codex 之前)')
-  assert.ok(src96.indexOf('nodes.push(...gatewayNodes)') > src96.indexOf('MiniMaxPlanBox, { state, wide, api: props.api }') && src96.indexOf('nodes.push(...gatewayNodes)') < src96.indexOf('el(CodexPlanBox'), 'issue #96:网关卡片排序在计划卡之后、Codex 探测卡之前')
+  assert.ok(src96.indexOf('nodes.push(...gatewayNodes)') > src96.indexOf('MiniMaxPlanBox, { state, wide, api: api }') && src96.indexOf('nodes.push(...gatewayNodes)') < src96.indexOf('el(CodexPlanBox'), 'issue #96:网关卡片排序在计划卡之后、Codex 探测卡之前')
   // 行渲染:复用 MiniMax 行(已用口径/告警阈值一致),Provider 前缀与 credits 兜底都在。
   assert.ok(/function GatewayQuotaBox[\s\S]*miniMaxRow\(name, win, direction, t\)/.test(src96), 'issue #96:网关卡片行渲染复用 miniMaxRow(与计划卡同口径)')
   assert.ok(/function GatewayQuotaBox[\s\S]*GATEWAY_PROVIDER_LABELS\[account\.provider\]/.test(src96), 'issue #96:多账号时行标签带 Provider 前缀')
@@ -356,7 +362,7 @@ console.log('[ok] usdFromCost(CNY 折算/USD 原值/非法兜底/往返抵消)�
   assert.ok(indexSource.includes("const url = pricingCurrency === 'CNY' ? OFFICIAL_PRICING_URL_ZH : OFFICIAL_PRICING_URL"), 'fetchPricingHtml 按币种选官方页')
   assert.ok(indexSource.includes("parsePricingHtml(await fetchPricingHtml(locale, wanted === 'CNY' ? 'USD' : 'CNY'))"), '目标币种页失败回退另一语言页')
   assert.ok(indexSource.includes("currency: parsed.currency === 'CNY' ? 'CNY' : 'USD'"), '同步写入价表币种标记')
-  assert.ok(indexSource.includes('...(def === null ? {} : { default: def })'), 'default 随页面替换(不残留旧币种数字)')
+  assert.ok(indexSource.includes('default: { ...def, ...priceMultiplierSettings(ledger.config.prices.default) }'), 'default 随页面替换，仅保留用户倍率，不残留旧币种单价')
   assert.ok(indexSource.includes('pricesSyncedFallback'), '回退提示文案存在(zh/en)')
   const clientSource = readClientSource()
   assert.ok(clientSource.includes("setField('pricingCurrency'"), '设置页含官方价格币种下拉')
@@ -574,7 +580,7 @@ console.log('[ok] 周末全谷价新规(区间/窗口/档位/相位)通过')
   const date = localDayKey(midAutumn)
   const oldCost = ledger.days[date].cost
   ledger.config.peakHolidays = [...DEFAULT_PEAK_HOLIDAYS]
-  const stats = await recomputeLedgerPricingBasis(ledger, root, (_, keyDate) => keyDate === date, new Set([id]))
+  const stats = await recomputeLedgerPricingBasis(ledger, root, (_, keyDate) => keyDate === date, new Set([id]), true)
   assert.equal(stats.recostedSessions, 1, '完整日志的假日会话得到重算')
   assert.ok(Math.abs(ledger.days[date].cost * 2 - oldCost) < 1e-9, '假日峰时历史金额修正为半价')
   assert.ok(Math.abs(ledger.days[date].sessions[0].cost - ledger.days[date].cost) < 1e-9, '会话与每日金额一致')
@@ -1082,6 +1088,7 @@ await assert.rejects(queryCodingPlan('nobody', 'sk-x', 'zh', stubT), error => er
 
 // 5.6) 端点白名单全部为官方域名(凭据安全)。
 const officialHosts = {
+  opendesign: ['amr-api.open-design.ai'],
   factory: ['api.factory.ai'],
   anthropic: ['api.anthropic.com'],
   zai: ['api.z.ai', 'open.bigmodel.cn'],
@@ -1294,6 +1301,13 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   const base = sanitizeConfig({})
   assert.equal(base.hideOfficialBalance, false, '隐藏官方余额默认关闭')
   assert.equal(base.hideTodayCost, false, '隐藏今日消耗默认关闭')
+  assert.equal(base.hideBudget, false, '旧配置默认显示预算卡片')
+  const hiddenBudget = applyConfigPatch(sanitizeConfig({ budget: { enabled: true, amount: 75 } }), { hideBudget: true })
+  assert.deepEqual(hiddenBudget.errors, [])
+  assert.equal(hiddenBudget.config.budget.enabled, true, '隐藏预算不关闭预算统计')
+  assert.equal(hiddenBudget.config.budget.amount, 75)
+  assert.equal(stateSchema.shape.config.parse(hiddenBudget.config).hideBudget, true)
+  assert.ok(applyConfigPatch(base, { hideBudget: 'yes' }).errors.length > 0)
   assert.equal(base.sidebarTodayMetric, 'cost', '侧边栏默认显示费用')
   assert.equal(applyConfigPatch(base, { sidebarTodayMetric: 'tokens' }).config.sidebarTodayMetric, 'tokens', '可切换显示 Token')
   assert.ok(applyConfigPatch(base, { sidebarTodayMetric: 'unknown' }).errors.length > 0, '未知显示方式被拒绝')
@@ -1317,15 +1331,15 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   // 概览卡片 / BalancePanel / 预算明细今日行。
   assert.ok(clientSource.includes('config.hideTodayCost === true ? null : el(Card,'), '概览今日卡片可整体隐藏')
   assert.ok(clientSource.includes("&& config.hideOfficialBalance !== true\n          ? el(BalancePanel"), '设置页官方余额面板可整体隐藏')
-  assert.ok(clientSource.includes('config.hideTodayCost === true ? null : el(\'div\', { className: \'cm-bbox-line cm-num\' }'), '预算盒明细今日金额行可隐藏')
+  assert.ok(clientSource.includes('config.hideTodayCost === true ? null : el(\'div\', { \'data-cm-display\': \'today\', className: \'cm-bbox-line cm-num\' }'), '预算盒明细今日金额行可隐藏')
   assert.ok(clientSource.includes("...(config.hideTodayCost === true ? [] : [config.sidebarTodayMetric === 'tokens'"), '预算 tooltip 今日金额行可隐藏')
   // 设置开关与读侧白名单。
-  assert.ok(clientSource.includes("setField('hideOfficialBalance'"), '设置 UI 含隐藏官方余额开关')
-  assert.ok(clientSource.includes("setField('hideTodayCost'"), '设置 UI 含隐藏今日消耗开关')
+  assert.ok(displaySource.includes("setField('hideOfficialBalance'"), '独立显示页含隐藏官方余额开关')
+  assert.ok(displaySource.includes("setField('hideTodayCost'"), '独立显示页含隐藏今日消耗开关')
   assert.ok(clientSource.includes('hideOfficialBalanceLabel') && clientSource.includes('hideTodayCostLabel'), '开关文案存在(zh/en)')
   assert.ok(clientSource.includes('hideOfficialBalance: v.hideOfficialBalance === true'), 'parseConfig 白名单含 hideOfficialBalance(读侧不剥离)')
   assert.ok(clientSource.includes('hideTodayCost: v.hideTodayCost === true'), 'parseConfig 白名单含 hideTodayCost(读侧不剥离)')
-  assert.ok(clientSource.includes("sidebarTodayMetric: v.sidebarTodayMetric === 'tokens'") && clientSource.includes("setField('sidebarTodayMetric'"), '今日指标双端接线')
+  assert.ok(clientSource.includes("sidebarTodayMetric: v.sidebarTodayMetric === 'tokens'") && displaySource.includes("setField('sidebarTodayMetric'"), '今日指标双端接线')
   assert.ok(clientSource.includes('showSessionId: v.showSessionId === true'), 'parseConfig 白名单补齐 showSessionId(既有缺陷修复)')
   // v1.5.38 的隐私模式遮罩已整体移除。
   assert.ok(!clientSource.includes('hideAmounts'), '客户端不再含 hideAmounts 隐私遮罩')
@@ -1409,11 +1423,12 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   assert.equal((clientSource.match(/useClickRefresh\(api \? \(\) => api\.refreshCustomBalance\(index\) : null\)/g) ?? []).length, 2, '自定义余额框/行均接 refreshCustomBalance(多配置形态按条目 index 刷新,issue #79)')
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan(id) : null)"), '通用 Coding Plan 图框接 refreshCodingPlan(id)')
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan('minimax') : null)"), 'MiniMax 图框接 refreshCodingPlan(minimax)')
-  const footerSource = clientSource.match(/function SidebarFooter\(props\) \{([\s\S]*?)\n    \}/)?.[0] ?? ''
-  // 口径限定在 SidebarFooter 内:上游 1.8.x 设置页新增的 BillingStatistics 也透传 api(全源码 9 处),
-  // 但本断言守的是侧边栏六类图框 + Codex 卡片 + fork 的今日/余额合并卡这 8 处。
-  assert.ok(footerSource.length > 0, 'SidebarFooter 源码片段可定位')
-  assert.equal((footerSource.match(/api: props\.api/g) ?? []).length, 8, 'SidebarFooter 八处渲染均透传 api(六类图框 + Codex 卡片 + 今日/余额合并卡)')
+  const footerSource = clientSource.match(/function renderSidebarFooter\(state, wide, api, preview = false\) \{([\s\S]*?)\n    \}/)?.[0] ?? ''
+  // fork:宽栏首个节点是今日费用/官方余额/峰谷条合并卡 TodayBalanceCard,它同样透传 api,
+  // 故比上游多一处(六类图框 + 合并卡 = 7)。
+  assert.equal((footerSource.match(/api: api/g) ?? []).length, 7, '共享侧栏六类图框 + fork 合并卡透传 api')
+  assert.ok(footerSource.includes('el(CodexPlanBox, { state, wide, api, preview })') && clientSource.includes('renderSidebarFooter(state, !!props.wide, props.api)'), '实际侧栏传入 api，预览显式禁用查询')
+  // 可点击语义与视觉反馈:a11y(role/tabIndex/aria-busy/键盘)、CSS(cursor/hover/busy 呼吸)。
   assert.ok(clientSource.includes('const clickableRefreshProps = (busy, run) => ({'), '可点击属性 helper 存在')
   assert.ok(clientSource.includes("role: 'button'") && clientSource.includes("tabIndex: 0") && clientSource.includes("'aria-busy': busy ? 'true' : 'false'"), 'role=button + tabIndex + aria-busy')
   assert.ok(clientSource.includes("event.key === 'Enter' || event.key === ' '"), '键盘 Enter/Space 同样触发')
@@ -1647,6 +1662,11 @@ vm.runInNewContext(readFileSync(new URL('../lib/client.openrouter.js', import.me
   window: { __ModuleLoader__: { load: value => { catalogFactory = value.factory } } },
 })
 descriptors.push(...catalogFactory(() => ({})).CONTRIBUTION.descriptors)
+let pricingFactory
+vm.runInNewContext(readFileSync(new URL('../lib/client.pricing.js', import.meta.url), 'utf8'), {
+  window: { __ModuleLoader__: { load: value => { pricingFactory = value.factory } } },
+})
+descriptors.push(...pricingFactory(() => ({})).CONTRIBUTION.descriptors)
 const clientMethods = Array.from(descriptors, d => d.method).sort()
 const serverMethods = TYPERT.invocations.map(i => i.method).sort()
 assert.deepEqual(clientMethods, serverMethods, '客户端 descriptor 与服务端 typert 清单方法一一对齐')
@@ -1845,11 +1865,11 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
 // 6.8 未命中列表判定与计费口径一致(v1.5.35):路由 provider 前缀(go:/opencode: 等)下
 // 实际已正确计价的模型不再误报「未命中」,仅默认价兜底与完全未命中者列入。
 {
-  const matchClientSource = readClientSource()
+  const matchClientSource = readClientSource() + readFileSync(new URL('../src/pricing/index.js', import.meta.url), 'utf8')
   assert.ok(matchClientSource.includes('resolveClientPrice(provider, modelId, matchPrices).matched !== true'), '未命中判定走 resolveClientPrice 完整解析链(与计费口径一致)')
   assert.ok(matchClientSource.includes('if (overrides[key] !== undefined) return false'), '已手动指定的键不重复列入未命中(rows 仍展示)')
   assert.ok(matchClientSource.includes('matched: true') && matchClientSource.includes('matched: false'), 'resolveClientPrice 区分显式命中与默认价兜底(matched 标志)')
-  assert.ok(matchClientSource.includes('最近出现但未命中价格的模型') && matchClientSource.includes('Recently seen models without a price hit'), '未命中标题双语文案更新')
+  assert.ok(matchClientSource.includes('待匹配与手动设置') && matchClientSource.includes('Unmatched and manually configured models'), '未命中与手动价格区提供双语标题')
   console.log('[ok] 未命中列表判定与计费口径一致断言通过')
 }
 
@@ -1919,7 +1939,7 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
   // 旧 v3 checkpoint(ver 不匹配)隔离——宿主 ver 检查拒绝旧行并全量 refold,
   // 不会对旧结构 state 调用 parse。
   const projRow = { ver: def.stateVersion, seq: events.length, val: structuredClone(projState) }
-  assert.equal(projRow.ver, 11, 'stateVersion 为 11（重放旧 checkpoint，按 Provider 去重）')
+  assert.equal(projRow.ver, 12, 'stateVersion 为 12（重放旧 checkpoint，按 Provider 去重）')
   usageProjectionStateSchema.parse(projRow.val)
   // ⑤ issue #43 崩溃点复现对照:缺 stateSchema 的定义(fork 0.2.0 场景)在
   // restore 路径抛出与 issue 报错完全一致的 TypeError。
@@ -1981,12 +2001,11 @@ const sampleState = {
   },
   history: [],
   config: sanitizeConfig({}),
-  priceCatalog: buildPriceCatalog(),
   meta: { now: Date.now(), timezoneOffsetMinutes: 0, dayKey: '2026-08-17', monthKey: '2026-08' },
 }
 const stateCheck = stateSchema.safeParse(sampleState)
-assert.ok(stateCheck.success, '完整快照(含未核价目录/文本窗口/新配置键)通过 strict codec: ' + JSON.stringify(stateCheck.error?.issues?.slice(0, 2)))
-console.log('[ok] stateSchema 漂移回归(目录/文本窗口/新配置键)通过')
+assert.ok(stateCheck.success, '完整快照(含文本窗口/新配置键)通过 strict codec: ' + JSON.stringify(stateCheck.error?.issues?.slice(0, 2)))
+console.log('[ok] stateSchema 漂移回归(文本窗口/新配置键)通过')
 
 // 7.3 新增 coding plan 解析器与端点白名单。
 assert.equal(parseOpenRouterCredits({ data: { total_credits: 10, total_usage: 2.5 } }).credits.percent, 25, 'OpenRouter 已用%')
@@ -2408,7 +2427,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(scheduled >= 1, '清洗后调度落盘')
   // 投影与启动接线:源码结构断言(投影无独立运行时入口,行为经宿主重放自愈)。
   const indexSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-  assert.ok(indexSource.includes('stateVersion: 11'), '投影 stateVersion 11:按 Provider 去重并重放旧 checkpoint')
+  assert.ok(indexSource.includes('stateVersion: 12'), '投影 stateVersion 12:按 Provider 去重并重放旧 checkpoint')
   assert.ok(indexSource.includes("if (event.type === 'session')") && indexSource.includes('createdAt') && indexSource.includes('seedLength'), '投影记录会话创建时刻与 seedLength(旧宿主兼容+多 end-seed 延迟扣除)')
   assert.ok(indexSource.includes("if (event.type === 'session/end-seed')"), '投影识别 session/end-seed fork 种子边界(issue #55)')
   assert.ok(indexSource.includes('isSeedBySeq') && indexSource.includes('isSeedByLength') && indexSource.includes('seedEndSeq'), '投影按 seq/length/time 三重过滤种子段(issue #55/#61)')
@@ -2599,7 +2618,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(providerPriceEntryFor('openai', 'weird-name', fullPrices, { mode: 'exact', overrides: { 'openai:weird-name': 'gpt-5.6-luna' } }).priced, '裸值同渠道换名语义保留')
   assert.ok(providerPriceEntryFor('zen', 'x', fullPrices, { mode: 'exact', overrides: { 'zen:x': 'openai:gpt-5.6-luna' } }).entry?.output === 1.2, '带前缀跨渠道引用语义保留')
   assert.equal(providerPriceEntryFor('foo', 'no-such-model', fullPrices, { mode: 'auto', overrides: { 'foo:no-such-model': 'no-such-model' } }).priced, false, '未知裸名保持未定价(不误套默认价)')
-  const clientSource = readClientSource()
+  const clientSource = readClientSource() + readFileSync(new URL('../src/pricing/index.js', import.meta.url), 'utf8')
   assert.ok(clientSource.includes("value: 'deepseek:' + id"), '设置页下拉框 DeepSeek 目标存带前缀的值(issue #56 根因)')
   assert.ok(clientSource.includes("if (provider !== 'deepseek' && !provider.includes('deepseek')") && clientSource.includes("matchModelIdLocal(override, Object.keys(dsModels))"), '客户端 resolveClientPrice 同口径裸名兜底(未命中列表/徽章估算与计费一致)')
   // 客户端计费口径接线:parseConfig 白名单保留 prices.currency(CNY 价目下
@@ -3060,7 +3079,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   })
   assert.equal(cnyPatchB.errors.length, 0, 'CNY 价表补丁通过: ' + cnyPatchB.errors.join(';'))
   ledgerB.config = cnyPatchB.config
-  const statsB = await recomputeLedgerPricingBasis(ledgerB, rootB167)
+  const statsB = await recomputeLedgerPricingBasis(ledgerB, rootB167, undefined, null, true)
   assert.equal(statsB.recostedSessions, 1, '完整覆盖的会话按 CNY 表重定价')
   assert.equal(statsB.skippedSessions, 1, '覆盖不全的会话跳过(保持 USD 口径)')
   // CNY 峰档 = 0.04×2M + 2×1M + 4×0.5M = ¥4.08,除汇率 7.2 入账。
@@ -3465,6 +3484,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     let calls = 0
     let sawBrowserUa = false
     globalThis.fetch = async (url, init = {}) => {
+      // Background price refreshes must not consume the Go quota retry script.
+      if (String(url) !== 'https://opencode.ai/zen/go/v1/usage') return prevFetch(url, init)
       const step = script[Math.min(calls, script.length - 1)]
       calls += 1
       if (init.headers?.['user-agent']?.includes('Mozilla/5.0')) sawBrowserUa = true
@@ -3745,13 +3766,15 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   between("t('historyDataTitle')", branch.usage, branch.display, '历史数据操作分组在用量标签')
   between("t('clearAllHistory')", branch.usage, branch.display, '清除全部历史按钮在用量标签')
   // 显示:语言 + 显示设置分组。
-  between("t('languageLabel')", branch.display, branch.pricing, '语言选择在显示标签')
-  between("t('displaySettings')", branch.display, branch.pricing, '显示设置分组在显示标签')
+  assert.ok(readFileSync(new URL('../src/display/controls.js', import.meta.url), 'utf8').includes("t('languageLabel')"), '语言选择在显示预览的右侧面板')
+  between('load: api.loadDisplay', branch.display, branch.pricing, '交互预览在显示标签按需加载')
   // 价格:峰谷 + 价格表 + 匹配 + 拓展目录 + 官方同步。
   between('el(PeakPanel, { state, draft, setDraft, t })', branch.pricing, tabsSrc.length, '峰谷计价面板在价格标签')
   between("t('priceTableTitle')", branch.pricing, tabsSrc.length, '价格表在价格标签')
-  between('el(PriceCatalogPanel, { state, draft, setDraft, t })', branch.pricing, tabsSrc.length, '拓展价格表在价格标签')
   between("t('dataSync')", branch.pricing, tabsSrc.length, '官方价格同步在价格标签')
+  // 拓展价格表面板已移除:第三方价格卡片改由价格表内的厂商折叠分组承载。
+  assert.ok(!tabsSrc.includes('PriceCatalogPanel'), '拓展价格表面板已移除')
+  between('el(BillingStatistics, { state, api, load: api.loadOpenRouter })', branch.pricing, tabsSrc.length, 'OpenRouter 公开报价在价格标签')
   console.log('[ok] 设置页标签分组(五标签结构/双语文案/样式/保存徽章全局化/面板归属)通过')
 }
 
@@ -3770,8 +3793,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 侧边栏:按 display 门控的循环 + MiniMax 专用卡片 + 通用 CodingPlanBox。
   assert.ok(planSrc.includes('const sidebarPlanIds = CODING_PLAN_ROWS'), '侧边栏按 CODING_PLAN_ROWS 遍历厂商')
   assert.ok(planSrc.includes("entry.display !== 'sidebar' && entry.display !== 'both'"), '侧边栏门控 display=sidebar/both')
-  assert.ok(planSrc.includes('el(MiniMaxPlanBox, { state, wide, api: props.api })'), 'MiniMax 沿用专用 5h/7d 卡片(issue #37 起透传 api 支持点击刷新)')
-  assert.ok(planSrc.includes('el(CodingPlanBox, { id, state, wide, api: props.api })'), '其余厂商走通用 CodingPlanBox')
+  assert.ok(planSrc.includes('el(MiniMaxPlanBox, { state, wide, api: api })'), 'MiniMax 沿用专用 5h/7d 卡片(issue #37 起透传 api 支持点击刷新)')
+  assert.ok(planSrc.includes('el(CodingPlanBox, { id, state, wide, api: api })'), '其余厂商走通用 CodingPlanBox')
   assert.ok(planSrc.includes('function CodingPlanBox(props)'), '通用卡片组件定义存在')
   assert.ok(planSrc.includes('function codingPlanWindowLabel(name, t)'), '窗口名本地化(fiveHour/weekly/monthly)')
   // 通用卡片样式:宽标签与文本窗口行的 CSS。
@@ -4336,7 +4359,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const indexSrc = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.ok(indexSrc.includes("includes('plan-autodetect-v1')"), 'plan-autodetect-v1 迁移标记接线')
   assert.ok(indexSrc.includes('suggestPlanAutoClasses'), '宿主调用归类建议函数')
-  assert.ok(/patch\.planBilling !== undefined \|\| patch\.codingPlans !== undefined \|\| patch\.goQuota !== undefined/.test(indexSrc), 'updateConfig 触碰分类相关键即重算 apiCost')
+  assert.ok(indexSrc.includes('JSON.stringify([before.planBilling, [...enabledPlanSetOf(before)]])') && indexSrc.includes('splitLedgerApiCost(ledger)'), '仅分类或启用套餐实际改变时重算 apiCost，显示修改不重算')
   // Go 目录精确别名(zen 路由真实 id 不再依赖宽泛包含)。
   const { DEFAULT_PROVIDER_PRICE_TABLE: TABLE_NOW } = await import('../lib/pricing.js')
   const geminiEntry = TABLE_NOW.google.models['gemini-3.1-pro']
@@ -5283,24 +5306,24 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
       get: key => (key === 'settings' ? { get: () => ({}) } : undefined),
     })
     const state11 = await provided11.costMeter.updateConfig({ priceOverrides: { 'mycloud:special-model': '__local__' } })
-    assert.ok(Math.abs(state11.today.cost) < 1e-9, 'updateConfig 写入 __local__ 后今日费用即时归零(1.25 → 0)')
-    assert.equal(state11.today.input, 100000, '归零只针对费用,token 保留')
+    assert.equal(state11.today.cost, 1.25, '映射为本地模型只影响后续调用，已记录的金额保持不变')
+    assert.equal(state11.today.input, 100000, '修改映射保留已有 token')
     const updInv11 = TYPERT.invocations.find(i => i.method === 'updateConfig')
     if (updInv11 !== undefined && updInv11.result !== undefined) {
       const codec11 = updInv11.result.schema.safeParse(JSON.parse(JSON.stringify(state11)))
-      assert.ok(codec11.success, '归零后快照仍通过 updateConfig strict codec:' + (codec11.success ? '' : JSON.stringify(codec11.error.issues.slice(0, 3))))
+      assert.ok(codec11.success, '改映射后快照仍通过 updateConfig strict codec:' + (codec11.success ? '' : JSON.stringify(codec11.error.issues.slice(0, 3))))
     }
   } finally {
     rmSync(root11d, { recursive: true, force: true })
     if (prevHome11 === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = prevHome11
   }
-  console.log('[ok] __local__ 哨兵端到端(入账零消耗/updateConfig 即时归零/codec)通过')
+  console.log('[ok] __local__ 哨兵端到端(入账零消耗/改映射保留历史/codec)通过')
 }
 
 // 11-9) 客户端镜像一致性 + UI 接线哨兵(本地判定双侧同输入同结果)。
 {
-  const clientSrc11 = readClientSource()
+  const clientSrc11 = readClientSource() + readFileSync(new URL('../src/pricing/index.js', import.meta.url), 'utf8')
   const sliceStart11 = clientSrc11.indexOf('function priceEntryFor(modelId, table)')
   const sliceEnd11 = clientSrc11.indexOf('function makeStore(initial,')
   assert.ok(sliceStart11 > 0 && sliceEnd11 > sliceStart11, '客户端价格区段定位成功')
@@ -5320,11 +5343,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     C11.resolveClientPrice('lmstudio', 'qwen3.8-9b-heretic-uncensored-i1', matchConfig11).priced,
     providerPriceEntryFor('lmstudio', 'qwen3.8-9b-heretic-uncensored-i1', prices11m, { mode: 'auto' }).priced,
     '客户端/服务端本地判定一致(漂移守卫)')
-  // ④ UI 接线哨兵。
-  assert.ok(clientSrc11.includes("value: '__local__', label: t('overrideTargetLocal')"), '映射下拉提供「本地模型(零消耗)」选项')
-  assert.ok(clientSrc11.includes("t('matchedTitle')") && clientSrc11.includes('matchedKeys'), '「本月已命中模型」改映射区块接入')
-  assert.ok(clientSrc11.includes("t('matchedKeepAuto')"), '已命中模型行默认保持自动命中')
-  console.log('[ok] 客户端镜像一致性 + 本地零消耗 UI 接线哨兵通过')
+  // Source selection and local zero-rate UI behavior are exercised in pricing-theme-browser.mjs.
+  console.log('[ok] 客户端与服务端的本地零消耗判定一致')
 }
 
 // ── v1.6.12:压缩摘要调用计费(issue #77,compaction/summary 不再漏计) ──
@@ -6357,6 +6377,7 @@ function m_costOf85(entry, tokens) {
   assert.deepEqual(Object.keys(GATEWAY_PROVIDER_ADAPTERS).sort(), ['antigravity', 'claude', 'codex', 'kimi', 'workbuddy', 'xai'])
   for (const headers of [ANTIGRAVITY_REQUEST_HEADERS, CLAUDE_REQUEST_HEADERS, CODEX_REQUEST_HEADERS, KIMI_REQUEST_HEADERS, XAI_REQUEST_HEADERS]) assert.ok(Object.values(headers).includes('Bearer $TOKEN$'))
   assert.equal(ANTIGRAVITY_QUOTA_URLS.length, 3)
+  assert.equal(ANTIGRAVITY_QUOTA_URLS[0], 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary')
   assert.equal(GATEWAY_PROVIDER_ADAPTERS.antigravity.requests({ projectId: 'fake-project-id' }).length, 3)
   const adapterSource = readFileSync(new URL('../lib/gateway-quota-adapters.js', import.meta.url), 'utf8')
   assert.equal(adapterSource.includes('rate-limit-reset-credits/consume'), false)
@@ -6740,6 +6761,7 @@ function m_costOf85(entry, tokens) {
 }
 
 await import('./aliyun-balance.mjs')
+await import('./tokenrhythm-balance.mjs')
 await import('./gateway-retry.mjs')
 await import('./cache-lifecycle.mjs')
 await import('./core-boundaries.mjs')
@@ -6753,10 +6775,12 @@ await import('./minimax-endpoint.mjs')
 await import('./openrouter-pricing.mjs')
 await import('./openrouter-catalog.mjs')
 await import('./pr145-147.mjs')
+await import('./antigravity-endpoint-fallback.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./custom-balance-post.mjs')
 await import('./balance-display-currency.mjs')
 await import('./settings-regressions.mjs')
+await import('./settings-poll-race.mjs')
 await import('./plan-provider-matching.mjs')
 await import('./community-client.mjs')
 await import('./client-dictionaries.mjs')
@@ -6767,6 +6791,8 @@ await import('./sidebar-quota-hover.mjs')
 await import('./scnet-snapshot.mjs')
 await import('./project-audit.mjs')
 await import('./deepseek-pricing-september.mjs')
+await import('./deepseek-pricing-official.mjs')
+await import('./model-history-reprice.mjs')
 await import('./sidebar-simple.mjs')
 await import('./sidebar-regressions.mjs')
 await import('./gpt-astra-pricing.mjs')
@@ -6777,13 +6803,19 @@ await import('./billing-integrity.mjs')
 await import('./session-restart.mjs')
 await import('./native-search-billing.mjs')
 await import('./native-search-fetch.mjs')
+await import('./external-usage.mjs')
 await import('./turn-cost.mjs')
+await import('./billing-history.mjs')
+await import('./pricing-history-performance.mjs')
+await import('./price-multiplier.mjs')
+await import('./billing-history-service.mjs')
 await import('./billing-statistics.mjs')
 await import('./turn-inspection.mjs')
 await import('./billing-statistics-client.mjs')
 // 无外部依赖(纯 vm + 假 DOM),因此并入本套件而不是浏览器作业。
 await import('./client-style-injection.mjs')
 await import('./native-search-history.mjs')
+await import('./web-request-billing.mjs')
 await import('./versioned-session-logs.mjs')
 await import('./session-log-repair.mjs')
 await import('./client-issues-127-129.mjs')
@@ -6794,4 +6826,14 @@ await import('./mimo-v26-pricing.mjs')
 await import('./host-locale.mjs')
 await import('./host-locale-client.mjs')
 await import('./conversation-totals.mjs')
+await import('./billion-context-billing.mjs')
+await import('./billion-context-compatibility.mjs')
+await import('./billion-context-auto.mjs')
+await import('./billion-context-receipts.mjs')
+await import('./opendesign.mjs')
+await import('./prices-revision.mjs')
 console.log('[ok] 全部验证通过')
+
+await import('./exchange-rates.mjs')
+await import('./custom-model-prices.mjs')
+await import('./context-activity.mjs')

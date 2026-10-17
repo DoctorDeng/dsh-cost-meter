@@ -51,7 +51,8 @@ try {
     assert.equal((await importLegacyHistory(rebuilt, sessions)).sessions, 0)
     const targetCurrency = currency === 'USD' ? 'CNY' : 'USD'
     rebuilt.config = config(targetCurrency)
-    assert.equal((await recomputeLedgerPricingBasis(rebuilt, sessions)).recostedSessions, 1)
+    rebuilt.refresh = () => {} // This replay fixture is intentionally independent of the saved live ledger.
+    assert.equal((await recomputeLedgerPricingBasis(rebuilt, sessions, undefined, null, true)).recostedSessions, 1)
     const expected = new Ledger(config(targetCurrency), {}, '')
     expected.scheduleWrite = () => {}
     for (const data of [a, b]) expected.account({ input: 200, output: 20, cacheRead: 50, cacheWrite: 3, reasoning: 0 }, data.model, id, data.startedAtMs, data.provider)

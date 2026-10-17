@@ -25,6 +25,7 @@ const readSource = file => baseline
 const client = readdirSync('src/client').filter(name => name.endsWith('.js')).sort()
   .map(name => readSource('src/client/' + name)).join('')
   .replace('exports.apply = apply', 'exports.preview = { CostSection, parseConfig }; exports.apply = apply')
+  .replace('function resolveClientPrice(provider, modelId, config) {', 'function resolveClientPrice(provider, modelId, config) { window.priceResolutions=(window.priceResolutions??0)+1;')
 const day = { ...zeroDay('2026-10-12'), byProviderModel: {
   'fixture:unknown': { input: 1, output: 1, calls: 1, cost: 0 },
   'deepseek:deepseek-v4-flash': { input: 1, output: 1, calls: 1, cost: .001 },
@@ -33,12 +34,16 @@ const initialState = { config: sanitizeConfig({ locale: 'zh' }), today: day, mon
 const code = `
 import React from ${literal(req.resolve('react'))};
 import {createRoot} from ${literal(req.resolve('react-dom/client'))};
-window.__ModuleLoader__={load:mod=>window.costUI=mod.factory(name=>name==='react'?React:{Tooltip:({children})=>children})};
+import {createPortal} from ${literal(req.resolve('react-dom'))};
+window.__ModuleLoader__={load:mod=>{const value=mod.factory(name=>name==='react'?React:name==='react-dom'?{createPortal}:{Tooltip:({children})=>children});if(mod.chunk==='client.pricing.js')window.priceUI=value;else window.costUI=value}};
 ${client}
+${readSource('src/pricing/index.js')}
 const {CostSection,parseConfig}=window.costUI.preview;
 const state=${literal(initialState)};state.config=parseConfig(state.config,'config');
-window.patches=[];
-const api={loadOpenRouter:async()=>()=>null,updateConfig:async patch=>{window.patches.push(patch)}};
+if(new URLSearchParams(location.search).has('many'))state.today.byProviderModel=state.month.byProviderModel=Object.fromEntries(Array.from({length:500},(_,i)=>['channel:model-'+i,{calls:1,input:1,output:1,cost:0}]));
+window.patches=[];window.reprices=[];window.historyReads=0;
+const pricing=window.priceUI.mount({effect:fn=>fn(),get:key=>key==='remote'?{$mount:async()=>()=>{}}:{getRepricingHistory:async()=>{window.historyReads++;return ({ok:true,value:window.reprices.map((item,i)=>({at:1792050000000+i,before:1,after:2,days:1,sessions:1,skipped:0,...(typeof item==='object'?{model:item.model}:{})}))})},repriceHistory:async confirmed=>{window.reprices.push(confirmed);return {ok:true,value:{ok:true,message:'已重算，原金额已保留。'}}},repriceModelHistory:async (confirmed,model)=>{window.reprices.push({confirmed,model});return {ok:true,value:{ok:true,message:'单模型重算完成，其他模型保持不变。'}}}}});
+const api={reload:async()=>{},loadPricing:()=>pricing,loadOpenRouter:async()=>()=>null,updateConfig:async patch=>{window.patches.push(patch)}};
 createRoot(document.getElementById('root')).render(React.createElement(CostSection,{useCost:()=>({state,status:'ready'}),api}));
 window.fixtureReady=true;
 `
@@ -51,7 +56,7 @@ const dark = { ...midnight, '--dsw-alias-label-primary': '#ececee', '--dsw-alias
 const html = '<!doctype html><html style="color-scheme:light"><head><meta charset="utf-8"><style>body{margin:0;padding:24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:13px/1.5 system-ui}#root{max-width:900px;margin:auto}</style></head><body><div id="root"></div><select id="host-control"><option>Host control</option><option>Other plugin</option></select><script src="/app.js"></script></body></html>'
 const server = createServer((request, response) => {
   if (request.url === '/app.js') { response.setHeader('content-type', 'text/javascript'); response.end(compiled.outputFiles[0].contents) }
-  else if (request.url === '/') { response.setHeader('content-type', 'text/html; charset=utf-8'); response.end(html) }
+  else if (request.url.split('?')[0] === '/') { response.setHeader('content-type', 'text/html; charset=utf-8'); response.end(html) }
   else { response.statusCode = 404; response.end() }
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -74,8 +79,14 @@ const output = resolve('.tmp-pricing-theme-browser'); mkdirSync(output, { recurs
 try {
   await page.goto(url); await page.waitForFunction(() => window.fixtureReady)
   await page.getByRole('tab', { name: '价格', exact: true }).click()
-  await page.locator('.cm-match-row select').first().waitFor()
-  assert.equal(await page.locator('.cm-match-row select').count(), 2, 'unknown and matched model selectors are both rendered')
+  await page.locator('.cm-match-row').first().waitFor()
+  assert.equal(await page.locator('.cm-match-row').count(), 2)
+  assert.equal(await page.locator('.cm-match-row select,.cm-match-row input').count(), 0, 'model summaries start without mounted price editors')
+  const unknown = page.locator('.cm-match-row').filter({ has: page.locator('.cm-model-identity', { hasText: 'unknown' }) })
+  await unknown.getByRole('button', { name: 'fixture:unknown · 设置价格', exact: true }).click()
+  await unknown.getByRole('button', { name: '价格表', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.patches.length), 0, 'opening a model and preparing a catalog choice do not change pricing')
+  assert.equal(await page.locator('.cm-match-row [role=combobox]').count(), 1, 'only the selected model mounts a price selector')
   for (const [theme, tokens, scheme] of [['midnight-light-host', midnight, 'light'], ['host-dark', dark, 'dark'], ['host-light', light, 'light']]) {
     await page.emulateMedia({ colorScheme: scheme })
     await page.evaluate(({ tokens, scheme }) => {
@@ -83,39 +94,171 @@ try {
       for (const [key, value] of Object.entries(tokens)) document.documentElement.style.setProperty(key, value)
     }, { tokens, scheme })
     await page.mouse.move(0, 0)
-    const colors = await page.locator('select.cm-input').evaluateAll(selects => selects.map(select => ({
-      color: getComputedStyle(select).color, background: getComputedStyle(select).backgroundColor,
-      options: [...select.options].map(option => ({ color: getComputedStyle(option).color, background: getComputedStyle(option).backgroundColor })),
-    })))
-    assert.ok(colors.length >= 4 && colors.every(select => select.options.length > 1), 'pricing choices are present')
-    for (const select of colors) for (const option of select.options) {
-      assert.equal(option.background, select.background, `${theme}: every unhovered native option has the theme background`)
-      assert.equal(option.color, select.color, `${theme}: every unhovered native option has the theme text color`)
-      const values = [luminance(option.color), luminance(option.background)].sort((a, b) => a - b)
-      assert.ok((values[1] + .05) / (values[0] + .05) >= 4.5, `${theme}: option text stays readable`)
-    }
-    const model = page.locator('.cm-match-row select').first()
-    const before = await model.evaluate(select => [...select.options].map(option => getComputedStyle(option).backgroundColor))
-    await model.hover(); await page.mouse.move(0, 0)
-    assert.deepEqual(await model.evaluate(select => [...select.options].map(option => getComputedStyle(option).backgroundColor)), before, 'leaving hover preserves readable option colors')
-    assert.equal(await page.locator('#host-control option').first().evaluate(option => getComputedStyle(option).backgroundColor), 'rgba(0, 0, 0, 0)', 'the fix leaves host and other plugins outside cm-input untouched')
-    if (theme === 'midnight-light-host') {
-      await model.click()
-      await page.screenshot({ path: join(output, 'midnight-popup.png') })
-      await page.keyboard.press('Escape')
-    }
+    const field = unknown.getByRole('combobox')
+    await field.click()
+    const panel = page.locator('.cm-combo-panel')
+    await panel.waitFor()
+    const colors = await panel.evaluate(node => ({color:getComputedStyle(node).color,background:getComputedStyle(node).backgroundColor,parent:node.parentElement.tagName,options:[...node.querySelectorAll('[role=option]')].map(option=>({color:getComputedStyle(option).color,height:option.getBoundingClientRect().height}))}))
+    assert.equal(colors.parent,'BODY','picker panel escapes the settings scroll container')
+    assert.ok(colors.options.length>80,'the complete catalog is reachable')
+    for(const option of colors.options){const values=[luminance(option.color),luminance(colors.background)].sort((a,b)=>a-b);assert.ok((values[1]+.05)/(values[0]+.05)>=4.5,theme+' candidate text stays readable');assert.ok(option.height>=24,'candidate rows keep readable height')}
+    assert.equal(await page.locator('#host-control option').first().evaluate(option=>getComputedStyle(option).backgroundColor),'rgba(0, 0, 0, 0)','host controls stay untouched')
+    if(theme==='midnight-light-host')await page.screenshot({path:join(output,'midnight-popup.png')})
+    await field.press('Escape')
+    await panel.waitFor({state:'detached'})
     await page.screenshot({ path: join(output, theme + '.png'), fullPage: true })
-    checks.push({ theme, selectors: colors.length, options: colors.reduce((sum, select) => sum + select.options.length, 0) })
+    checks.push({theme,options:colors.options.length,portaled:true})
   }
-  const model = page.locator('.cm-match-row select').first()
-  await model.selectOption('__local__')
-  await page.waitForFunction(() => window.patches.length === 1)
-  assert.deepEqual(await page.evaluate(() => window.patches[0]), { priceOverrides: { 'fixture:unknown': '__local__' } }, 'the actual dropdown still saves only the chosen model override')
+  assert.equal(await page.locator('.cm-price-card').count(), 0, 'catalog cards stay unmounted on model pricing');
+  assert.equal(await page.evaluate(() => window.historyReads), 0, 'model pricing does not load historical pricing');
+  const modelFilter = page.getByRole('searchbox', { name: '查找已用模型' });
+  await modelFilter.fill('fixture'); assert.equal(await page.locator('.cm-match-row').count(), 1);
+  await modelFilter.press('Escape'); assert.equal(await page.locator('.cm-match-row').count(), 2);
+  assert.equal(await page.evaluate(() => window.patches.length), 0, 'model filtering does not save configuration');
+  const field = unknown.getByRole('combobox')
+  const candidates = page.locator('.cm-combo-panel [role=option]')
+  await field.click(); await field.fill('opencode gpt')
+  const filtered = await candidates.allTextContents()
+  assert.ok(filtered.length>1&&filtered.every(label=>/opencode/i.test(label)&&/gpt/i.test(label)))
+  await page.waitForTimeout(160)
+  assert.equal(await page.evaluate(()=>window.patches.length),0,'filtering does not save configuration')
+  await field.fill('no-model-matches-this-query')
+  await page.getByRole('status').filter({hasText:'没有匹配的模型'}).waitFor()
+  assert.equal(await candidates.count(),0)
+  await field.press('Escape');assert.equal(await field.inputValue(),'')
+  await field.click();await field.fill('openai gpt-6-astra')
+  await page.getByRole('option',{name:'openai · gpt-6-astra',exact:true}).click()
+  await page.waitForFunction(()=>window.patches.length===1)
+  assert.deepEqual(await page.evaluate(()=>window.patches[0]),{priceOverrides:{'fixture:unknown':'openai:gpt-6-astra'}})
+  // #287 P2: the retained old choice must not steal Enter from real search matches.
+  await field.click();await field.fill('deepseek-v4-flash')
+  assert.equal(await page.locator('.cm-combo-option.active').textContent(),'DeepSeek · deepseek-v4-flash')
+  await field.press('Enter')
+  await page.waitForFunction(()=>window.patches.some(p=>p.priceOverrides?.['fixture:unknown']==='deepseek:deepseek-v4-flash'))
+  // #287 P2: position and constrain the panel before scrolling a far-away selection.
+  await field.click();const last=await candidates.last().textContent();await candidates.last().click()
+  await page.waitForTimeout(160);await field.click()
+  assert.equal(await page.locator('.cm-combo-option[aria-selected=true]').textContent(),last)
+  await page.waitForFunction(()=>{const list=document.querySelector('.cm-combo-list'),row=list?.querySelector('[data-active=true]');if(!row)return false;const a=list.getBoundingClientRect(),b=row.getBoundingClientRect();return b.top>=a.top-1&&b.bottom<=a.bottom+1})
+  // A new query can keep index zero; its active option must still become visible.
+  await page.locator('.cm-combo-list').evaluate(node=>node.scrollTop=1000)
+  await field.fill('DeepSeek')
+  await page.waitForFunction(()=>{const list=document.querySelector('.cm-combo-list'),row=list?.querySelector('[data-active=true]');if(!row)return false;const a=list.getBoundingClientRect(),b=row.getBoundingClientRect();return b.top>=a.top-1&&b.bottom<=a.bottom+1})
+  await field.press('Escape')
+  for(const height of [320,200,140]){
+    await page.setViewportSize({width:1100,height});await field.click()
+    await page.locator('.cm-combo-panel').waitFor({state:'visible'})
+    await page.waitForFunction(()=>{const panel=document.querySelector('.cm-combo-panel');if(!panel)return false;const rect=panel.getBoundingClientRect();return rect.top>=0&&rect.bottom<=innerHeight+1})
+    const rect=await page.locator('.cm-combo-panel').evaluate(node=>node.getBoundingClientRect().toJSON())
+    assert.ok(rect.top>=0&&rect.bottom<=height+1,'candidate panel fits short viewport: '+JSON.stringify({height,rect}));await field.press('Escape')
+  }
+  await page.setViewportSize({width:1100,height:950})
+  await unknown.getByRole('button', { name: '本地', exact: true }).click()
+  await page.waitForFunction(() => window.patches.some(p => p.priceOverrides?.['fixture:unknown'] === '__local__'))
+  assert.deepEqual(await unknown.locator('.cm-model-current .cm-rate-item strong').allTextContents(), ['$0', '$0', '$0'])
+  assert.equal(await unknown.getByRole('combobox').count(), 0, 'local mode does not keep catalog controls mounted')
+  await unknown.getByRole('button', { name: '自定义', exact: true }).click()
+  const custom = page.getByRole('group', { name: /fixture:unknown.*自定义价格/ })
+  await custom.waitFor()
+  const inputPrice = custom.getByRole('textbox', { name: /输入 · 未命中缓存/ })
+  const outputPrice = custom.getByRole('textbox', { name: /· 输出$/ })
+  await inputPrice.fill('2 × 0.8'); await inputPrice.press('Enter')
+  await page.waitForFunction(() => window.patches.some(p => p.prices?.custom?.['fixture:unknown']?.multiplier === .8))
+  assert.equal(await inputPrice.inputValue(), '2 × 0.8')
+  await custom.getByRole('checkbox', { name: '分别设置倍率' }).check()
+  await outputPrice.fill('8 x 0.5'); await outputPrice.press('Tab')
+  await page.waitForFunction(() => window.patches.some(p => p.prices?.custom?.['fixture:unknown']?.multipliers?.['base.output'] === .5))
+  assert.deepEqual(await custom.locator('.cm-effective-grid strong').allTextContents(), ['$1.6', '$0', '$4'], 'effective prices use the shared and separate factors')
+  const countBeforeInvalid = await page.evaluate(() => window.patches.length)
+  await inputPrice.fill('2 × nope'); await inputPrice.press('Enter')
+  await page.waitForTimeout(180)
+  assert.equal(await inputPrice.getAttribute('aria-invalid'), 'true')
+  assert.equal(await page.evaluate(() => window.patches.length), countBeforeInvalid, 'invalid multiplication never saves')
+  await inputPrice.press('Escape')
+  await custom.getByRole('checkbox', { name: '分别设置倍率' }).uncheck()
+  await inputPrice.fill('2.3 x 0.8')
+  await unknown.getByRole('button', { name: '自动匹配', exact: true }).click()
+  await page.waitForTimeout(180)
+  await unknown.getByRole('button', { name: '自定义', exact: true }).click()
+  assert.equal(await inputPrice.inputValue(), '2.3 × 0.8', 'switching sources commits and retains the last unblurred quote')
+  await inputPrice.fill('2 × 0.8'); await inputPrice.press('Enter')
+  for (const width of [390, 1100]) {
+    await page.setViewportSize({ width, height: 1000 })
+    const bounds = await custom.evaluate(node => ({ width: node.getBoundingClientRect().width, scroll: node.scrollWidth, client: node.clientWidth,
+      fields: [...node.querySelectorAll('.cm-custom-grid:not(.cm-custom-more .cm-custom-grid) input')].map(input => input.getBoundingClientRect().width) }))
+    assert.ok(bounds.scroll <= bounds.client + 1, 'custom editor has no internal horizontal overflow')
+    assert.ok(bounds.fields.length >= 3 && bounds.fields.every(value => value >= 80), 'custom price fields remain readable at '+width)
+  }
+  await page.screenshot({ path: join(output, 'custom-channel-price.png'), fullPage: true })
+  await outputPrice.fill('10 x 0.8')
+  await unknown.getByRole('button', { name: 'fixture:unknown · 设置价格', exact: true }).click()
+  await page.waitForFunction(() => window.patches.some(p => p.prices?.custom?.['fixture:unknown']?.output === 10))
+  assert.equal(await unknown.getByRole('group', { name: /自定义价格/ }).count(), 0, 'collapsing removes the editor after committing a blurred field')
+  assert.deepEqual(await unknown.locator('.cm-model-current .cm-rate-item strong').allTextContents(), ['$1.6', '$0', '$8'])
+  await page.screenshot({ path: join(output, 'model-price-summaries.png'), fullPage: true })
+  await page.getByRole('tab', { name: '同步与规则', exact: true }).click()
+  const reprice = page.getByRole('button', { name: '按当前价格重算历史', exact: true })
+  await reprice.click()
+  await page.getByRole('alert').filter({ hasText: '将修改历史费用' }).waitFor()
+  assert.deepEqual(await page.evaluate(() => window.reprices), [], 'warning does not execute recalculation')
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  assert.deepEqual(await page.evaluate(() => window.reprices), [], 'cancel leaves history untouched')
+  await reprice.click()
+  await page.getByRole('button', { name: '确认重算', exact: true }).click()
+  await page.waitForFunction(() => window.reprices.length === 1)
+  assert.deepEqual(await page.evaluate(() => window.reprices), [true])
+  await page.getByText('重算记录 · 原金额已保留', { exact: true }).click()
+  await page.getByRole('columnheader', { name: '原金额', exact: true }).waitFor()
+  const scope = page.getByRole('combobox', { name: '选择渠道与模型', exact: true })
+  const patchesBeforeScope = await page.evaluate(() => window.patches.length)
+  await scope.fill('deepseek-v4-flash')
+  await page.getByRole('option', { name: 'deepseek:deepseek-v4-flash', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.patches.length), patchesBeforeScope, '选择重算范围不修改价格配置')
+  await page.getByRole('button', { name: '重算此模型的历史费用', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'deepseek:deepseek-v4-flash' }).waitFor()
+  assert.equal(await page.evaluate(() => window.reprices.length), 1, '单模型也须确认')
+  await page.getByRole('button', { name: '确认重算', exact: true }).click()
+  await page.waitForFunction(() => window.reprices.length === 2)
+  assert.deepEqual(await page.evaluate(() => window.reprices[1]), { confirmed: true, model: 'deepseek:deepseek-v4-flash' })
+  await page.getByRole('cell', { name: 'deepseek:deepseek-v4-flash', exact: true }).waitFor()
+  await page.setViewportSize({ width: 430, height: 900 })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, '单模型重算在窄窗口不溢出')
+  await page.screenshot({ path: join(output, 'single-model-repricing.png'), fullPage: true })
+  await page.setViewportSize({ width: 1100, height: 950 })
+
+  await page.getByRole('tab', { name: '模型定价', exact: true }).click()
+  await page.getByRole('tab', { name: '模型定价', exact: true }).press('ArrowRight')
+  assert.equal(await page.getByRole('tab', { name: '参考价格表', exact: true }).getAttribute('aria-selected'), 'true')
+  await page.getByRole('heading', { name: '已挂载的价格表', exact: true }).waitFor()
+  const referenceFilter = page.getByRole('searchbox', { name: '搜索已挂载价格' })
+  await referenceFilter.fill('stepfun step-5-preview')
+  await page.getByRole('button', { name: 'step-5-preview · 编辑价格', exact: true }).waitFor()
+  assert.equal(await page.locator('.cm-catalog-model').count(), 1)
+  assert.equal(await page.locator('.cm-price-card').count(), 0)
+  const beforeCatalog = await page.evaluate(() => window.patches.length)
+  await page.getByRole('button', { name: 'step-5-preview · 编辑价格', exact: true }).click()
+  assert.equal(await page.locator('.cm-price-card').count(), 1, 'only one selected reference editor mounts')
+  assert.equal(await page.evaluate(() => window.patches.length), beforeCatalog)
+  await page.screenshot({ path: join(output, 'reference-prices.png'), fullPage: true })
+  await page.goto(url + '?many=1'); await page.waitForFunction(() => window.fixtureReady)
+  await page.getByRole('tab', { name: '价格', exact: true }).click()
+  await page.locator('.cm-match-row').first().waitFor()
+  assert.equal(await page.locator('.cm-match-row').count(), 24, 'large model lists render only their first page')
+  await page.getByRole('button', { name: '显示更多 · 还有 476 个', exact: true }).click()
+  assert.equal(await page.locator('.cm-match-row').count(), 48)
+  const beforeFilter = await page.evaluate(() => window.priceResolutions)
+  await page.getByRole('searchbox', { name: '查找已用模型' }).fill('channel model-499')
+  assert.equal(await page.locator('.cm-match-row').count(), 1, 'filter searches models beyond the rendered page')
+  assert.ok((await page.locator('.cm-model-identity').textContent()).includes('model-499'))
+  assert.ok(await page.evaluate(before => window.priceResolutions - before < 24, beforeFilter), 'typing a filter reuses matching results instead of resolving all 500 models again')
+  assert.equal(await page.evaluate(() => window.patches.length), 0)
   assert.deepEqual(external, [], 'theme test sends no external requests')
   assert.deepEqual(errors, [], 'settings render without browser errors')
   writeFileSync(join(output, 'report.json'), JSON.stringify({ checks, baseline, errors, external }, null, 2) + '\n')
   console.log(JSON.stringify({ checks, selectionSaved: true, browserErrors: errors.length, externalRequests: external.length }))
 } catch (error) {
+  console.error(error)
+  console.error(await page.locator('.cm-repricing').evaluateAll(nodes => nodes.map(node => node.outerHTML)))
   console.error(JSON.stringify({ browserErrors: errors, styles: await page.evaluate(() => [...document.styleSheets].flatMap(sheet => [...sheet.cssRules].filter(rule => rule.selectorText?.includes('option')).map(rule => rule.cssText))), sample: await page.locator('select.cm-input').evaluateAll(selects => selects.map(select => ({html: select.outerHTML.slice(0, 180), background: getComputedStyle(select).backgroundColor, options: [...select.options].slice(0,2).map(option=>({html:option.outerHTML,color:getComputedStyle(option).color,background:getComputedStyle(option).backgroundColor}))}))) }))
   throw error
 } finally {

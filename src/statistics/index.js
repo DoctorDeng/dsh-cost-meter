@@ -21,15 +21,22 @@ window.__ModuleLoader__.load({
     }
     const bucketSpec = Object.fromEntries(fields.map(key => [key, number]))
     const buckets = object(bucketSpec)
-    const costRow = object({ provider: string, model: string, bucket: string, tokens: number, rate: number, cost: number, priced: boolean, plan: boolean })
+    const costRow = value => ({ ...object({ provider: string, model: string, bucket: string, tokens: number, rate: number, cost: number, priced: boolean, plan: boolean })(value), ...(value.requests === undefined ? {} : { requests: number(value.requests) }) })
+    const requestNames = text => ({ searchRequests: text('搜索请求', 'Search requests'), fetchRequests: text('抓取请求', 'Fetch requests') })
     const sessionId = v => string(v ?? '')
-    const callRow = object({ sessionId, logSeq: v => nullableNumber(v ?? null), kind: string, turn: nullableNumber, step: nullableNumber, provider: string, model: string, atMs: number, cost: number, apiCost: number, plan: boolean, priced: boolean, longContext: boolean, rows: array(costRow) })
+    const meteringRow = object({ source: string, requestId: string, attempt: number, complete: boolean, status: string, upstream: string })
+    const callBase = object({ sessionId, logSeq: v => nullableNumber(v ?? null), kind: string, turn: nullableNumber, step: nullableNumber, provider: string, model: string, atMs: number, cost: number, apiCost: number, plan: boolean, priced: boolean, longContext: boolean, rows: array(costRow) })
+    const callRow = value => {
+      const row = callBase(value)
+      if (value.metering != null) row.metering = meteringRow(value.metering)
+      return row
+    }
     const parseStatistics = object({ from: string, to: string, retainedFrom: string, retainedTo: string, totals: buckets,
       days: array(object({ ...bucketSpec, date: string })), models: array(object({ ...bucketSpec, key: string, provider: string, model: string, priced: boolean })),
       sessions: array(object({ ...bucketSpec, id: string, title: string })), providers: array(string), modelOptions: array(string),
       sessionCount: number, offset: number, unassignedCost: number, unmodeledCost: number })
-    const parseDetail = object({ found: boolean, cost: number, apiCost: number, rows: array(costRow), calls: array(callRow), totalCalls: number, offset: number, recorded: buckets, agents: v => array(object({ ...bucketSpec, id: string, title: string }))(v ?? []),
-      callShares: v => array(object({ index: number, cost: number, apiCost: number, tokens: number, calls: number, other: boolean, unpriced: boolean }))(v ?? []),
+    const parseDetailBase = object({ refreshing: v => boolean(v ?? false), generatedAt: v => number(v ?? 0), refreshFailed: v => boolean(v ?? false), found: boolean, cost: number, apiCost: number, rows: array(costRow), calls: array(callRow), totalCalls: number, offset: number, recorded: buckets, agents: v => array(object({ ...bucketSpec, id: string, title: string }))(v ?? []),
+      callShares: v => array(object({ index: number, cost: number, apiCost: number, tokens: number, calls: number, other: boolean, unpriced: boolean, call: v => v == null ? null : callRow(v) }))(v ?? []),
       kinds: array(object({ ...bucketSpec, kind: string, unpriced: boolean })), turns: array(object({ ...bucketSpec, sessionId, turn: nullableNumber, unpriced: boolean })), totalTurns: number, turnOffset: number,
       stepShares: object(Object.fromEntries(['cost', 'calls'].map(key => [key, array(object({ ...bucketSpec, sessionId, turn: nullableNumber, step: nullableNumber, other: boolean, unpriced: boolean }))]))) })
     const parseInspection = object({ found: boolean, turn: number, input: string, inputTruncated: boolean, totalTools: number, offset: number,
@@ -37,6 +44,7 @@ window.__ModuleLoader__.load({
     const parseCallInspection = v => ({ ...object({ found: boolean, kind: string, input: string, injected: string, skills: string, precedingTools: string, output: string, reasoning: string, truncated: boolean, totalTools: number, offset: number })(v), tools: parseInspection({ ...v, turn: 0, inputTruncated: false }).tools.map((tool, i) => ({ ...tool, durationMs: nullableNumber(v.tools[i].durationMs ?? null) })) })
     const contextKeys = ['system', 'tools', 'user', 'inject', 'skill', 'assistant', 'tool', 'other']
     const nonnegative = v => { if (number(v) < 0) throw new Error('Invalid context costs amount'); return v }
+    const parseDetail = v => ({ ...parseDetailBase(v), ...Object.fromEntries(['costCny', 'apiCostCny', 'costEur', 'apiCostEur'].filter(key => v[key] !== undefined).map(key => [key, number(v[key])])) })
     const contextRates = object(Object.fromEntries(['input', 'cacheRead', 'cacheWrite', 'output', 'reasoning'].map(key => [key, nonnegative])))
     const optionalRates = v => v === null ? null : contextRates(v)
     const parseContextCosts = object({ status: string, sessionId: string, generatedAt: number, revision: number, provider: string, model: string, basis: string,
@@ -49,13 +57,22 @@ window.__ModuleLoader__.load({
       return { sessionId }
     }
     const parseIntegration = object({ version: string, compatible: boolean, reason: string })
-    const parseTrajectory = object({ cost: number, apiCost: number, totalSteps: number, offset: number,
+    const trajectoryGroup = object({ key: string, kind: string, sessionId: v => string(v ?? ''), title: v => string(v ?? ''), tools: array(string), steps: number, calls: v => number(v ?? 0), cost: number, apiCost: number, unpriced: boolean,
+      parts: v => array(object({ bucket: string, cost: number, apiCost: number, tokens: number, unpriced: boolean }))(v ?? []) })
+    const parseTrajectory = object({ refreshing: v => boolean(v ?? false), generatedAt: v => number(v ?? 0), refreshFailed: v => boolean(v ?? false), cost: number, apiCost: number, totalSteps: number, totalCalls: v => number(v ?? 0), matchingSteps: v => v == null ? null : number(v), order: v => string(v ?? 'time'), offset: number,
       shares: array(object({ key: string, sessionId: string, turn: nullableNumber, step: nullableNumber, kind: string, tools: array(string), cost: number, apiCost: number, unpriced: boolean, other: boolean, count: number })),
-      groups: array(object({ key: string, kind: string, tools: array(string), steps: number, cost: number, apiCost: number, unpriced: boolean })),
-      steps: array(object({ key: string, sessionId: string, turn: nullableNumber, step: nullableNumber, kind: string, tools: array(string), atMs: number, calls: number, cost: number, apiCost: number, unpriced: boolean, rows: array(costRow) })) })
+      tiles: v => array(object({ key: string, groupKey: string, sessionId: string, turn: nullableNumber, step: nullableNumber, kind: string, tools: array(string), cost: number, apiCost: number, unpriced: boolean, other: boolean, count: number }))(v ?? []),
+      groups: array(trajectoryGroup),
+      operations: v => array(trajectoryGroup)(v ?? []), operationGroups: v => array(row => ({ ...trajectoryGroup(row), operationKey: string(row.operationKey) }))(v ?? []),
+      distribution: v => array(object({ key: string, steps: number, calls: number, cost: number, apiCost: number, unpriced: boolean }))(v ?? []),
+      hierarchy: v => array(object({ id: string, parentId: string, title: string, cost: number, apiCost: number, ownCost: number, ownApiCost: number, steps: number, calls: number, ownSteps: number, ownCalls: number, unpriced: v => boolean(v ?? false), groups: array(trajectoryGroup), operations: v => array(trajectoryGroup)(v ?? []) }))(v ?? []),
+      steps: array(object({ key: string, groupKey: v => string(v ?? ''), typeKey: v => string(v ?? ''), operationKey: v => string(v ?? ''), operationGroupKey: v => string(v ?? ''), sessionId: string, turn: nullableNumber, step: nullableNumber, kind: string, tools: array(string), atMs: number, calls: number, cost: number, apiCost: number, unpriced: boolean, rows: array(costRow), callRefs: v => array(callRow)(v ?? []) })) })
     const parseTrajectoryQuery = v => {
-      const q = { ...parseContextCostsQuery(v), basis: string(v.basis ?? 'total'), offset: number(v.offset ?? 0) }
-      if (!['api', 'plan', 'total'].includes(q.basis) || !Number.isSafeInteger(q.offset) || q.offset < 0 || q.offset > 1e7) throw new Error('Invalid step billing query')
+      const q = { ...parseContextCostsQuery(v), basis: string(v.basis ?? 'total'), offset: number(v.offset ?? 0), order: string(v.order ?? 'time'), group: string(v.group ?? ''), agent: string(v.agent ?? ''), background: boolean(v.background ?? false), generation: string(v.generation ?? '') }
+      Object.assign(q, { operation: string(v.operation ?? ''), operationGroup: string(v.operationGroup ?? ''), stepKey: string(v.stepKey ?? ''), detail: string(v.detail ?? 'full'), ownOnly: boolean(v.ownOnly ?? false) })
+      if (q.operation.length > 80 || q.operationGroup.length > 4096 || q.stepKey.length > 2048 || !['full', 'map'].includes(q.detail)) throw new Error('Invalid step category query')
+      if (!['api', 'plan', 'total'].includes(q.basis) || !['cost', 'time'].includes(q.order) || q.group.length > 1024 || q.agent.length > 512 || q.generation.length > 96 || !Number.isSafeInteger(q.offset) || q.offset < 0 || q.offset > 1e7) throw new Error('Invalid step billing query')
+      if (v.displayCurrency != null) { if (!['USD', 'CNY', 'EUR'].includes(v.displayCurrency)) throw Error('Invalid display currency'); q.displayCurrency = v.displayCurrency }
       return q
     }
     const parseInspectionQuery = value => {
@@ -66,12 +83,16 @@ window.__ModuleLoader__.load({
     const parseQuery = v => {
       const q = object({ from: string, to: string, provider: string, model: string, sessionId: string, basis: string, offset: number })(v)
       q.turnOffset = number(v.turnOffset ?? 0)
+      if (v.background != null) q.background = boolean(v.background)
+      if (v.generation != null) q.generation = string(v.generation)
       if (!['api', 'plan', 'total'].includes(q.basis) || ![q.offset, q.turnOffset].every(n => Number.isSafeInteger(n) && n >= 0 && n <= 1e7)) throw new Error('Invalid statistics query')
+      if (v.displayCurrency != null) { if (!['USD', 'CNY', 'EUR'].includes(v.displayCurrency)) throw Error('Invalid display currency'); q.displayCurrency = v.displayCurrency }
       return q
     }
     const parseCallInspectionQuery = v => {
       const q = { ...parseContextCostsQuery(v), seq: number(v.seq), atMs: number(v.atMs), offset: number(v.offset ?? 0) }
       if (![q.seq, q.offset].every(n => Number.isSafeInteger(n) && n >= 0) || q.offset > 1e7 || q.atMs <= 0) throw new Error('Invalid call inspection query')
+      if (v.displayCurrency != null) { if (!['USD', 'CNY', 'EUR'].includes(v.displayCurrency)) throw Error('Invalid display currency'); q.displayCurrency = v.displayCurrency }
       return q
     }
     const codec = (name, parse) => { const schema = { parse }; return { mode: 'strict', typeSymbol: 'dsh-cost-meter#' + name, schema, create: () => schema } }
@@ -87,7 +108,7 @@ window.__ModuleLoader__.load({
       }) }
 
     const css = `
-      .cm-stat{--cm-accent:var(--dsw-alias-state-business-primary,#4d6bfe);--cm-plan:var(--dsw-alias-label-tertiary,#8b9099);--cm-muted:var(--dsw-alias-label-tertiary,#858a94);--cm-border:var(--dsw-alias-border-l3,#e9eaed);--cm-surface:var(--dsw-alias-bg-layer-1,#f7f8fa);color:var(--dsw-alias-label-primary,#25262b);font-family:var(--ds-font-family-sans,inherit);font-size:13px;line-height:1.55;container-type:inline-size}
+      .cm-stat{--cm-label:var(--dsw-alias-label-primary,#25262b);--cm-bg:var(--dsw-alias-bg-base,#fff);--cm-accent:var(--dsw-alias-state-business-primary,#4d6bfe);--cm-plan:var(--dsw-alias-label-tertiary,#8b9099);--cm-muted:var(--dsw-alias-label-tertiary,#858a94);--cm-border:var(--dsw-alias-border-l3,#e9eaed);--cm-surface:var(--dsw-alias-bg-layer-1,#f7f8fa);color:var(--dsw-alias-label-primary,#25262b);font-family:var(--ds-font-family-sans,inherit);font-size:13px;line-height:1.55;container-type:inline-size}
       .cm-stat *{box-sizing:border-box}.cm-stat h2,.cm-stat h3,.cm-stat p{margin:0}.cm-stat h2{font-size:18px;font-weight:600;letter-spacing:0}.cm-stat h3{font-size:14px;font-weight:500}
       .cm-stat-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 18px}.cm-stat-sub{font-size:12px;color:var(--cm-muted)}
       .cm-stat button,.cm-stat select,.cm-stat input{font:inherit;color:inherit}.cm-stat button{cursor:pointer}.cm-stat button:disabled{cursor:default;opacity:.45}.cm-stat button:focus-visible,.cm-stat select:focus-visible,.cm-stat input:focus-visible{outline:2px solid var(--cm-accent);outline-offset:3px}
@@ -184,10 +205,11 @@ window.__ModuleLoader__.load({
     // Age controls network reuse, not whether a reopening must flash empty.
     // Queries include session, filters, currency rules and pagination separately.
     const requestCaches = new WeakMap()
+    const requestKey = query => JSON.stringify(Object.fromEntries(Object.entries(query).filter(([key]) => key !== 'generation')))
     function requestEntry(api, method, query) {
       let cache = requestCaches.get(api)
       if (!cache) requestCaches.set(api, cache = new Map())
-      const key = method + ':' + JSON.stringify(query)
+      const key = method + ':' + requestKey(query)
       let entry = cache.get(key)
       if (!entry) { entry = {}; cache.set(key, entry); if (cache.size > 32) cache.delete(cache.keys().next().value) }
       return entry
@@ -205,16 +227,20 @@ window.__ModuleLoader__.load({
       return task
     }
     function useRequest(api, method, query, revision) {
-      const key = JSON.stringify(query)
+      const key = requestKey(query)
       const [result, setResult] = useState(() => ({ ...requestValue(key, cachedValue(requestEntry(api, method, query), revision)), loading: true }))
       useEffect(() => {
-        let active = true
+        let active = true, timer
         setResult(previous => previous.key === key ? requestStart(previous, key) : { ...requestValue(key, cachedValue(requestEntry(api, method, query), revision)), loading: true })
-        readRequest(api, method, JSON.parse(key), revision).then(
-          value => { if (active) setResult(requestValue(key, value)) },
-          error => { if (active) setResult(previous => requestFailure(previous, key, error)) })
-        return () => { active = false }
-      }, [api, method, key, revision])
+        const read = force => readRequest(api, method, { ...JSON.parse(key), ...(query.generation != null ? { generation: query.generation } : {}) }, revision, force).then(
+          value => {
+            if (!active) return
+            setResult(requestValue(key, value))
+            if (value.refreshing) timer = setTimeout(() => read(true), 700)
+          }, error => { if (active) setResult(previous => requestFailure(previous, key, error)) })
+        read(false)
+        return () => { active = false; clearTimeout(timer) }
+      }, [api, method, key, revision, query.generation])
       // A prop change must not expose the previous conversation for one render.
       return result.key === key ? result : { ...requestValue(key, cachedValue(requestEntry(api, method, query), revision)), loading: true }
     }
@@ -244,6 +270,7 @@ window.__ModuleLoader__.load({
     const contextColors = ['#627bff', '#f6b64b', '#30c89c', '#ad78f5', '#fb8c6f', '#42b4f5', '#24bdc9', '#a0aec5'].map((color, i) => 'var(--cm-chart-' + i + ',' + color + ')')
     const bucketColors = { input: 0, cacheRead: 6, cacheWrite: 1, output: 5, reasoning: 3 }
     const spendCss = `
+      .cm-call-ranking h3{margin:0 0 10px}.cm-call-ranking .cm-call-rank-row{display:flex;align-items:center;gap:10px;width:100%;border:0;padding:7px 0;background:transparent;color:var(--cm-label);font:inherit;text-align:left;cursor:pointer}.cm-call-rank-row:hover .cm-call-rank-caption{color:var(--cm-accent)}.cm-call-rank-index{width:14px;flex:none;font-size:11px;color:var(--cm-muted);font-variant-numeric:tabular-nums}.cm-call-rank-main{min-width:0;flex:1}.cm-call-rank-caption{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-variant-numeric:tabular-nums}.cm-call-rank-caption>span:last-child{white-space:nowrap}.cm-call-rank-caption small{font-size:11px;color:var(--cm-muted);display:inline-block;min-width:45px;text-align:right;margin-left:8px}.cm-call-rank-track{display:block;height:5px;border-radius:8px;background:var(--cm-surface);overflow:hidden;margin-top:5px}.cm-call-rank-track i{height:100%;display:block;border-radius:8px;background:var(--cm-accent)}.cm-call-rank-footer,.cm-call-rank-rest{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--cm-muted);font-variant-numeric:tabular-nums}.cm-call-rank-footer{border-top:1px solid var(--cm-border);padding-top:10px;margin-top:8px}.cm-call-rank-rest{margin-top:5px}
       .cm-context-compact>.cm-plan-head{margin-bottom:10px}.cm-context-compact .cm-context-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.cm-context-compact .cm-context-current,.cm-context-compact .cm-plan-last{min-width:0;container-type:inline-size}.cm-context-compact .cm-plan-last{border:0;border-left:1px solid var(--cmp-border);padding:0 0 0 18px;margin:0}.cm-context-compact .cm-plan-summary{margin:10px 0;padding:8px 0;gap:8px}.cm-context-compact .cm-plan-amount{font-size:18px}.cm-context-compact .cm-cost-chart{margin-top:10px;gap:6px 10px}.cm-context-compact .cm-cost-legend{grid-template-columns:1fr}.cm-context-compact .cm-plan-sub{font-size:10px}.cm-context-compact .cm-plan-total{margin-top:6px!important}.cm-context-compact .cm-plan-note{grid-column:1/-1}
       @container(max-width:740px){.cm-context-compact .cm-context-columns{grid-template-columns:1fr}.cm-context-compact .cm-plan-last{border:0;border-top:1px solid var(--cmp-border);padding:12px 0 0}}
 
@@ -252,11 +279,11 @@ window.__ModuleLoader__.load({
       .cm-spend{margin:20px 0}.cm-spend-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.cm-spend-card{border:1px solid var(--cmp-border);border-radius:12px;padding:18px;container-type:inline-size;min-width:0}.cm-spend-card .cm-cost-legend{grid-template-columns:1fr}.cm-spend-card .cm-cost-chart{margin-bottom:0}.cm-spend-card h3{font-weight:500}.cm-cache-compare{border-top:1px solid var(--cmp-border);padding-top:16px;margin-top:20px}.cm-cache-compare h3{font-size:12px;margin-bottom:12px}.cm-cache-compare>div{margin-top:10px}.cm-spend>.cm-plan-sub{margin-top:10px}.cm-cost-key-amount{display:block;font-size:10px;font-weight:400;margin-top:3px;color:var(--cmp-muted);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.cm-cost-key-label{overflow-wrap:anywhere}.cm-call-share{display:inline-block;border-radius:5px;padding:1px 7px;margin-left:8px;background:var(--cm-surface);color:var(--cm-accent);font-size:11px;font-variant-numeric:tabular-nums}.cm-plan .cm-cost-key[data-active=true]{background:var(--dsw-alias-interactive-bg-hover,#f2f5fc)}
       @container(max-width:740px){.cm-spend-grid{grid-template-columns:1fr}}
     `
-    function CostBreakdown({ rows, total, label, text, onSelect, amounts = false }) {
+    function CostBreakdown({ rows, total, label, text, onSelect, amounts = false, ranked = false, centerValue }) {
       const [hovered, setHovered] = useState(''), [focused, setFocused] = useState('')
       const active = rows.find(row => row.key === (hovered || focused))
       const share = row => row.unpriced && row.value === 0 ? '—' : total > 0 ? pct(row.value, total) : '—'
-      const meta = row => row.meta ?? row.tokens.toLocaleString() + ' tokens'
+      const meta = row => row.meta ?? (row.tokens ?? 0).toLocaleString() + ' tokens'
       const inspect = row => ({ 'data-active': active?.key === row.key, onMouseEnter: () => setHovered(row.key), onMouseLeave: () => setHovered(''), onFocus: event => { if (event.currentTarget.matches(':focus-visible')) setFocused(row.key) }, onBlur: () => setFocused(''), onPointerDown: () => setFocused(''), onClick: () => onSelect?.(row), onKeyDown: event => { if (event.currentTarget.tagName.toLowerCase() === 'circle' && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onSelect?.(row) } } })
       let offset = 0
       const arcs = rows.filter(row => row.value > 0 && total > 0).map(row => {
@@ -267,8 +294,8 @@ window.__ModuleLoader__.load({
       })
       return el('div', { className: 'cm-cost-chart', 'aria-label': label, 'data-inspecting': !!active, onMouseLeave: () => setHovered('') },
         el('div', { className: 'cm-cost-donut' }, el('svg', { viewBox: '0 0 156 156', 'aria-label': label }, el('circle', { cx: 78, cy: 78, r: 61, fill: 'none', stroke: 'var(--cmp-bg)', strokeWidth: 16 }), ...arcs),
-          el('div', { className: 'cm-cost-center', 'aria-hidden': true }, el('b', null, active ? share(active) : total > 0 ? '100%' : '—'), el('small', null, active?.label ?? label))),
-        el('div', { className: 'cm-cost-legend' }, ...rows.map(row => el('button', { ...inspect(row), type: 'button', key: row.key, className: 'cm-cost-key', 'aria-label': row.label + ' ' + share(row) }, el('i', { className: 'cm-plan-dot', style: { background: row.color } }), el('span', { className: 'cm-cost-key-label' }, row.label, amounts ? el('small', { className: 'cm-cost-key-amount' }, row.amount) : null), el('span', { className: 'cm-cost-key-share' }, share(row))))),
+          el('div', { className: 'cm-cost-center', 'aria-hidden': true }, el('b', null, active ? share(active) : centerValue ?? (total > 0 ? '100%' : '—')), el('small', null, active?.label ?? label))),
+        el('div', { className: 'cm-cost-legend' }, ...rows.map(row => el('button', { ...inspect(row), type: 'button', key: row.key, className: 'cm-cost-key', 'aria-label': row.label + ' ' + share(row) }, el('i', { className: 'cm-plan-dot', style: { background: row.color } }), el('span', { className: 'cm-cost-key-label' }, row.label, amounts ? el('small', { className: 'cm-cost-key-amount' }, row.amount, row.caption ? ' · ' + row.caption : '') : null, ranked ? el('span', { className: 'cm-fee-share-track', 'aria-hidden': true }, el('i', { style: { width: (total > 0 ? row.value / total * 100 : 0) + '%', background: row.color } })) : null), el('span', { className: 'cm-cost-key-share' }, share(row))))),
         el('div', { className: 'cm-cost-inspect', role: 'status', 'aria-live': 'polite' }, active ? el(Fragment, null, el('strong', null, active.label), el('span', null, meta(active)), el('strong', null, active.amount)) : null))
     }
     function ContextCosts({ api, sessionId, revision = '', text = (zh, en) => en, money = value => '$' + value.toLocaleString('en-US', { maximumFractionDigits: 6 }), integrated = false, compact = false, expanded = false }) {
@@ -305,6 +332,7 @@ window.__ModuleLoader__.load({
         result.error ? el('p', { role: 'alert', className: 'cm-plan-error' }, result.error) : null, content)
       if (!data || data.status !== 'ready') return wrap(el('p', { className: 'cm-plan-note' }, !data
         ? result.error ? text('点击刷新重试。', 'Select Refresh to retry.') : text('正在读取当前上下文…', 'Reading current context…')
+        : data.status === 'busy' ? text('正在生成或摘要，完成后自动更新上下文费用。', 'Generation or compaction is running. Context costs refresh after it finishes.')
         : data.status === 'route-unavailable' ? text('完成一次请求后，可显示该模型的上下文费用。', 'Complete a request to see context costs at that model’s rates.')
           : data.status === 'session-unavailable' ? text('打开此会话后可读取当前上下文。', 'Open this conversation to read its current context.')
             : text('当前宿主未提供上下文测量；已发生费用仍可在费用明细中查看。', 'Context measurement is unavailable on this host. Recorded costs remain available in billing details.')))
@@ -318,6 +346,10 @@ window.__ModuleLoader__.load({
         el('div', { className: 'cm-context-current' }, el('p', { className: 'cm-plan-sub' }, data.provider + ' / ' + data.model),
         el('div', { className: 'cm-plan-summary' }, el('div', null, el('div', { className: 'cm-plan-sub' }, text('当前上下文', 'Current context')), el('div', { className: 'cm-plan-amount' }, '≈ ' + countText(data.contextTokens) + ' tokens')),
           el('div', null, el('div', { className: 'cm-plan-sub' }, data.basis === 'plan' ? text('Plan 输入等值', 'Plan input equivalent') : text('非缓存输入估算', 'Uncached input estimate')), el('div', { className: 'cm-plan-amount' }, costText(breakdown.cost)))),
+        el('p', { className: 'cm-plan-note' }, text('按当前上下文全部作为非缓存输入发送一次估算，不含缓存折扣和输出费用，也不是本会话累计费用。', 'Estimates one send of the current context as uncached input, excluding cache discounts and output costs. This is not the session total.')),
+        el('p', { className: 'cm-plan-sub' }, data.source === 'usage'
+          ? text('总量按提供商最近用量及后续上下文变化校准；各部分 Token 和费用按组成比例估算，不代表压缩后的逐段实际用量。', 'The total follows reported usage plus subsequent context changes. Component tokens and costs are proportional estimates, not measured post-compression usage for each part.')
+          : text('总量及各部分均为本地估算，尚无可用的提供商用量校准。', 'The total and components are local estimates without an available provider-usage anchor.')),
         el(CostBreakdown, { rows: breakdown.parts.filter(row => row.tokens > 0).map(row => ({ key: row.key, label: names[contextKeys.indexOf(row.key)], tokens: Math.round(row.tokens), value: priced ? row.cost : row.tokens, amount: costText(row.cost), color: contextColors[contextKeys.indexOf(row.key)] })), total: priced ? breakdown.cost : data.contextTokens, label: priced ? text('参考费用占比', 'Reference cost share') : text('Token 占比', 'Token share'), text }),
         el('details', { className: 'cm-cost-table', open: expanded }, el('summary', null, text('各部分计费', 'Component costs')), el('ul', { className: 'cm-plan-parts' }, ...breakdown.parts.filter(row => row.tokens > 0).map(row => {
           const index = contextKeys.indexOf(row.key)
@@ -346,16 +378,18 @@ window.__ModuleLoader__.load({
         return function ContextCostBridge(props) {
           if (localeStore) React.useSyncExternalStore(localeStore.subscribe, getLocale)
           const container = useRef(null), [target, setTarget] = useState(null)
-          const composition = props.useProjection?.('contextBreakdown'), usage = props.useProjection?.('tokenUsage')
-          const revision = JSON.stringify([composition, usage])
+          const composition = props.useProjection?.('contextBreakdown'), usage = props.useProjection?.('tokenUsage'), pressure = props.useProjection?.('contextPressure')
+          const revision = JSON.stringify([composition, usage, pressure])
           useEffect(() => {
             const scope = Original ? container.current : container.current?.closest('[data-conversation-session]')
             if (!scope || (!Original && scope.dataset.conversationSession !== props.sessionId) || typeof MutationObserver !== 'function') return
             const node = document.createElement('div'); node.className = 'cm-plan-host'; node.dataset.cmContextCosts = ''
+            let currentCard = null
             const sync = () => {
+              if (node.isConnected && currentCard?.matches('[data-lc-current]') && scope.contains(currentCard)) return
               const card = Original ? scope.querySelector('[data-lc-current]') : [...scope.querySelectorAll('[data-slot="conversation.view"] [data-lc-current]')].find(card => card.closest('[data-conversation-session]') === scope)
               if (!card) { node.remove(); setTarget(null); return }
-              if (node.parentElement !== card) { card.appendChild(node); setTarget(node) }
+              if (node.parentElement !== card) { currentCard = card; card.appendChild(node); setTarget(node) }
             }
             const observer = new MutationObserver(sync)
             observer.observe(scope, { childList: true, subtree: true }); sync()
@@ -468,15 +502,15 @@ window.__ModuleLoader__.load({
       }
       disposers.push(store.subscribe(reconcile))
       if (supported) for (const [name] of contextTargets) disposers.push(slots.subscribe(name, () => void check()))
-      const visible = () => { if (!document.hidden) void check(true) }
-      document.addEventListener('visibilitychange', visible)
+      const onVisibility = () => { if (!document.hidden) void check(true) }
+      document.addEventListener('visibilitychange', onVisibility)
       const storage = event => { if (event.key === introKey && event.newValue === '1' && !shown) { shown = true; emit({ prompt: false }); reconcile() } }
       window.addEventListener('storage', storage)
       void check(); reconcile()
       const dismiss = () => choose(state.manual ? store.getSnapshot().state?.config?.contextCostsEnabled === true : false, true)
       return { getSnapshot: () => state, subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) }, choose, dismiss, opened,
         preview: () => emit({ prompt: true, manual: true }), refresh: () => void check(true),
-        dispose: () => { active = false; ++checkId; for (const dispose of disposers) dispose(); bridge?.(); listeners.clear(); document.removeEventListener('visibilitychange', visible); window.removeEventListener('storage', storage) } }
+        dispose: () => { active = false; ++checkId; for (const dispose of disposers) dispose(); bridge?.(); listeners.clear(); document.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('storage', storage) } }
     }
 
     const introCss = `
@@ -503,6 +537,44 @@ window.__ModuleLoader__.load({
             el('div', { className: 'cm-context-preview-extra' }, el('p', null, text('最近一次调用', 'Latest call')), el('div', { className: 'cm-context-preview-row' }, el('span', null, text('输入 $0.012 · 输出 $0.004', 'Input $0.012 · output $0.004'))),
               el('p', { className: 'cm-context-muted' }, text('用量计费合计 $0.016', 'Usage-based total $0.016')))) : null))
     }
+    function BillionCompatibilityNotice({ meter, locale }) {
+      const ref = useRef(null), [dismissed, setDismissed] = useState('')
+      const id = meter?.noticeId ?? '', storageKey = 'dsh-cost-meter:billion-compatibility:' + id
+      const text = (zh, en) => locale === 'en' ? en : zh
+      let seen = dismissed === id
+      try { seen ||= window.localStorage.getItem(storageKey) === 'seen' } catch {}
+      const visible = id && !seen && ['needs_update', 'changed', 'bridge_missing'].includes(meter.compatibility)
+      const dismiss = () => { try { window.localStorage.setItem(storageKey, 'seen') } catch {}; setDismissed(id) }
+      useEffect(() => {
+        const node = ref.current
+        if (!visible || !node) return
+        let opened = false, previous
+        const show = () => {
+          if (opened || document.hidden || [...document.querySelectorAll('dialog[open],[aria-modal="true"]')].some(other => other !== node && other.getClientRects().length)) return
+          try { previous = document.activeElement; node.showModal(); node.querySelector('button')?.focus(); opened = true } catch {}
+        }
+        let timer
+        const attempt = () => { show(); if (!opened && !document.hidden) timer = setTimeout(attempt, 1000) }
+        const onVisibility = () => { clearTimeout(timer); if (!document.hidden && !opened) attempt() }
+        attempt(); document.addEventListener('visibilitychange', onVisibility)
+        return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility); if (node.open) node.close(); if (opened && previous?.isConnected) previous.focus?.({ preventScroll: true }) }
+      }, [id, !!visible])
+      if (!visible) return null
+      return el('dialog', { ref, className: 'cm-billion-notice', 'aria-labelledby': 'cm-billion-title', 'aria-describedby': 'cm-billion-description',
+        onCancel: event => { event.preventDefault(); dismiss() } },
+        el('style', null, '.cm-billion-notice{box-sizing:border-box;width:min(500px,calc(100vw - 32px));padding:24px;border:1px solid var(--dsw-alias-border-l1,#8885);border-radius:14px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#25262b);font:13px/1.6 system-ui;box-shadow:0 18px 70px #0003}.cm-billion-notice::backdrop{background:#0005}.cm-billion-notice h2{margin:0 0 12px;font-size:16px}.cm-billion-notice footer{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:20px}.cm-billion-notice a{color:var(--dsw-alias-state-business-primary,#4d6bfe)}.cm-billion-notice button{margin-left:auto;padding:6px 14px;border:1px solid var(--dsw-alias-border-l1,#8885);border-radius:7px;background:transparent;color:inherit;cursor:pointer}'),
+        el('h2', { id: 'cm-billion-title' }, text('billion-context 计费兼容提醒', 'billion-context billing compatibility')),
+        el('p', { id: 'cm-billion-description' }, meter.compatibility === 'needs_update'
+          ? text('检测到 billion-context ', 'Detected billion-context ') + meter.version + text('。请更新到 0.1.181 或更新版本，再接入完整内部计费。', '. Update to 0.1.181 or later for complete internal billing.')
+          : meter.compatibility === 'changed'
+            ? text('检测到 billion-context 计费接口变化，内部费用尚未完整采集。请到交流群反馈，或提交 issue，以便更新接入。', 'The billion-context metering interface has changed. Internal cost coverage is incomplete. Report this in the community group or open an issue so the integration can be updated.')
+            : text('原版 billion-context 的自动计费接入尚未完成。更新费用插件后请完全重启 DSH，让新启动的本地代理接入计费；仍有问题时，到交流群反馈或提交 issue。', 'Automatic billing for the original billion-context package is not connected. Fully restart DSH after updating cost-meter so its local proxy starts with metering. If the problem persists, contact the community group or open an issue.')),
+        el('p', null, text('反馈时请附 billion-context、费用插件及 DSH 的版本。', 'Include the billion-context, cost-meter and DSH versions in your report.')),
+        el('footer', null,
+          el('a', { href: 'https://github.com/Han-1413141/dsh-cost-meter/blob/master/README.zh-CN.md#交流与反馈', target: '_blank', rel: 'noopener noreferrer', onClick: dismiss }, text('加入交流群', 'Community group')),
+          el('a', { href: 'https://github.com/Han-1413141/dsh-cost-meter/issues/new?template=bug_report.yml', target: '_blank', rel: 'noopener noreferrer', onClick: dismiss }, text('提交 issue', 'Open an issue')),
+          el('button', { type: 'button', autoFocus: true, onClick: dismiss }, text('知道了', 'Dismiss'))))
+    }
     function ContextPrompt({ manager, getLocale }) {
       const state = React.useSyncExternalStore(manager.subscribe, manager.getSnapshot), ref = useRef(null)
       const text = (zh, en) => getLocale() === 'en' ? en : zh
@@ -516,9 +588,11 @@ window.__ModuleLoader__.load({
           if (!state.manual && [...document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"],.lc-modal-backdrop')].some(node => node !== dialog && node.getClientRects().length)) return
           try { previousFocus = document.activeElement; dialog.showModal(); opened = true; manager.opened() } catch { /* another UI transition: retry while this one prompt is pending */ }
         }
-        show()
-        const timer = setInterval(show, 1000)
-        return () => { active = false; clearInterval(timer); if (dialog.open) dialog.close(); if (opened && previousFocus?.isConnected) previousFocus.focus?.({ preventScroll: true }) }
+        let timer
+        const attempt = () => { show(); if (!opened && !document.hidden) timer = setTimeout(attempt, 1000) }
+        const onVisibility = () => { clearTimeout(timer); if (!document.hidden && !opened) attempt() }
+        attempt(); document.addEventListener('visibilitychange', onVisibility)
+        return () => { active = false; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility); if (dialog.open) dialog.close(); if (opened && previousFocus?.isConnected) previousFocus.focus?.({ preventScroll: true }) }
       }, [state.prompt, state.manual, manager])
       if (!state.prompt) return null
       return el('dialog', { ref, className: 'cm-context-intro', 'aria-labelledby': 'cm-context-intro-title', 'aria-describedby': 'cm-context-intro-description',
@@ -646,118 +720,416 @@ window.__ModuleLoader__.load({
           data.truncated ? el('span', { className: 'cm-stat-truncated' }, text('长文本显示前 16,000 字符', 'Long text limited to 16,000 characters')) : null))
     }
 
-    function CallDetail({ call, sessionId, api, revision, money, text, names }) {
+    function CallDetail({ call, sessionId, api, revision, money, text, names, compact = false }) {
       const [view, setView] = useState('output')
-      const rows = call.rows.filter(row => row.tokens > 0)
-      const chartRows = rows.filter(row => row.bucket !== 'reasoning' || row.cost > 0 || !row.priced).map(row => ({ key: row.bucket, label: names[row.bucket], tokens: row.tokens,
+      const rows = call.rows.filter(row => row.tokens > 0 || row.requests > 0)
+      const chartRows = rows.filter(row => row.bucket !== 'reasoning' || row.cost > 0 || !row.priced).map(row => ({ key: row.bucket, label: names[row.bucket] ?? requestNames(text)[row.bucket], tokens: row.tokens, ...(row.requests ? { meta: row.requests + text(' 次请求', ' requests') } : {}),
         value: row.cost, unpriced: !row.priced, amount: row.priced ? money(row.cost) : text('未定价', 'Unpriced'), color: contextColors[bucketColors[row.bucket] ?? 7] }))
-      return el('div', { className: 'cm-call-detail-grid' }, el('style', null, `
+      return el('div', { className: 'cm-call-detail-grid' + (compact ? ' cm-call-compact' : '') }, el('style', null, `
         .cm-call-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:18px;margin-top:12px;align-items:start}
         .cm-call-bill{min-width:0;container-type:inline-size}.cm-call-bill .cm-stat-value{font-size:22px}.cm-call-bill .cm-cost-chart{margin:10px 0 0}.cm-call-bill .cm-stat-table{font-size:11px}.cm-call-bill .cm-stat-table td,.cm-call-bill .cm-stat-table th{padding:8px 6px}.cm-call-bill .cm-stat-table td{font-variant-numeric:tabular-nums;white-space:nowrap}
         .cm-call-content{min-width:0;padding:12px;margin:0}.cm-call-content .cm-session-tabs{margin-bottom:10px}.cm-call-content .cm-stat-pre{max-height:220px;font-size:12px;margin-bottom:8px}.cm-call-content .cm-stat-tool{padding:8px 0}.cm-call-content .cm-stat-tool>summary{color:var(--dsw-alias-label-primary)}.cm-call-tool-parts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:10px;margin-top:10px}.cm-call-tool-parts>div{min-width:0}
         @container(max-width:850px){.cm-call-detail-grid{grid-template-columns:1fr}.cm-call-tool-parts{grid-template-columns:1fr}}
+        .cm-call-compact{grid-template-columns:1fr;gap:12px;margin-top:0}.cm-call-compact .cm-call-bill{padding:0;border:0}.cm-call-compact .cm-call-bill .cm-stat-value{font-size:20px}.cm-call-compact .cm-call-bill .cm-stat-panel-head{margin:0}.cm-call-compact .cm-call-bill .cm-stat-sub{font-size:11px;margin:3px 0 8px}.cm-call-compact .cm-call-content{padding:0;border:0}.cm-call-compact .cm-call-content .cm-stat-pre{max-height:320px}.cm-call-compact .cm-call-bill .cm-stat-table td,.cm-call-compact .cm-call-bill .cm-stat-table th{padding:5px 6px}
       `),
         el('section', { className: 'cm-plan cm-call-bill', 'aria-label': text('本次计费明细', 'Call billing breakdown') },
           el('div', { className: 'cm-stat-panel-head' }, el('h3', null, call.plan ? text('Plan 等值费用', 'Plan equivalent') : text('API 费用', 'API cost')), el('strong', { className: 'cm-stat-value' }, call.priced ? money(call.cost) : '?')),
-          el('p', { className: 'cm-stat-sub' }, new Date(call.atMs).toLocaleString()),
-          el(CostBreakdown, { rows: chartRows, total: call.cost, label: text('本次费用构成', 'This call’s costs'), text, amounts: true, onSelect: row => setView(['output', 'reasoning'].includes(row.key) ? 'output' : 'input') }),
-          el('div', { className: 'cm-stat-scroll' }, el('table', { className: 'cm-stat-table' },
-            el('thead', null, el('tr', null, ...[text('计费项目', 'Component'), 'Tokens', text('单价 / 百万', 'Rate / 1M'), text('金额', 'Cost'), text('占比', 'Share')].map(label => el('th', { key: label }, label)))),
+          el('p', { className: 'cm-stat-sub' }, call.provider + ' / ' + call.model + ' · ' + new Date(call.atMs).toLocaleString()),
+          call.metering ? el('p', { className: 'cm-stat-note' }, 'billion-context · ' + call.metering.upstream
+            + (call.metering.attempt > 1 ? text(' · 重试 ', ' · Retry ') + call.metering.attempt : '')
+            + (!call.metering.complete ? text(' · 仅含已收到的用量，未知费用未估补', ' · observed usage only; unknown charges are not inferred') : '')) : null,
+          !compact ? el(CostBreakdown, { rows: chartRows, total: call.cost, label: text('本次费用构成', 'This call’s costs'), text, amounts: true, onSelect: row => setView(['output', 'reasoning'].includes(row.key) ? 'output' : 'input') }) : null,
+          el('div', { className: 'cm-stat-scroll cm-step-rates' }, el('table', { className: 'cm-stat-table' },
+            el('thead', null, el('tr', null, ...[text('计费项目', 'Component'), text('用量', 'Usage'), rows.some(row => row.requests) ? text('单价 / 次', 'Rate / request') : text('单价 / 百万', 'Rate / 1M'), text('金额', 'Cost'), text('占比', 'Share')].map(label => el('th', { key: label }, label)))),
             el('tbody', null, ...rows.map(row => { const included = row.bucket === 'reasoning' && row.priced && row.rate === 0; return el('tr', { key: row.bucket },
-              el('td', null, names[row.bucket]), el('td', null, row.tokens.toLocaleString()), el('td', null, row.priced ? money(row.rate) : '?'),
+              el('td', null, names[row.bucket] ?? requestNames(text)[row.bucket]), el('td', null, row.requests ? row.requests + text(' 次', ' requests') : row.tokens.toLocaleString() + ' tokens'), el('td', null, row.priced ? money(row.rate) + (row.requests ? text(' / 次', ' / request') : ' / 1M') : '?'),
               el('td', null, included ? text('未单独计费', 'No separate charge') : row.priced ? money(row.cost) : '?'), el('td', null, row.priced && !included ? pct(row.cost, call.cost) : '—')) }))))),
         call.logSeq != null ? el(CallInspection, { api, sessionId: call.sessionId || sessionId, seq: call.logSeq, atMs: call.atMs, revision, text, view, onViewChange: setView })
           : el('p', { className: 'cm-stat-sub' }, text('未保存调用内容', 'Call content not stored')))
     }
 
-    function StepCosts({ api, sessionId, revision, money, text, basis, composition, detailed = false }) {
-      const [offset, setOffset] = useState(0), [pages, setPages] = useState([]), [expanded, setExpanded] = useState(''), [collapsed, setCollapsed] = useState([]), [individualOpen, setIndividualOpen] = useState(false), [retry, setRetry] = useState(0)
-      const result = useRequest(api, 'getSessionTrajectory', { sessionId, offset, basis }, revision + ':' + retry)
-      useEffect(() => { setOffset(0); setPages([]); setExpanded(''); setCollapsed([]) }, [sessionId, revision, basis])
-      useEffect(() => { if (result.value?.offset === offset) setPages(previous => offset === 0 ? result.value.steps : [...new Map([...previous, ...result.value.steps].map(row => [row.key, row])).values()]) }, [result.value, offset])
-      const value = result.value
-      const names = { input: text('输入', 'Input'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), output: text('输出', 'Output'), reasoning: text('推理', 'Reasoning') }
-      const kindName = kind => ({ model: text('模型调用', 'Model calls'), compaction: text('上下文压缩', 'Compaction'), search: text('原生搜索', 'Native search') })[kind] ?? kind
-      const selectedRows = row => row.rows.filter(r => basis === 'total' || (basis === 'plan' ? r.plan : !r.plan))
-      const bucketCost = (row, buckets) => {
-        const parts = selectedRows(row).filter(r => buckets.includes(r.bucket))
-        return money(parts.reduce((n, r) => n + r.cost, 0)) + (parts.some(r => !r.priced) ? ' + ?' : '')
+    const feeKinds = (text) => ({ read: text('读取文件', 'Read files'), 'local-search': text('本地检索', 'Local search'), write: text('文件修改', 'File changes'), command: text('命令执行', 'Commands'), tool: text('其他工具', 'Other tools'), model: text('模型回复', 'Model responses'), search: text('网页搜索', 'Web search'), fetch: text('网页抓取', 'Web fetch'), compaction: text('上下文压缩', 'Compaction'), coordination: text('代理协作', 'Agent coordination'), 'multi-tool': text('多类工具', 'Mixed tools'), 'other-tools': text('其他工具调用', 'Other tools'), other: text('其他调用', 'Other calls') })
+    const compactFee = value => value.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')
+    const feeShare = (value, total) => value > 0 && total > 0 && value / total < .001 ? '<0.1%' : pct(value, total)
+    const feeColorKey = row => row.kind === 'subagent' ? 'agent:' + row.sessionId : 'type:' + row.kind + ':' + row.tools.join('|')
+    function feeColors(value) {
+      const keys = new Set([...value.groups, ...(value.operations ?? [])].map(feeColorKey))
+      for (const actor of value.hierarchy) {
+        keys.add('agent:' + actor.id)
+        for (const row of actor.groups) keys.add(feeColorKey(row))
       }
-      if (!value) return el('p', { className: 'cm-stat-sub' }, result.error || text('读取步骤费用…', 'Reading step costs…'), result.error ? button(text('重试', 'Retry'), () => setRetry(n => n + 1)) : null)
+      const palette = ['#627bff', '#f6b64b', '#30c89c', '#ad78f5', '#fb8c6f', '#42b4f5', '#24bdc9', '#e576a8', '#9abd3a', '#9c83d9', '#c28b4c', '#368fc7']
+      const colors = new Map(), used = new Set()
+      for (const key of [...keys].sort()) {
+        if (key.startsWith('type:other-tools:')) { colors.set(key, '#a0aec5'); continue }
+        let hash = 2166136261
+        for (const char of key) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0
+        let color = palette[hash % palette.length], attempt = 0
+        while (used.has(color) && attempt < palette.length) color = palette[(hash + ++attempt) % palette.length]
+        if (used.has(color)) color = `hsl(${(hash % 36000 / 100).toFixed(2)} 68% ${56 + hash % 6}%)`
+        colors.set(key, color); used.add(color)
+      }
+      return colors
+    }
+
+    /** Area is allocated to complete category totals, independent of the loaded rank page. */
+    function feeRectangles(nodes, x, y, width, height) {
+      const values = nodes.filter(node => node.value > 0).sort((a, b) => b.value - a.value || a.key.localeCompare(b.key))
+      if (!values.length || width <= 0 || height <= 0) return []
+      if (values.length === 1) return [{ ...values[0], x, y, width, height }]
+      const total = values.reduce((sum, row) => sum + row.value, 0)
+      let split = 1, sum = values[0].value
+      while (split < values.length - 1 && Math.abs(sum + values[split].value - total / 2) < Math.abs(sum - total / 2)) sum += values[split++].value
+      const fraction = sum / total
+      return width >= height
+        ? [...feeRectangles(values.slice(0, split), x, y, width * fraction, height), ...feeRectangles(values.slice(split), x + width * fraction, y, width * (1 - fraction), height)]
+        : [...feeRectangles(values.slice(0, split), x, y, width, height * fraction), ...feeRectangles(values.slice(split), x, y + height * fraction, width, height * (1 - fraction))]
+    }
+
+    function FeeTreemap({ value, basis, colors, actorName, groupName, money, text, onSelect }) {
+      const root = useRef(null), [width, setWidth] = useState(720), [focus, setFocus] = useState(''), [hovered, setHovered] = useState(null), [grouping, setGrouping] = useState('operation')
       const total = amount(value, basis)
-      const rows = value.shares.map((row, i) => ({ key: row.key,
-        label: row.other ? text('其余 ', 'Other ') + row.count + text(' 步', ' steps') : (row.sessionId !== sessionId ? text('子代理 · ', 'Subagent · ') : '') + (row.turn == null ? kindName(row.kind) : text('轮次 ', 'Turn ') + row.turn + (row.step == null ? '' : text(' · 步骤 ', ' · step ') + row.step)),
-        value: amount(row, basis), amount: money(amount(row, basis)) + (row.unpriced ? ' + ?' : ''), meta: row.tools.join(' + ') || kindName(row.kind), unpriced: row.unpriced, color: contextColors[row.other ? 7 : i % 7] }))
-      const shown = pages.length ? pages : value.steps
-      const isOpen = row => detailed ? !collapsed.includes(row.key) : expanded === row.key
-      const toggle = row => detailed ? setCollapsed(previous => previous.includes(row.key) ? previous.filter(key => key !== row.key) : [...previous, row.key]) : setExpanded(expanded === row.key ? '' : row.key)
-      if (detailed) return el('section', { className: 'cm-step-cards cm-plan', 'aria-label': text('逐步费用明细', 'Cost details by step') }, el('style', null, `
-        .cm-step-cards .cm-trajectory-pie{border:1px solid var(--cm-border);border-radius:12px;padding:14px;margin-bottom:12px}.cm-step-cards .cm-trajectory-pie .cm-cost-chart{grid-template-columns:180px minmax(0,1fr);gap:8px 20px;align-items:center}.cm-step-cards .cm-trajectory-pie .cm-cost-donut{width:180px;height:180px}.cm-step-cards .cm-trajectory-pie .cm-cost-center{inset:47px 30px}.cm-step-cards .cm-trajectory-pie .cm-cost-legend{grid-template-columns:repeat(2,minmax(0,1fr))}.cm-individual-steps>summary{padding:8px 0;font-size:13px}.cm-step-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.cm-step-fee-card{border:1px solid var(--cm-border);border-radius:12px;padding:12px;min-width:0;container-type:inline-size}.cm-step-fee-head{display:flex;justify-content:space-between;gap:8px;align-items:start}.cm-step-fee-head .cm-step-name{border:0;background:transparent;padding:0;text-align:left;font-size:12px;font-weight:500;min-width:0}.cm-step-fee-head small{display:block;margin-top:3px;overflow-wrap:anywhere;color:var(--cm-muted);font-size:10px;font-weight:400}.cm-step-fee-head strong{font-size:15px;font-weight:500;font-variant-numeric:tabular-nums}.cm-step-cards .cm-cost-chart{grid-template-columns:104px minmax(0,1fr);gap:5px 12px;margin:8px 0}.cm-step-cards .cm-cost-donut{width:104px;height:104px}.cm-step-cards .cm-cost-center{inset:25px 12px}.cm-step-cards .cm-cost-center b{font-size:19px}.cm-step-cards .cm-cost-legend{grid-template-columns:1fr;gap:2px}.cm-step-cards .cm-cost-key{padding:3px 4px;font-size:11px}.cm-step-cards .cm-cost-inspect{min-height:16px}.cm-step-cards .cm-stat-table td,.cm-step-cards .cm-stat-table th{font-size:10px;padding:6px 4px}.cm-step-cards .cm-step-rates{border-top:1px solid var(--cm-border)}.cm-step-cards .cm-step-rates td:not(:first-child){white-space:nowrap}.cm-step-cards .cm-step-more{text-align:center;margin-top:10px}
-        @container(max-width:720px){.cm-step-card-grid{grid-template-columns:1fr}.cm-step-cards .cm-trajectory-pie .cm-cost-chart{grid-template-columns:120px minmax(0,1fr);gap:6px}.cm-step-cards .cm-trajectory-pie .cm-cost-donut{width:120px;height:120px}.cm-step-cards .cm-trajectory-pie .cm-cost-center{inset:30px 18px}.cm-step-cards .cm-trajectory-pie .cm-cost-legend{grid-template-columns:1fr}}
-      `), result.error ? el('p', { className: 'cm-stat-error' }, result.error) : null,
-        el('section', { className: 'cm-trajectory-pie', 'aria-label': text('轨迹步骤费用占比', 'Trajectory step cost shares') }, el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('轨迹步骤费用占比', 'Trajectory step cost shares')), el('span', { className: 'cm-stat-sub' }, value.totalSteps + text(' 步 · ', ' steps · ') + money(total))),
-          el(CostBreakdown, { rows, total, label: text('总费用占比', 'Total cost share'), text, amounts: true })),
-        el('details', { className: 'cm-individual-steps', open: individualOpen, onToggle: event => { if (event.target === event.currentTarget) setIndividualOpen(event.currentTarget.open) } }, el('summary', null, text('逐步费用明细', 'Individual step details') + ' · ' + value.totalSteps),
-        individualOpen ? el('div', { className: 'cm-step-card-grid' }, ...shown.map(row => {
-          const parts = new Map()
-          for (const r of selectedRows(row)) {
-            if (r.bucket === 'reasoning' && r.priced && r.cost === 0) continue
-            const p = parts.get(r.bucket) ?? { key: r.bucket, label: names[r.bucket] ?? r.bucket, value: 0, tokens: 0, unpriced: false, color: contextColors[bucketColors[r.bucket] ?? 7] }
-            p.value += r.cost; p.tokens += r.tokens; p.unpriced ||= !r.priced; parts.set(r.bucket, p)
-          }
-          return el('article', { className: 'cm-step-fee-card', key: row.key }, el('div', { className: 'cm-step-fee-head' },
-            el('button', { type: 'button', className: 'cm-step-name', 'aria-expanded': isOpen(row), onClick: () => toggle(row) },
-              (isOpen(row) ? '⌄ ' : '› ') + (row.sessionId !== sessionId ? text('子代理 · ', 'Subagent · ') : '') + (row.turn == null ? kindName(row.kind) : text('轮次 ', 'Turn ') + row.turn + (row.step == null ? '' : text(' · 步骤 ', ' · step ') + row.step)),
-              el('small', null, row.tools.length ? row.tools.join(' + ') : kindName(row.kind))),
-            el('div', { style: { textAlign: 'right' } }, el('strong', null, money(amount(row, basis)) + (row.unpriced ? ' + ?' : '')), el('small', null, pct(amount(row, basis), total) + text(' 会话费用', ' of session cost')))),
-            el(CostBreakdown, { rows: [...parts.values()].map(p => ({ ...p, amount: money(p.value) + (p.unpriced ? ' + ?' : '') })), total: amount(row, basis), label: text('本步费用', 'Step cost'), text, amounts: true }),
-            isOpen(row) ? el('div', { className: 'cm-step-rates cm-stat-scroll' }, el('table', { className: 'cm-stat-table' }, el('thead', null, el('tr', null, ...[text('计费项目', 'Billing item'), 'Tokens', text('单价 / 百万', 'Rate / million'), text('金额', 'Cost')].map(label => el('th', { key: label }, label)))),
-              el('tbody', null, ...selectedRows(row).map((r, i) => el('tr', { key: i }, el('td', { title: r.provider + ' / ' + r.model }, names[r.bucket] ?? r.bucket), el('td', null, r.tokens.toLocaleString()), el('td', null, r.priced ? money(r.rate) : '—'), el('td', null, r.priced ? money(r.cost) : text('未定价', 'Unpriced'))))))) : null)
-        })) : null), individualOpen && shown.length < value.totalSteps ? el('div', { className: 'cm-step-more' }, button(result.loading ? text('读取中…', 'Loading…') : text('展开更多步骤', 'Show more steps'), () => setOffset(offset + 100), { disabled: result.loading })) : null)
-      return el('section', { className: 'cm-step-costs cm-plan', 'aria-label': text('步骤计费', 'Step billing') }, el('style', null, `
-        .cm-stat-session .cm-step-costs{margin:6px 0}.cm-step-costs .cm-step-name{border:0!important;padding:0!important;background:transparent!important;flex-direction:row!important;align-items:center;gap:8px!important}.cm-step-costs .cm-step-name small{max-width:150px!important}.cm-step-cost-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}.cm-step-cost-grid>section{min-width:0}.cm-step-cost-grid>section:last-child{grid-column:1/-1}.cm-step-costs .cm-spend-card{padding:12px!important}.cm-step-costs .cm-cost-chart{grid-template-columns:98px minmax(0,1fr);gap:4px 8px;margin-top:8px}.cm-step-costs .cm-cost-donut{width:98px;height:98px}.cm-step-costs .cm-cost-center{inset:24px 12px}.cm-step-costs .cm-cost-center b{font-size:18px}.cm-step-costs .cm-cost-key{padding:4px 2px!important;font-size:11px!important}.cm-step-costs .cm-cost-legend{grid-template-columns:1fr}.cm-step-costs .cm-cost-inspect{min-height:16px}.cm-step-costs .cm-stat-table td,.cm-step-costs .cm-stat-table th{padding:6px;font-size:11px}.cm-step-costs td:not(:first-child){white-space:nowrap}.cm-step-costs .cm-step-name{display:flex;flex-direction:column;gap:2px;min-width:100px;font-size:12px}.cm-step-costs .cm-step-name small{color:var(--cm-muted);font-size:10px;max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cm-step-costs .cm-step-rates{padding:10px;background:var(--cm-surface)}.cm-step-costs .cm-step-more{margin-top:8px;text-align:center}.cm-step-costs .cm-stat-panel-head{margin-bottom:6px}
-        @container(max-width:760px){.cm-step-cost-grid{grid-template-columns:1fr}.cm-step-costs .cm-cost-chart{grid-template-columns:98px minmax(0,1fr)}.cm-step-costs .cm-cost-legend{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      `), result.error ? el('p', { className: 'cm-stat-error' }, result.error) : null,
-        el('div', { className: 'cm-step-cost-grid' }, composition, detailed ? null : el('section', { className: 'cm-spend-card', 'aria-label': text('步骤费用构成', 'Step cost composition') }, el('h3', null, text('步骤费用构成', 'Step cost composition')),
-          el(CostBreakdown, { rows, total, label: text('费用占比', 'Cost share'), text, amounts: false })),
-          el('section', null, el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('计费轨迹', 'Billing trajectory') + ' · ' + value.totalSteps + text(' 步', ' steps'))),
-            el('div', { className: 'cm-stat-scroll' }, el('table', { className: 'cm-stat-table' }, el('thead', null, el('tr', null, ...[text('步骤 / 工具', 'Step / tools'), text('输入', 'Input'), text('输出', 'Output'), text('缓存', 'Cache'), text('费用', 'Cost'), text('占比', 'Share')].map(label => el('th', { key: label }, label)))),
-              el('tbody', null, ...shown.map(row => el(Fragment, { key: row.key }, el('tr', null,
-                el('td', null, el('button', { type: 'button', className: 'cm-step-name', 'aria-expanded': isOpen(row), onClick: () => toggle(row) },
-                  el('span', null, (isOpen(row) ? '⌄ ' : '› ') + (row.sessionId !== sessionId ? text('子代理 · ', 'Subagent · ') : '') + (row.turn == null ? kindName(row.kind) : text('轮次 ', 'Turn ') + row.turn + (row.step == null ? '' : text(' · 步骤 ', ' · step ') + row.step))),
-                  el('small', { title: row.tools.join(' + ') }, row.tools.length ? row.tools.join(' + ') : kindName(row.kind)))),
-                el('td', null, bucketCost(row, ['input'])), el('td', null, bucketCost(row, ['output', 'reasoning'])), el('td', null, bucketCost(row, ['cacheRead', 'cacheWrite'])),
-                el('td', null, money(amount(row, basis)) + (row.unpriced ? ' + ?' : '')), el('td', null, pct(amount(row, basis), total))),
-                isOpen(row) ? el('tr', null, el('td', { colSpan: 6, className: 'cm-step-rates' }, el('table', { className: 'cm-stat-table' }, el('thead', null, el('tr', null, ...[text('模型 / 项目', 'Model / item'), 'Tokens', text('单价 / 百万', 'Rate / million'), text('金额', 'Cost')].map(label => el('th', { key: label }, label)))),
-                  el('tbody', null, ...selectedRows(row).map((r, i) => el('tr', { key: i }, el('td', null, r.model + ' · ' + (names[r.bucket] ?? r.bucket)), el('td', null, r.tokens.toLocaleString()), el('td', null, r.priced ? money(r.rate) : '—'), el('td', null, r.priced ? money(r.cost) : text('未定价', 'Unpriced')))))))) : null))))),
-            shown.length < value.totalSteps ? el('div', { className: 'cm-step-more' }, button(result.loading ? text('读取中…', 'Loading…') : text('展开更多步骤', 'Show more steps'), () => setOffset(offset + 100), { disabled: result.loading })) : null)))
+      const semantic = value.operations?.length > 0
+      const groups = (semantic ? grouping === 'operation' ? value.operations : value.hierarchy.map(actor => ({ ...actor, key: actor.id, kind: 'subagent', sessionId: actor.id, tools: [], cost: actor.ownCost, apiCost: actor.ownApiCost, steps: actor.ownSteps })) : value.groups).filter(row => amount(row, basis) > 0)
+      const selected = groups.find(row => row.key === focus)
+      const height = width < 500 ? 300 : selected || value.totalSteps > 24 ? 340 : 160
+      useEffect(() => {
+        const resize = () => { if (root.current) setWidth(Math.max(240, root.current.clientWidth)) }
+        resize()
+        const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null
+        observer?.observe(root.current)
+        return () => observer?.disconnect()
+      }, [])
+      const zoom = group => { setFocus(previous => previous === group.key ? '' : group.key); setHovered(null) }
+      const main = value.hierarchy.find(row => !row.parentId)
+      const tilesOf = group => {
+        const tiles = semantic ? grouping === 'operation' ? value.operationGroups.filter(row => row.operationKey === group.key) : (value.hierarchy.find(actor => actor.id === group.sessionId)?.operations ?? []) : [group]
+        return (tiles.length ? tiles : [group]).map(row => ({ ...row, value: amount(row, basis), label: grouping === 'agent' ? groupName(row) : row.tools.join(' + ') || groupName(row),
+          filter: semantic ? grouping === 'agent' ? { agent: group.sessionId, operation: row.key } : { operation: group.key, operationGroup: row.operationKey ? row.key : '' } : { group: group.key } }))
+      }
+      const caption = node => node.label + ' · ' + money(node.value) + (node.unpriced ? ' + ?' : '') + ' · ' + feeShare(node.value, total)
+      const press = action => event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); action() } }
+      const rects = feeRectangles((selected ? [selected] : groups).map(group => ({ ...group, value: amount(group, basis), label: groupName(group) })), 0, 0, width, height)
+      const draw = rects.map(group => {
+        const x = group.x + 1, y = group.y + 1, w = Math.max(0, group.width - 2), h = Math.max(0, group.height - 2)
+        const color = colors.get(feeColorKey(group)), header = h > 40 && w > 90 ? 27 : 0
+        const leaves = feeRectangles(tilesOf(group), x + 1, y + header + 1, Math.max(0, w - 2), Math.max(0, h - header - 2))
+        return el('g', { key: group.key, className: 'cm-fee-category', 'data-fee-group': group.key },
+          el('rect', { x, y, width: w, height: h, rx: 6, fill: `color-mix(in srgb, ${color} 17%, var(--cm-bg))` }),
+          ...leaves.map((tile, index) => {
+            const tx = tile.x + .6, ty = tile.y + .6, tw = Math.max(0, tile.width - 1.2), th = Math.max(0, tile.height - 1.2)
+            const show = tw > 58 && th > 30, tall = th > 56
+            const inspect = () => onSelect(tile.filter, group.label + ' · ' + tile.label)
+            return el('g', { key: tile.key, className: 'cm-fee-tile', role: 'button', tabIndex: 0, 'data-fee-operation': tile.key,
+              'aria-label': caption(tile), onMouseEnter: () => setHovered(tile), onFocus: () => setHovered(tile), onBlur: () => setHovered(null), onClick: inspect, onKeyDown: press(inspect) },
+              el('title', null, caption(tile)), el('rect', { x: tx, y: ty, width: tw, height: th, rx: 2,
+                fill: `color-mix(in srgb, ${grouping === 'agent' ? colors.get(feeColorKey(tile)) || color : color} ${60 + index % 5 * 6}%, var(--cm-bg))`, stroke: 'var(--cm-bg)', strokeWidth: .5 }),
+              show ? el('foreignObject', { x: tx + 7, y: ty + 5, width: Math.max(0, tw - 14), height: Math.max(0, th - 10), pointerEvents: 'none' },
+                el('div', { className: 'cm-fee-call-caption' }, el('b', null, tile.label), tall ? el('span', null, money(tile.value) + (tile.unpriced ? ' + ?' : '')) : null,
+                  th > 85 ? el('small', null, feeShare(tile.value, total)) : null)) : null)
+          }),
+          header ? el('g', { className: 'cm-fee-category-head', role: 'button', tabIndex: 0, 'aria-label': group.label, 'aria-pressed': selected?.key === group.key,
+            onClick: () => zoom(group), onKeyDown: press(() => zoom(group)), onMouseEnter: () => setHovered(group), onFocus: () => setHovered(group), onBlur: () => setHovered(null) },
+            el('title', null, caption(group)), el('rect', { x, y, width: w, height: header, fill: 'transparent', rx: 6 }),
+            el('foreignObject', { x: x + 7, y: y + 3, width: Math.max(0, w - 14), height: header - 6, pointerEvents: 'none' },
+              el('div', { className: 'cm-fee-category-caption' }, el('b', null, group.label), w > 150 ? el('span', null, feeShare(group.value, total)) : null))) : null)
+      })
+      return el('div', { className: 'cm-fee-map', ref: root },
+        el('div', { className: 'cm-fee-map-summary' }, el('nav', { className: 'cm-fee-breadcrumb', 'aria-label': text('费用归属路径', 'Cost ownership path') },
+          button(main ? actorName(main.id) : text('全部费用', 'All costs'), () => { setFocus(''); setHovered(null) }), selected ? el(Fragment, null, el('span', null, '›'), el('b', null, groupName(selected))) : null),
+          semantic ? el('div', { className: 'cm-fee-grouping', role: 'group', 'aria-label': text('分类方式', 'Grouping') }, ...[['operation', text('按用途', 'By activity')], ['agent', text('按代理', 'By agent')]].map(([key, label]) => button(label, () => { setGrouping(key); setFocus(''); setHovered(null) }, { key, 'aria-pressed': grouping === key }))) : null,
+          el('span', { className: 'cm-fee-map-total' }, money(selected ? amount(selected, basis) : total))),
+        el('div', { className: 'cm-fee-map-meter', 'aria-hidden': true }, ...groups.map(group => el('i', { key: group.key, style: { width: amount(group, basis) / total * 100 + '%', background: colors.get(feeColorKey(group)) } }))),
+        groups.length ? el('svg', { viewBox: `0 0 ${width} ${height}`, style: { height }, 'aria-label': text('矩形费用分布', 'Cost treemap'), onMouseLeave: () => setHovered(null) },
+          ...draw)
+          : el('p', { className: 'cm-stat-sub' }, text('没有已定价费用', 'No priced cost')),
+        el('div', { className: 'cm-fee-map-legend' }, ...(selected ? [selected] : groups).map(group => el('button', { key: group.key, type: 'button', title: caption({ ...group, label: groupName(group), value: amount(group, basis) }), onClick: () => zoom(group) },
+          el('i', { className: 'cm-plan-dot', style: { background: colors.get(feeColorKey(group)) } }), el('span', null, groupName(group)), el('small', null, feeShare(amount(group, basis), total))))),
+        el('div', { className: 'cm-fee-map-status', role: 'status' }, hovered ? caption(hovered) : ''))
+    }
+
+    function FeeOwnershipTree({ value, basis, colors, actorName, groupName, money, text, onSelect }) {
+      const [open, setOpen] = useState([])
+      const main = value.hierarchy.find(row => !row.parentId), total = amount(value, basis)
+      const rows = []
+      const visit = (actor, depth, parentTotal) => {
+        rows.push({ ...actor, key: 'agent:' + actor.id, label: actorName(actor.id), color: colors.get('agent:' + actor.id), depth, parentTotal, actor: true, filter: { agent: actor.parentId ? actor.id : '', group: '' } })
+        if (actor !== main && !open.includes(actor.id)) return
+        const children = [...(actor.operations?.length ? actor.operations : actor.groups).map(group => ({ ...group, key: actor.id + ':' + group.key, label: groupName(group), color: colors.get(feeColorKey(group)), filter: { agent: actor.id, ...(actor.operations?.length ? { operation: group.key } : { group: group.key }) } })),
+          ...value.hierarchy.filter(child => child.parentId === actor.id).map(child => ({ ...child, actor: true }))]
+          .sort((a, b) => amount(b, basis) - amount(a, basis) || String(a.key ?? a.id).localeCompare(String(b.key ?? b.id)))
+        for (const child of children) {
+          if (child.actor) visit(child, depth + 1, amount(actor, basis))
+          else rows.push({ ...child, depth: depth + 1, parentTotal: amount(actor, basis) })
+        }
+      }
+      if (main) visit(main, 0, total)
+      return el('div', { className: 'cm-stat-scroll cm-fee-tree' }, el('table', { className: 'cm-stat-table' },
+        el('thead', null, el('tr', null, ...[text('费用归属', 'Cost ownership'), text('步数', 'Steps'), text('调用', 'Calls'), text('费用', 'Cost'), text('占对话', 'Of conversation'), text('占父级', 'Of parent')].map((label, i) => el('th', { key: label, className: i === 5 ? 'cm-fee-parent' : '' }, label)))),
+        el('tbody', null, ...rows.map(row => el('tr', { key: row.key, 'data-fee-agent': row.actor ? row.id : undefined },
+          el('td', null, el('div', { className: 'cm-fee-tree-name', style: { paddingLeft: Math.min(row.depth, 8) * 18 } },
+            row.actor ? el('button', { type: 'button', className: 'cm-fee-tree-toggle', 'aria-label': row.label, 'aria-expanded': row.id === main.id || open.includes(row.id), disabled: row.id === main.id,
+              onClick: () => setOpen(previous => previous.includes(row.id) ? previous.filter(id => id !== row.id) : [...previous, row.id]) }, row.id === main.id || open.includes(row.id) ? '⌄' : '›') : el('span', { className: 'cm-fee-tree-toggle' }),
+            el('i', { className: 'cm-plan-dot', style: { background: row.color } }), el('button', { type: 'button', className: 'cm-fee-link', title: row.label, onClick: () => onSelect(row.filter, row.label) }, row.label))),
+          el('td', null, row.steps.toLocaleString()), el('td', null, row.calls.toLocaleString()),
+          el('td', null, money(amount(row, basis)) + (row.unpriced ? ' + ?' : '')),
+          el('td', null, feeShare(amount(row, basis), total)), el('td', { className: 'cm-fee-parent' }, feeShare(amount(row, basis), row.parentTotal)))))))
+    }
+
+    function FeeDialog({ title, text, onClose, children }) {
+      const dialog = useRef(null), trigger = useRef(document.activeElement)
+      useEffect(() => {
+        const node = dialog.current
+        if (node && !node.open) node.showModal()
+        return () => { node?.close(); if (trigger.current?.isConnected) trigger.current.focus({ preventScroll: true }) }
+      }, [])
+      return el('dialog', { ref: dialog, className: 'cm-fee-dialog', 'aria-label': text('费用详细信息', 'Fee details'),
+        onCancel: event => { event.preventDefault(); event.stopPropagation(); onClose() },
+        onClick: event => { event.stopPropagation(); if (event.target !== event.currentTarget) return; const r = event.currentTarget.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) onClose() } },
+        el('style', null, `
+          dialog.cm-fee-dialog{padding:0;border:1px solid var(--cm-border);border-radius:14px;background:var(--cm-bg);color:var(--cm-label);width:min(1080px,calc(100vw - 32px));max-width:none;max-height:calc(100dvh - 96px);margin:auto;box-shadow:0 18px 70px #0003;overflow:hidden;font:13px/1.5 var(--ds-font-family-sans,system-ui);container-type:inline-size}
+          dialog.cm-fee-dialog[open]{display:flex;flex-direction:column}dialog.cm-fee-dialog::backdrop{background:#0005}
+          .cm-fee-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 20px;border-bottom:1px solid var(--cm-border);flex:none}.cm-fee-dialog-head h3{font-size:15px;font-weight:600;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cm-fee-dialog-head .cm-stat-btn{padding:0;width:30px;height:30px;border:0;font-size:23px;line-height:1;background:transparent;color:var(--cm-muted);flex:none}.cm-fee-dialog-head .cm-stat-btn:hover{background:var(--cm-surface);color:var(--cm-label)}
+          .cm-fee-dialog-body{padding:18px 20px;overflow:auto;overscroll-behavior:contain;min-height:0}.cm-fee-popup-columns{display:grid;grid-template-columns:250px minmax(0,1fr);gap:20px;align-items:start}.cm-fee-popup-list{max-height:65vh;overflow:auto;overscroll-behavior:contain;padding-right:8px;border-right:1px solid var(--cm-border)}.cm-fee-popup-list-head{display:flex;justify-content:space-between;font-size:11px;color:var(--cm-muted);margin:0 6px 8px}.cm-fee-popup-detail{min-width:0}.cm-fee-dialog .cm-fee-popup-step{display:block;width:100%;padding:9px 10px;margin:2px 0;text-align:left;border:0;border-radius:7px;background:transparent;color:var(--cm-label);font:inherit;cursor:pointer}.cm-fee-popup-step>span{display:flex;justify-content:space-between;gap:8px;font-size:12px}.cm-fee-popup-step b{font-weight:500;white-space:nowrap;font-variant-numeric:tabular-nums}.cm-fee-popup-step small{display:block;margin-top:3px;font-size:11px;color:var(--cm-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cm-fee-dialog .cm-fee-popup-step:hover{background:var(--cm-surface)}.cm-fee-dialog .cm-fee-popup-step[aria-pressed=true]{background:color-mix(in srgb,var(--cm-accent) 10%,var(--cm-bg));box-shadow:inset 2px 0 var(--cm-accent)}.cm-fee-popup-call-select{display:flex;align-items:center;gap:8px;margin-bottom:12px}.cm-fee-popup-call-select select{min-width:0;max-width:100%;padding:5px 8px;border:1px solid var(--cm-border);border-radius:7px;background:var(--cm-bg);color:var(--cm-label)}
+          @container(max-width:700px){.cm-fee-popup-columns{grid-template-columns:1fr;gap:14px}.cm-fee-popup-list{max-height:160px;border-right:0;border-bottom:1px solid var(--cm-border);padding:0 0 8px}.cm-fee-dialog-body{padding:12px}.cm-fee-dialog-head{padding:12px}.cm-fee-dialog .cm-call-tool-parts{grid-template-columns:1fr}}
+        `),
+        el('header', { className: 'cm-fee-dialog-head' }, el('h3', { title }, title), button('×', onClose, { 'aria-label': text('关闭详细信息', 'Close fee details') })),
+        el('div', { className: 'cm-fee-dialog-body' }, children))
+    }
+
+    function StepFeeInspector({ api, sessionId, basis, revision, row, money, text }) {
+      const [selected, setSelected] = useState(0), [retry, setRetry] = useState(0)
+      const result = useRequest(api, 'getSessionTrajectory', { sessionId, basis, stepKey: row.key, background: true, generation: String(revision).slice(0, 96) }, revision + ':' + retry)
+      const full = result.value?.steps.find(item => item.key === row.key), names = { input: text('非缓存输入', 'Uncached input'), output: text('输出', 'Output'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), reasoning: text('推理', 'Reasoning'), ...requestNames(text) }
+      const calls = (full?.callRefs ?? []).filter(call => basis === 'total' || (basis === 'plan' ? call.plan : !call.plan)), call = calls[selected] ?? calls[0]
+      return el('section', { className: 'cm-fee-popup-detail', 'aria-label': text('选中步骤费用', 'Selected step cost') },
+        result.error ? el(Fragment, null, errorNotice(result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1))) : null,
+        !full ? !result.error ? el('span', { className: 'cm-stat-sub', role: 'status' }, result.loading || result.value?.refreshing ? text('读取调用明细…', 'Loading call details…') : text('未找到该步骤的调用记录', 'Call records for this step are unavailable')) : null : el(Fragment, null,
+          calls.length > 1 ? el('label', { className: 'cm-fee-popup-call-select' }, text('本步骤调用', 'Calls in this step'), el('select', { value: selected, onChange: event => setSelected(Number(event.target.value)) }, ...calls.map((item, i) => el('option', { key: i, value: i }, '#' + (i + 1) + ' · ' + item.model + ' · ' + money(item.cost))))) : null,
+          call ? el(CallDetail, { key: [call.sessionId, call.logSeq, call.atMs].join(':'), call, sessionId: row.sessionId || sessionId, api, revision, money, text, names, compact: true }) : el('p', { className: 'cm-stat-sub' }, text('未保存调用内容', 'Call content not stored'))))
+    }
+
+    function FeeGroupDetails({ api, sessionId, basis, revision, selection, actorName, money, text }) {
+      const [offset, setOffset] = useState(0), [limit, setLimit] = useState(40), [pages, setPages] = useState([]), [selected, setSelected] = useState(''), [retry, setRetry] = useState(0)
+      const result = useRequest(api, 'getSessionTrajectory', { sessionId, basis, ...selection, offset, order: 'cost', detail: 'map', background: true, generation: String(revision).slice(0, 96) }, revision + ':' + retry)
+      useEffect(() => { setOffset(0); setLimit(40); setPages([]) }, [revision])
+      useEffect(() => { if (result.value?.offset === offset) setPages(previous => offset === 0 ? result.value.steps : [...new Map([...previous, ...result.value.steps].map(row => [row.key, row])).values()]) }, [result.value, offset])
+      const rows = pages.length ? pages : result.value?.steps ?? [], current = rows.find(row => row.key === selected) ?? rows[0], kinds = feeKinds(text)
+      const caption = row => (row.turn == null ? kinds[row.kind] || row.kind : text('轮次 ', 'Turn ') + row.turn + (row.step == null ? '' : text(' · 步骤 ', ' · step ') + row.step))
+      return el('div', { className: 'cm-fee-popup-columns' },
+        el('div', { className: 'cm-fee-popup-list' }, el('div', { className: 'cm-fee-popup-list-head' }, el('span', null, text('金额从高到低', 'Highest cost first')), el('span', null, (result.value?.matchingSteps ?? rows.length).toLocaleString() + text(' 步', ' steps'))),
+          result.error ? el(Fragment, null, errorNotice(result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1))) : null,
+          !rows.length && result.loading ? el('p', { role: 'status' }, text('读取调用列表…', 'Loading calls…')) : null,
+          ...rows.slice(0, limit).map(row => el('button', { type: 'button', key: row.key, className: 'cm-fee-popup-step', 'aria-pressed': current?.key === row.key, onClick: () => setSelected(row.key) },
+            el('span', null, caption(row), el('b', null, money(amount(row, basis)) + (row.unpriced ? ' + ?' : ''))), el('small', { title: actorName(row.sessionId) + ' · ' + row.tools.join(' + ') }, actorName(row.sessionId) + ' · ' + (row.tools.join(' + ') || kinds[row.kind] || row.kind)))),
+          limit < (result.value?.matchingSteps ?? 0) ? button(text('展开更多', 'Show more'), () => { setLimit(n => n + 40); if (limit >= rows.length) setOffset(rows.length) }, { disabled: result.loading }) : null),
+        current ? el(StepFeeInspector, { key: current.key, api, sessionId, basis, revision, row: current, money, text }) : !result.loading && !result.error ? el('p', { className: 'cm-stat-sub' }, text('没有可用的调用', 'No available calls')) : null)
+    }
+
+    function CallPopup({ api, sessionId, revision, row, money, text, names, onClose }) {
+      const call = row.call
+      return el(FeeDialog, { title: text('调用 #', 'Call #') + (row.index + 1), text, onClose },
+        call ? el(CallDetail, { key: [call.sessionId, call.logSeq, call.atMs].join(':'), call, sessionId, api, revision, money, text, names, compact: true }) : el('p', { className: 'cm-stat-sub' }, text('该调用的详细记录尚未载入，请刷新费用页面。', 'Refresh the cost view to load this call’s details.')))
+    }
+
+    /** Fixed-size cells keep the smallest billed step visible; only visible metadata pages are read. */
+    function StepFeeGrid({ api, sessionId, basis, revision, value, colors, actorName, money, text, onInspect }) {
+      const [order, setOrder] = useState('time'), [operation, setOperation] = useState(''), [agent, setAgent] = useState(''), [retry, setRetry] = useState(0)
+      const [width, setWidth] = useState(720), [scroll, setScroll] = useState(0), [hovered, setHovered] = useState(null)
+      const [pages, setPages] = useState({}), [error, setError] = useState(''), [total, setTotal] = useState(value.totalSteps), [target, setTarget] = useState('')
+      const viewport = useRef(null), focusIndex = useRef(null), generation = String(revision).slice(0, 96)
+      const identity = JSON.stringify([sessionId, basis, revision, order, operation, agent, retry]), current = useRef(identity), memory = useRef(new Map())
+      const columns = Math.max(8, Math.floor((width - 16) / 20)), cell = (width - 16) / columns, height = 244
+      const start = Math.max(0, Math.floor(scroll / cell) - 2) * columns, end = Math.min(total, (Math.ceil((scroll + height) / cell) + 2) * columns)
+      const first = Math.floor(start / 400) * 400, last = Math.floor(Math.max(start, end - 1) / 400) * 400
+      useEffect(() => {
+        const resize = () => { if (viewport.current) setWidth(Math.max(190, viewport.current.clientWidth)) }
+        resize(); const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null
+        if (viewport.current) observer?.observe(viewport.current)
+        return () => observer?.disconnect()
+      }, [])
+      useEffect(() => {
+        current.current = identity; memory.current = new Map(); setPages({}); setScroll(0); setHovered(null); setError(''); setTotal(value.totalSteps)
+        if (viewport.current) viewport.current.scrollTop = 0
+      }, [identity])
+      useEffect(() => {
+        let active = true, timer
+        const load = async force => {
+          try {
+            await Promise.all(Array.from({ length: (last - first) / 400 + 1 }, (_, i) => first + i * 400).map(async offset => {
+              if (!force && memory.current.has(offset)) return
+              const data = await readRequest(api, 'getSessionTrajectory', { sessionId, basis, order, operation, agent, ownOnly: true, detail: 'map', offset, background: true, generation }, revision + ':grid:' + retry, force)
+              if (!active || current.current !== identity) return
+              memory.current.set(offset, data.steps)
+              // Retain neighbouring windows for scrolling back without another request.
+              while (memory.current.size > 6) { const key = [...memory.current.keys()].sort((a, b) => Math.abs(b - first) - Math.abs(a - first))[0]; memory.current.delete(key) }
+              setPages(Object.fromEntries(memory.current)); setTotal(data.matchingSteps); setError('')
+              if (data.refreshing && !timer) timer = setTimeout(() => { timer = null; load(true) }, 900)
+            }))
+          } catch (err) { if (active) setError(String(err?.message ?? err)) }
+        }
+        load(false)
+        return () => { active = false; clearTimeout(timer) }
+      }, [api, identity, first, last])
+      const locate = index => {
+        const bounded = Math.max(0, Math.min(total - 1, index)), top = Math.floor(bounded / columns) * cell
+        if (viewport.current) {
+          focusIndex.current = bounded; viewport.current.scrollTop = top; setScroll(viewport.current.scrollTop)
+          const node = viewport.current.querySelector('[data-grid-index="' + bounded + '"]')
+          if (node && !node.disabled) { node.focus({ preventScroll: true }); focusIndex.current = null }
+        }
+      }
+      useEffect(() => {
+        if (focusIndex.current == null) return
+        const node = viewport.current?.querySelector('[data-grid-index="' + focusIndex.current + '"]')
+        if (node && !node.disabled) { node.focus({ preventScroll: true }); focusIndex.current = null }
+      }, [pages, scroll])
+      const kinds = feeKinds(text), max = Math.max(...value.shares.filter(row => !row.other).map(row => amount(row, basis)), 0)
+      const label = row => actorName(row.sessionId) + ' · ' + (row.turn == null ? kinds[row.kind] || row.kind : text('轮次 ', 'Turn ') + row.turn + (row.step == null ? '' : text(' · 步骤 ', ' · step ') + row.step)) + ' · ' + (row.tools.join(' + ') || kinds[row.operationKey] || kinds[row.kind] || row.kind)
+      const cells = []
+      for (let i = start; i < end; i++) {
+        const row = current.current === identity ? pages[Math.floor(i / 400) * 400]?.[i % 400] : null, cost = row ? amount(row, basis) : 0
+        const color = row ? colors.get(feeColorKey(value.operations?.find(group => group.key === row.operationKey) ?? { kind: row.kind, tools: [] })) || '#627bff' : 'var(--cm-border)'
+        const opacity = cost > 0 && max > 0 ? 30 + 70 * Math.sqrt(Math.min(1, cost / max)) : 0
+        const title = row ? label(row) + ' · ' + money(cost) + (row.unpriced ? ' + ?' : '') + ' · ' + feeShare(cost, amount(value, basis)) : text('读取中', 'Loading')
+        cells.push(el('button', { key: i, type: 'button', className: 'cm-step-cell', disabled: !row, 'data-grid-index': i, 'data-grid-step': row?.key, 'aria-label': title, title,
+          'aria-haspopup': 'dialog', 'data-unpriced': row?.unpriced || undefined,
+          style: { position: 'absolute', left: 8 + i % columns * cell, top: Math.floor(i / columns) * cell, width: cell - 3, height: cell - 3, background: row ? `color-mix(in srgb, ${color} ${opacity}%, var(--cm-bg))` : 'var(--cm-surface)', borderColor: row && !cost ? color : 'transparent' },
+          onMouseEnter: () => row && setHovered({ ...row, label: label(row) }), onFocus: () => row && setHovered({ ...row, label: label(row) }), onBlur: () => setHovered(null),
+          onClick: () => row && onInspect({ ...row, label: label(row) }),
+          onKeyDown: event => {
+            const shift = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns }[event.key]
+            if (!shift) return
+            event.preventDefault(); const next = Math.max(0, Math.min(total - 1, i + shift))
+            const node = viewport.current?.querySelector('[data-grid-index="' + next + '"]')
+            if (node && !node.disabled) node.focus(); else locate(next)
+          } }))
+      }
+      return el('div', { className: 'cm-step-grid' },
+        el('div', { className: 'cm-grid-controls' },
+          el('select', { value: operation, onChange: event => setOperation(event.target.value), 'aria-label': text('步骤类别', 'Step category') }, el('option', { value: '' }, text('全部用途', 'All activities')), ...(value.operations ?? []).map(row => el('option', { key: row.key, value: row.key }, kinds[row.kind] || row.kind))),
+          el('select', { value: agent, onChange: event => setAgent(event.target.value), 'aria-label': text('步骤代理', 'Step agent') }, el('option', { value: '' }, text('全部代理', 'All agents')), ...value.hierarchy.map(row => el('option', { key: row.id, value: row.id }, actorName(row.id)))),
+          el('select', { value: order, onChange: event => setOrder(event.target.value), 'aria-label': text('热力图排序', 'Grid order') }, el('option', { value: 'time' }, text('轨迹顺序', 'Trajectory order')), el('option', { value: 'cost' }, text('金额从高到低', 'Highest cost first'))),
+          el('form', { onSubmit: event => { event.preventDefault(); if (Number.isSafeInteger(Number(target)) && Number(target) > 0) locate(Number(target) - 1) } }, el('input', { type: 'number', min: 1, max: Math.max(1, total), value: target, onChange: event => setTarget(event.target.value), placeholder: text('序号', 'Index'), 'aria-label': text('定位步骤序号', 'Locate step index') }), button(text('定位', 'Go'), undefined, { type: 'submit' }))),
+        el('div', { className: 'cm-grid-caption' }, el('span', null, text('每格一步 · 颜色区分类别，深浅表示费用', 'One cell per step · hue = activity, shade = cost')), el('span', null, total.toLocaleString() + text(' 步', ' steps'))),
+        error ? el('div', null, errorNotice(error), button(text('重试', 'Retry'), () => setRetry(n => n + 1))) : null,
+        el('div', { className: 'cm-grid-viewport', ref: viewport, style: { height: Math.min(height, Math.max(60, Math.ceil(total / columns) * cell)) }, onScroll: event => setScroll(event.currentTarget.scrollTop), onMouseLeave: () => setHovered(null), role: 'group', 'aria-label': text('逐步费用热力图', 'Step cost heatmap') },
+          el('div', { style: { position: 'relative', height: Math.ceil(total / columns) * cell, minHeight: 60 } }, ...cells), total === 0 ? el('p', { className: 'cm-stat-empty' }, text('没有符合条件的步骤', 'No matching steps')) : null),
+        el('div', { className: 'cm-fee-map-status', role: 'status' }, hovered ? hovered.label + ' · ' + money(amount(hovered, basis)) + (hovered.unpriced ? ' + ?' : '') : ''),
+        el('div', { className: 'cm-fee-map-legend' }, ...(value.operations ?? []).map(row => el('button', { key: row.key, type: 'button', 'aria-pressed': operation === row.key, onClick: () => setOperation(previous => previous === row.key ? '' : row.key) }, el('i', { className: 'cm-plan-dot', style: { background: colors.get(feeColorKey(row)) } }), kinds[row.kind] || row.kind))))
+    }
+
+    const feeViewCss = `
+      .cm-fee-tree .cm-fee-link{border:0;padding:3px 0;border-radius:0;background:transparent}.cm-fee-tree .cm-fee-link:hover{color:var(--cm-accent);background:transparent}.cm-fee-tree .cm-fee-tree-toggle{border:0;padding:0;background:transparent;width:18px;height:24px}.cm-fee-tree .cm-stat-table th:first-child{width:48%}.cm-fee-tree .cm-stat-table th:not(:first-child),.cm-fee-tree .cm-stat-table td:not(:first-child){text-align:right}
+      .cm-fee-grouping{display:flex;gap:2px;margin-left:auto}.cm-fee-grouping .cm-stat-btn{padding:2px 7px;font-size:11px;border-color:transparent}.cm-fee-map-summary{flex-wrap:wrap}.cm-grid-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.cm-grid-controls select{font-size:11px;padding:4px 6px;max-width:175px}.cm-grid-controls form{display:flex;gap:4px;margin-left:auto}.cm-grid-controls input{width:70px;padding:3px 6px;font-size:11px}.cm-grid-controls button{padding:3px 7px;font-size:11px}.cm-grid-caption{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--cm-muted);margin:9px 0}.cm-grid-viewport{overflow:auto;overscroll-behavior:contain;border:1px solid var(--cm-border);border-radius:8px;padding-top:5px;background:var(--cm-bg);scrollbar-gutter:stable}.cm-step-cell{border:1px solid transparent;border-radius:3px;padding:0;cursor:pointer}.cm-step-cell:hover{box-shadow:0 0 0 2px var(--cm-accent);z-index:1}.cm-step-cell[aria-pressed=true]{box-shadow:0 0 0 2px var(--cm-label);z-index:1}.cm-step-cell[data-unpriced=true]{background-image:repeating-linear-gradient(135deg,transparent 0 3px,var(--cm-muted) 3px 4px)!important}.cm-grid-inspector{border-top:1px solid var(--cm-border);margin-top:12px;padding-top:10px}.cm-grid-inspector>.cm-fee-toolbar{gap:6px;margin-bottom:4px}.cm-grid-inspector>.cm-fee-toolbar>span{flex:1;min-width:150px;font-size:12px}.cm-grid-inspector>.cm-fee-toolbar>b{font-variant-numeric:tabular-nums;font-weight:500}.cm-grid-inspector>.cm-fee-toolbar>button{border:0;font-size:18px;padding:0 6px}.cm-grid-inspector .cm-stat-table td,.cm-grid-inspector .cm-stat-table th{padding:5px 7px}.cm-fee-view-tabs{flex-wrap:wrap}
+      .cm-fee-wide{grid-column:1/-1}.cm-stat-session .cm-step-costs{margin:10px 0}.cm-fee-components{padding:8px 0;border-bottom:1px solid var(--cm-border)}.cm-fee-components>summary{cursor:pointer;color:var(--cm-muted);font-size:12px}.cm-fee-components .cm-cost-card{margin:8px 0}.cm-fee-placeholder{display:flex;gap:6px;min-height:100px;align-items:center;justify-content:center}.cm-fee-placeholder i{width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-label-tertiary,#9da3ae);opacity:.4}.cm-fee-updating{font-size:10px;font-weight:400;color:var(--cm-muted);margin-left:9px}
+      .cm-fee-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}.cm-fee-overview-grid>*{min-width:0}@media(max-width:780px){.cm-fee-overview-grid{grid-template-columns:1fr}}
+      .cm-fee-views{border:1px solid var(--cm-border);border-radius:12px;padding:14px;min-width:0;container-type:inline-size}.cm-fee-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}.cm-fee-toolbar h3{margin:0}.cm-fee-view-tabs{display:flex;padding:3px;gap:3px;border:1px solid var(--cm-border);border-radius:9px;background:var(--cm-surface)}.cm-fee-view-tabs .cm-stat-btn{border:0;padding:4px 10px;font-size:12px;color:var(--cm-muted);white-space:nowrap}.cm-fee-view-tabs .cm-stat-btn[aria-pressed=true]{color:var(--cm-label);background:var(--cm-bg);box-shadow:0 1px 4px #00000010}.cm-fee-views .cm-cost-chart{grid-template-columns:136px minmax(0,1fr);gap:6px 18px;margin-top:0}.cm-fee-views .cm-cost-donut{width:136px;height:136px}.cm-fee-views .cm-cost-center{inset:35px 12px}.cm-fee-views .cm-cost-center b{font-size:18px;overflow-wrap:anywhere}.cm-fee-views .cm-cost-center small{font-size:10px}.cm-fee-views .cm-cost-legend{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px}.cm-fee-views .cm-cost-key{font-size:12px;padding:4px 3px;min-width:0}.cm-fee-views .cm-cost-key-label{min-width:0;text-align:left}.cm-fee-views .cm-cost-key-amount{font-size:11px;white-space:normal}.cm-fee-share-track{display:block;height:3px;border-radius:8px;overflow:hidden;background:var(--cm-surface);margin-top:4px}.cm-fee-share-track i{display:block;height:100%;min-width:0}.cm-fee-views .cm-cost-inspect{min-height:18px;font-size:11px}.cm-fee-stats{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--cm-muted);border-top:1px solid var(--cm-border);padding-top:9px}.cm-fee-stats b{font-weight:500;color:var(--cm-label);margin-left:5px;font-variant-numeric:tabular-nums}
+      .cm-fee-map svg{width:100%;display:block}.cm-fee-tile,.cm-fee-category-head{cursor:pointer;outline:none}.cm-fee-tile:focus-visible>rect:first-of-type,.cm-fee-category-head:focus-visible>rect{stroke:var(--cm-accent);stroke-width:2}.cm-fee-tile:hover>rect:first-of-type{filter:brightness(1.07)}.cm-fee-call-caption{font:11px/1.5 var(--ds-font-family-sans,system-ui);color:var(--cm-label);display:flex;flex-direction:column;justify-content:center;gap:3px;height:100%;overflow:hidden}.cm-fee-call-caption b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cm-fee-call-caption span{font-size:11px;font-variant-numeric:tabular-nums}.cm-fee-call-caption small{font-size:10px;opacity:.7}.cm-fee-category-caption{font:11px/21px var(--ds-font-family-sans,system-ui);color:var(--cm-label);display:flex;gap:8px;justify-content:space-between}.cm-fee-category-caption b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}.cm-fee-category-caption span{font-variant-numeric:tabular-nums;color:var(--cm-muted);flex:none}.cm-fee-map-summary{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}.cm-fee-map-total{font-size:18px;font-weight:500;white-space:nowrap;font-variant-numeric:tabular-nums}.cm-fee-map-total small{margin-left:8px;font-size:11px;font-weight:400;color:var(--cm-muted)}.cm-fee-breadcrumb{display:flex;align-items:center;flex-wrap:wrap;gap:4px;min-width:0}.cm-fee-breadcrumb button{font-size:11px;padding:3px 0;border:0}.cm-fee-breadcrumb b{font-size:11px;font-weight:500;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cm-fee-map-meter{display:flex;height:5px;overflow:hidden;border-radius:3px;gap:1px;margin-bottom:12px;background:var(--cm-surface)}.cm-fee-map-meter i{min-width:0;height:100%}.cm-fee-map-legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:9px}.cm-fee-map-legend button{display:flex;align-items:center;gap:4px;border:0;background:transparent;color:var(--cm-label);font:11px/1.6 var(--ds-font-family-sans,system-ui);padding:0;cursor:pointer}.cm-fee-map-legend .cm-plan-dot{margin-right:1px;flex:none}.cm-fee-map-legend small{font-size:10px;color:var(--cm-muted);font-variant-numeric:tabular-nums}.cm-fee-map-status{height:20px;font-size:11px;color:var(--cm-muted);padding:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .cm-fee-tree-name{display:flex;align-items:center;gap:6px;min-width:170px;max-width:350px}.cm-fee-tree-toggle{border:0;background:transparent;color:var(--cm-muted);font:inherit;padding:0;width:16px;flex:none}.cm-fee-link{border:0;background:transparent;padding:0;color:inherit;text-align:left;font:inherit;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.cm-fee-tree .cm-stat-table td,.cm-fee-tree .cm-stat-table th{padding:7px 6px;font-size:11px}.cm-fee-tree td:not(:first-child){white-space:nowrap}.cm-fee-tree tr[data-fee-agent] td{font-weight:500}.cm-fee-tree tr[data-fee-agent]:first-child{background:var(--cm-surface)}
+      .cm-fee-distribution{margin:12px 0;padding:10px 12px;border:1px solid var(--cm-border);border-radius:10px}.cm-fee-distribution h3{margin:0 0 8px;font-size:12px;font-weight:500}.cm-fee-distribution-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.cm-fee-bin{min-width:0;font-size:10px;color:var(--cm-muted)}.cm-fee-bin-head{display:flex;justify-content:space-between;align-items:center;gap:6px}.cm-fee-bin-head b{font-size:14px;color:var(--cm-label);font-weight:500;font-variant-numeric:tabular-nums}.cm-fee-bin-track{height:5px;background:var(--cm-surface);border-radius:4px;overflow:hidden;margin:5px 0}.cm-fee-bin-track i{display:block;height:100%;background:var(--cm-accent);border-radius:4px}.cm-fee-bin small{font-size:10px;white-space:nowrap;font-variant-numeric:tabular-nums}
+      .cm-individual-steps>summary{padding:9px 0;font-size:13px}.cm-fee-rank-controls{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:4px 0 8px}.cm-fee-rank-controls select{font:inherit;color:var(--cm-label);background:var(--cm-bg);border:1px solid var(--cm-border);border-radius:7px;padding:4px 7px;max-width:100%}.cm-fee-filter{display:flex;align-items:center;gap:8px;min-width:0;font-size:11px;color:var(--cm-muted)}.cm-fee-filter span{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cm-fee-rank .cm-stat-table td,.cm-fee-rank .cm-stat-table th{font-size:11px;padding:7px 6px}.cm-fee-rank .cm-step-name{display:flex;align-items:center;gap:6px;border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer;min-width:145px;padding:0}.cm-fee-rank .cm-step-name small{display:block;font-size:10px;color:var(--cm-muted)}.cm-fee-rank .cm-step-amount{font-variant-numeric:tabular-nums;white-space:nowrap}.cm-fee-rank .cm-step-detail{padding:10px 14px;background:var(--cm-surface)}.cm-step-detail-grid{display:grid;grid-template-columns:220px minmax(0,1fr);gap:14px;align-items:start}.cm-step-detail .cm-cost-chart{grid-template-columns:86px minmax(0,1fr);gap:5px 10px}.cm-step-detail .cm-cost-donut{width:86px;height:86px}.cm-step-detail .cm-cost-center{inset:23px 12px}.cm-step-detail .cm-cost-center b{font-size:16px}.cm-step-detail .cm-cost-legend{grid-template-columns:1fr}.cm-step-detail .cm-cost-key{font-size:10px}.cm-step-detail .cm-cost-inspect{font-size:10px;min-height:14px}.cm-step-more{text-align:center;margin:8px 0}.cm-fee-rank .cm-stat-table td:not(:first-child){white-space:nowrap}
+      @container(max-width:680px){.cm-fee-views .cm-cost-legend{grid-template-columns:1fr}.cm-fee-views .cm-cost-chart{grid-template-columns:112px minmax(0,1fr);gap:6px 10px}.cm-fee-views .cm-cost-donut{width:112px;height:112px}.cm-fee-views .cm-cost-center{inset:28px 8px}.cm-fee-views .cm-cost-center b{font-size:16px}.cm-fee-tree .cm-fee-parent{display:none}}@media(max-width:600px){.cm-fee-views{padding:10px}.cm-fee-toolbar{gap:8px}.cm-fee-view-tabs{width:100%;justify-content:space-between}.cm-fee-view-tabs .cm-stat-btn{flex:1}.cm-fee-distribution-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cm-step-detail-grid{grid-template-columns:1fr}.cm-fee-rank .cm-rank-calls{display:none}}
+    `
+
+    function StepCosts({ api, sessionId, revision, money: formatMoney, text, basis, composition, detailed = false }) {
+      const [offset, setOffset] = useState(0), [pages, setPages] = useState({ key: '', rows: [] }), [popup, setPopup] = useState(null), [individualOpen, setIndividualOpen] = useState(false), [retry, setRetry] = useState(0)
+      const [view, setView] = useState('blocks'), [order, setOrder] = useState('cost'), [limit, setLimit] = useState(20), [filter, setFilter] = useState({ agent: '', group: '', label: '' })
+      const rankKey = JSON.stringify([sessionId, basis, revision, order, filter.agent, filter.group, filter.operation, filter.operationGroup, filter.stepKey])
+      const result = useRequest(api, 'getSessionTrajectory', { sessionId, offset, basis, order, agent: filter.agent, group: filter.group, operation: filter.operation ?? '', operationGroup: filter.operationGroup ?? '', stepKey: filter.stepKey ?? '', background: true, generation: String(revision).slice(0, 96) }, revision + ':' + retry)
+      const retained = useRef(null)
+      useEffect(() => setPopup(null), [sessionId, basis])
+      if (result.value) retained.current = { sessionId, basis, revision, value: result.value }
+      const snapshot = retained.current
+      useEffect(() => { setOffset(0); setPages({ key: rankKey, rows: [] }); setLimit(filter.stepKey ? 40 : 20) }, [rankKey])
+      useEffect(() => { if (result.value?.offset === offset) setPages(previous => ({ key: rankKey, rows: offset === 0 ? result.value.steps : [...new Map([...(previous.key === rankKey ? previous.rows : []), ...result.value.steps].map(row => [row.key, row])).values()] })) }, [result.value, offset, rankKey])
+      const value = result.value ?? (snapshot?.sessionId === sessionId && snapshot.basis === basis && snapshot.revision === revision ? snapshot.value : null), money = n => compactFee(formatMoney(n))
+      const names = { input: text('输入', 'Input'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), output: text('输出', 'Output'), reasoning: text('推理', 'Reasoning'), ...requestNames(text) }, kinds = feeKinds(text)
+      if (!value) return result.error ? el('p', { className: 'cm-stat-sub' }, result.error, button(text('重试', 'Retry'), () => setRetry(n => n + 1))) : el('div', { className: 'cm-fee-placeholder', role: 'status', 'aria-label': text('费用分类正在后台更新', 'Cost categories updating in background') }, el('style', null, feeViewCss), el('i'), el('i'), el('i'))
+      const total = amount(value, basis), hierarchy = value.hierarchy ?? [], colors = feeColors({ ...value, hierarchy })
+      const agents = [...new Set([...hierarchy.map(row => row.id), ...value.groups.filter(row => row.kind === 'subagent').map(row => row.sessionId)])].filter(id => id !== sessionId).sort()
+      const actorName = id => {
+        if (id === sessionId) return text('当前对话', 'This conversation')
+        const title = hierarchy.find(row => row.id === id)?.title || value.groups.find(row => row.sessionId === id)?.title || ''
+        return text('子代理 ', 'Subagent ') + (agents.indexOf(id) + 1) + (title ? ' · ' + (title.length > 32 ? title.slice(0, 32) + '…' : title) : '')
+      }
+      const groupName = row => row.kind === 'subagent' ? actorName(row.sessionId) : row.kind === 'tool' && row.tools.length ? row.tools.join(' + ') : kinds[row.kind] ?? row.kind
+      const select = (selection, label) => setPopup({ selection, label })
+      const inspect = row => setPopup({ row, label: row.label || text('步骤费用明细', 'Step billing details') })
+      const categories = value.operations?.length ? value.operations : value.groups
+      const rows = categories.map(row => ({ key: row.key, label: groupName(row), value: amount(row, basis), unpriced: row.unpriced,
+        amount: money(amount(row, basis)) + (row.unpriced ? ' + ?' : ''), caption: row.steps + text(' 步', ' steps'),
+        meta: row.steps + text(' 步 · ', ' steps · ') + row.calls + text(' 次调用 · 单步均值 ', ' calls · average per step ') + money(row.steps ? amount(row, basis) / row.steps : 0), color: colors.get(feeColorKey(row)) }))
+      const loaded = pages.key === rankKey && pages.rows.length ? pages.rows : result.value?.steps ?? [], shown = loaded.slice(0, limit), matching = result.value?.matchingSteps ?? 0
+      const top10 = value.shares.filter(row => !row.other).slice(0, 10).reduce((sum, row) => sum + amount(row, basis), 0)
+      const totals = el('div', { className: 'cm-fee-stats' }, el('span', null, text('步骤', 'Steps'), el('b', null, value.totalSteps.toLocaleString())),
+        el('span', null, text('调用', 'Calls'), el('b', null, value.totalCalls.toLocaleString())),
+        el('span', null, text('单步均值', 'Average per step'), el('b', null, money(value.totalSteps ? total / value.totalSteps : 0))),
+        el('span', null, text('最高 10 步占比', 'Top 10 steps'), el('b', null, feeShare(top10, total))))
+      const compositionView = el('section', { className: 'cm-fee-views cm-trajectory-pie cm-fee-wide', 'aria-label': text('费用类型构成', 'Cost by category') },
+        el('div', { className: 'cm-fee-toolbar' }, el('h3', null, text('费用类型构成', 'Cost by category'), value.refreshing ? el('span', { className: 'cm-fee-updating', role: 'status' }, text('更新中', 'Updating')) : value.refreshFailed ? button('↻', () => setRetry(n => n + 1), { title: text('更新未完成，点击重试', 'Refresh incomplete, click to retry') }) : null),
+          el('div', { className: 'cm-fee-view-tabs', role: 'group', 'aria-label': text('费用视图', 'Cost views') }, ...[['types', text('归类占比', 'Categories')], ['blocks', text('矩形分布', 'Treemap')], ['tree', text('父子归属', 'Ownership')], ['grid', text('步骤热力图', 'Step heatmap')]].map(([key, label]) => button(label, () => setView(key), { key, 'aria-pressed': view === key })))),
+        view === 'types' ? el(CostBreakdown, { rows, total, label: text('对话总费用', 'Conversation total'), centerValue: money(total) + (rows.some(row => row.unpriced) ? ' + ?' : ''), text, ranked: true, amounts: true, onSelect: row => select(value.operations?.length ? { operation: row.key } : { group: row.key }, row.label) })
+          : view === 'blocks' ? el(FeeTreemap, { value: { ...value, hierarchy }, basis, colors, actorName, groupName, money, text, onSelect: select })
+            : view === 'grid' ? el(StepFeeGrid, { api, sessionId, basis, revision, value, colors, actorName, money, text, onInspect: inspect }) : el(FeeOwnershipTree, { value: { ...value, hierarchy }, basis, colors, actorName, groupName, money, text, onSelect: select }), totals, categories.some(row => row.kind === 'fetch') ? el('p', { className: 'cm-stat-note' }, text('网页抓取分类包含相关模型步骤；DeepSeek Fetch API 的成功请求另计次数费，本地 HTTP 抓取不另收费。', 'Web fetch includes related model steps. Successful DeepSeek Fetch API requests have a separate request fee; local HTTP fetching has no separate fee.')) : null)
+      const binNames = { tiny: '<0.1%', small: '0.1%–1%', medium: '1%–5%', large: '≥5%', free: text('零费用', 'Zero cost'), unpriced: text('含未定价', 'Includes unpriced') }
+      const distribution = value.distribution?.length ? el('section', { className: 'cm-fee-distribution', 'aria-label': text('单步费用占比分布', 'Step cost share distribution') },
+        el('h3', null, text('单步费用占比分布', 'Step cost share distribution')),
+        el('div', { className: 'cm-fee-distribution-grid' }, ...value.distribution.map(row => el('div', { className: 'cm-fee-bin', key: row.key },
+          el('div', { className: 'cm-fee-bin-head' }, el('span', null, binNames[row.key] ?? row.key), el('b', null, row.steps + text(' 步', ' steps'))),
+          el('div', { className: 'cm-fee-bin-track', 'aria-hidden': true }, el('i', { style: { width: (value.totalSteps ? row.steps / value.totalSteps * 100 : 0) + '%' } })),
+          el('small', null, money(amount(row, basis)) + (row.unpriced ? ' + ?' : '') + ' · ' + feeShare(amount(row, basis), total)))))) : null
+      const rankRows = shown.map((row, index) => {
+        const rowAmount = amount(row, basis)
+        const title = (row.sessionId !== sessionId ? actorName(row.sessionId) + ' · ' : '') + (row.turn == null ? kinds[row.kind] ?? row.kind : text('轮次 ', 'Turn ') + row.turn + (row.step == null ? '' : text(' · 步骤 ', ' · step ') + row.step))
+        return el('tr', { key: row.key, 'data-step-key': row.key, 'data-step-amount': rowAmount },
+          el('td', null, index + 1), el('td', null, el('button', { type: 'button', className: 'cm-step-name', 'aria-haspopup': 'dialog', onClick: () => inspect({ ...row, label: title }) },
+            el('i', { className: 'cm-plan-dot', style: { background: colors.get(row.sessionId !== sessionId ? 'agent:' + row.sessionId : feeColorKey(value.groups.find(group => group.key === row.groupKey) ?? { kind: row.kind, tools: row.tools })) } }),
+            el('span', null, title, el('small', null, row.tools.join(' + ') || kinds[row.kind] || row.kind)))),
+          el('td', { className: 'cm-rank-calls' }, row.calls), el('td', { className: 'cm-step-amount' }, money(rowAmount) + (row.unpriced ? ' + ?' : '')),
+          el('td', null, feeShare(rowAmount, total)))
+      })
+      return el('section', { className: (detailed ? 'cm-step-cards' : 'cm-step-costs') + ' cm-plan', 'aria-label': text('归类计费明细', 'Categorized billing details') }, el('style', null, contextCostsCss + feeViewCss),
+        result.error ? el('p', { className: 'cm-stat-error' }, result.error) : null,
+        compositionView, composition ? el('details', { className: 'cm-fee-components' }, el('summary', null, text('输入与输出费用构成', 'Input and output costs')), composition) : null, detailed ? distribution : null,
+        popup ? el(FeeDialog, { title: popup.label, text, onClose: () => setPopup(null) }, popup.row ? el(StepFeeInspector, { key: popup.row.key, api, sessionId, basis, revision, row: popup.row, money, text }) : el(FeeGroupDetails, { key: JSON.stringify(popup.selection), api, sessionId, basis, revision, selection: popup.selection, actorName, money, text })) : null,
+        el('details', { className: 'cm-individual-steps', open: individualOpen, onToggle: event => { if (event.target === event.currentTarget) setIndividualOpen(event.currentTarget.open) } },
+          el('summary', null, text('逐步费用明细', 'Step cost details') + ' · ' + (result.value ? matching.toLocaleString() : '…')),
+          individualOpen ? el('div', { className: 'cm-fee-rank', 'aria-busy': result.loading },
+            el('div', { className: 'cm-fee-rank-controls' }, el('div', { className: 'cm-fee-filter' }, el('span', null, filter.label || text('全部步骤', 'All steps')), filter.agent || filter.group || filter.operation || filter.operationGroup || filter.stepKey ? button(text('全部', 'All'), () => setFilter({ agent: '', group: '', label: '' })) : null),
+              el('select', { 'aria-label': text('步骤排序', 'Step order'), value: order, onChange: event => setOrder(event.target.value) }, el('option', { value: 'cost' }, text('金额从高到低', 'Highest cost first')), el('option', { value: 'time' }, text('轨迹顺序', 'Trajectory order')))),
+            el('div', { className: 'cm-stat-scroll' }, el('table', { className: 'cm-stat-table' }, el('thead', null, el('tr', null,
+              ...[text('排名', 'Rank'), text('步骤 / 工具', 'Step / tool'), text('调用', 'Calls'), text('费用', 'Cost'), text('占对话', 'Of conversation')].map((label, i) => el('th', { key: label, className: i === 2 ? 'cm-rank-calls' : '' }, label)))), el('tbody', null, ...rankRows))),
+            shown.length < matching ? el('div', { className: 'cm-step-more' }, button(result.loading ? text('读取中…', 'Loading…') : text('展开更多步骤', 'Show more steps'), () => { setLimit(n => n + 20); if (limit >= loaded.length) setOffset(loaded.length) }, { disabled: result.loading })) : null) : null))
     }
 
     function SessionDetail({ api, query, revision, money, formatTokens, text, overview = false, children }) {
       const [offset, setOffset] = useState(0), [selected, setSelected] = useState(-1), [turnOffset, setTurnOffset] = useState(0)
-      const [view, setView] = useState('summary'), [callSectionOpen, setCallSectionOpen] = useState(false)
+      const [view, setView] = useState('summary'), [callSectionOpen, setCallSectionOpen] = useState(false), [callPopup, setCallPopup] = useState(null)
       const [expandedTurn, setExpandedTurn] = useState(null), [shareMetric, setShareMetric] = useState('cost'), [retry, setRetry] = useState(0)
-      const result = useRequest(api, 'getSessionBilling', { ...query, offset, turnOffset }, revision + ':' + retry)
+      const result = useRequest(api, 'getSessionBilling', { ...query, offset, turnOffset, background: true, generation: String(revision).slice(0, 96) }, revision + ':' + retry)
       const jump = useRef(false)
+      useEffect(() => setCallPopup(null), [query.sessionId, query.basis])
       useEffect(() => {
         if (jump.current && !result.loading && selected >= 0) {
           document.getElementById('cm-stat-call-' + selected)?.scrollIntoView({ block: 'nearest' })
           jump.current = false
         }
       }, [result.loading, result.value, offset, selected, view])
-      const detail = result.value, basis = query.basis
-      const names = { input: text('非缓存输入', 'Uncached input'), output: text('输出', 'Output'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), reasoning: text('推理', 'Reasoning') }
-      const kinds = { model: text('模型调用', 'Model call'), compaction: text('上下文压缩', 'Compaction'), search: text('原生搜索', 'Native search') }
+      const waiting = overview && !result.value, basis = query.basis
+      const detail = result.value ?? (overview ? { found: true, rows: [], calls: [], cost: 0, apiCost: 0, totalCalls: 0, recorded: { cost: 0, apiCost: 0, calls: 0 }, agents: [], turns: [], kinds: [], totalTurns: 0, offset: 0, turnOffset: 0, stepShares: {} } : null)
+      const names = { input: text('非缓存输入', 'Uncached input'), output: text('输出', 'Output'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), reasoning: text('推理', 'Reasoning'), ...requestNames(text) }
+      const kinds = { model: text('模型调用', 'Model call'), compaction: text('上下文压缩', 'Compaction'), search: text('原生搜索', 'Native search'), fetch: text('网页抓取', 'Web fetch') }
       const turnName = turn => turn == null ? text('未标明轮次', 'Turn not recorded') : text('轮次 ', 'Turn ') + turn
-      if (showsPlaceholder(result)) return result.loading
+      if (showsPlaceholder(result) && !overview) return result.loading
         ? el('p', { className: 'cm-stat-empty', role: 'status' }, text('正在读取本对话的用量明细…', 'Loading this conversation’s usage records…'))
         : errorNotice(result.error)
       // 明细保留旧值时,后台刷新失败必须可见 —— 否则界面看着正常、数字却是旧的。
       // 提示**必须带重试入口**,且必须跟数据一起渲染:此前它写在主返回里,旧值是
       // found:false 时会被紧随其后的早退吞掉,用户只看到「没有可用的调用日志」,
       // 既不知道刷新失败,也没有重试按钮(改动前失败必清值、必走带重试的分支)。
-      const staleError = result.failed
-        ? el('div', null, errorNotice(result.error), button(text('重试', 'Retry'), () => setRetry(n => n + 1)))
+      const staleError = result.failed || detail?.refreshFailed
+        ? el('div', null, errorNotice(result.error || text('后台更新未完成', 'Background refresh incomplete')), button(text('重试', 'Retry'), () => setRetry(n => n + 1)))
         : null
       if (!detail.found) return el(Fragment, null, staleError, el('p', { className: 'cm-stat-note' }, text('没有可用的调用日志；缺失明细不代表零费用。', 'Call logs are unavailable; missing details do not mean zero cost.')), children)
       const agentName = id => !id || id === query.sessionId ? text('主会话', 'Main conversation') : text('子代理 ', 'Subagent ') + ((detail.agents ?? []).find(row => row.id === id)?.title || id).slice(0, 80)
@@ -766,14 +1138,14 @@ window.__ModuleLoader__.load({
       const visible = row => basis === 'total' || (basis === 'plan' ? row.plan : !row.plan)
       const parts = Object.keys(names).map(bucket => {
         const rows = detail.rows.filter(r => r.bucket === bucket && visible(r))
-        return { bucket, tokens: rows.reduce((n, r) => n + r.tokens, 0), cost: rows.reduce((n, r) => n + r.cost, 0), unpriced: rows.some(r => !r.priced) }
+        return { bucket, tokens: rows.reduce((n, r) => n + r.tokens, 0), requests: rows.reduce((n, r) => n + (r.requests ?? 0), 0), cost: rows.reduce((n, r) => n + r.cost, 0), unpriced: rows.some(r => !r.priced) }
       })
       const cost = amount(detail, basis), recorded = amount(detail.recorded, basis)
       const mismatch = Math.abs(cost - recorded) > Math.max(1e-8, Math.abs(recorded) * 1e-8) || detail.totalCalls !== detail.recorded.calls
       const unknown = parts.some(row => row.unpriced)
       const shareLabel = unknown ? text('已知费用占比', 'Known cost share') : text('费用占比', 'Cost share')
-      const selectCall = index => { setView('summary'); jump.current = true; setOffset(Math.floor(index / 50) * 50); setSelected(index % 50) }
-      const chartPart = row => ({ key: row.bucket, label: names[row.bucket], tokens: row.tokens, value: row.cost, unpriced: row.unpriced,
+      const selectCall = row => setCallPopup(row)
+      const chartPart = row => ({ key: row.bucket, label: names[row.bucket] ?? requestNames(text)[row.bucket], tokens: row.tokens, ...(row.requests ? { meta: row.requests + text(' 次请求', ' requests') } : {}), value: row.cost, unpriced: row.unpriced,
         amount: row.unpriced && !row.cost ? text('未定价', 'Unpriced') : money(row.cost) + (row.unpriced ? ' + ?' : ''), color: contextColors[bucketColors[row.bucket] ?? 7] })
       const models = new Map()
       for (const row of detail.rows.filter(visible)) {
@@ -796,23 +1168,29 @@ window.__ModuleLoader__.load({
             el('div', { className: 'cm-stat-share-track', 'aria-hidden': true }, el('span', { style: { display: 'block', height: '100%', width: (total > 0 ? value / total * 100 : 0) + '%', borderRadius: 9, background: contextColors[6] } }))))) : null
       const costCard = (title, rows, props = {}, extra = null) => el('section', { className: 'cm-spend-card', 'aria-label': title }, el('h3', null, title),
         el(CostBreakdown, { rows, total: cost, label: shareLabel, text, amounts: true, ...props }), extra)
-      const callShareCard = (detail.callShares?.length ?? 0) > 0 ? costCard(text('每次调用费用占比', 'Cost share per call'), detail.callShares.map((row, i) => ({ ...row, key: String(row.index),
-              label: row.other ? text('其余 ', 'Other ') + row.calls + text(' 次调用', ' calls') : text('调用 #', 'Call #') + (row.index + 1),
-              meta: row.other ? row.calls + text(' 次调用', ' calls') : row.tokens.toLocaleString() + ' tokens', value: amount(row, basis),
-              amount: row.unpriced && !amount(row, basis) ? text('未定价', 'Unpriced') : money(amount(row, basis)) + (row.unpriced ? ' + ?' : ''), color: contextColors[row.other ? 7 : i % 7] })),
-              { onSelect: row => { if (!row.other) selectCall(row.index) } }) : null
+      const rankedCalls = (detail.callShares ?? []).filter(row => !row.other), restCalls = detail.callShares?.find(row => row.other)
+      const maxCall = Math.max(0, ...rankedCalls.map(row => amount(row, basis))), topCallsCost = rankedCalls.reduce((sum, row) => sum + amount(row, basis), 0)
+      const callShareCard = rankedCalls.length ? el('section', { className: 'cm-spend-card cm-call-ranking', 'aria-label': text('高额调用', 'Highest-cost calls') },
+        el('h3', null, text('高额调用', 'Highest-cost calls')),
+        ...rankedCalls.map((row, i) => el('button', { type: 'button', className: 'cm-call-rank-row', key: row.index, onClick: () => selectCall(row), 'aria-haspopup': 'dialog' },
+          el('span', { className: 'cm-call-rank-index' }, i + 1), el('span', { className: 'cm-call-rank-main' },
+            el('span', { className: 'cm-call-rank-caption' }, el('span', null, text('调用 #', 'Call #') + (row.index + 1)), el('span', null, money(amount(row, basis)) + (row.unpriced ? ' + ?' : ''), el('small', null, feeShare(amount(row, basis), cost)))),
+            el('span', { className: 'cm-call-rank-track', 'aria-hidden': true }, el('i', { style: { width: (maxCall > 0 ? amount(row, basis) / maxCall * 100 : 0) + '%' } }))))),
+        el('div', { className: 'cm-call-rank-footer' }, el('span', null, text('前 ', 'Top ') + rankedCalls.length + text(' 次合计 ', ' calls ') + money(topCallsCost)), el('span', null, text('占对话 ', 'Of conversation ') + feeShare(topCallsCost, cost))),
+        restCalls ? el('div', { className: 'cm-call-rank-rest' }, text('其余 ', 'Other ') + restCalls.calls + text(' 次调用', ' calls'), el('span', null, money(amount(restCalls, basis)) + (restCalls.unpriced ? ' + ?' : ''))) : null) : null
       const summaryTable = (label, rows, name) => el('div', { className: 'cm-stat-scroll', style: { marginTop: 20 } }, el('h3', null, label), el('table', { className: 'cm-stat-table' },
         el('thead', null, el('tr', null, ...[label, text('调用次数', 'Calls'), text('输入 / 缓存 / 输出 Tokens', 'Input / cache / output tokens'), 'API', text('Plan 等值', 'Plan equivalent')].map(v => el('th', { key: v }, v)))),
         el('tbody', null, rows.map((row, i) => el('tr', { key: i }, el('td', null, name(row)), el('td', null, row.calls),
           el('td', null, [row.input, row.cacheRead + row.cacheWrite, row.output].map(formatTokens).join(' / ')), el('td', null, money(row.apiCost) + (row.unpriced ? ' + ?' : '')), el('td', null, money(Math.max(0, row.cost - row.apiCost)) + (row.unpriced ? ' + ?' : '')))))))
       return el('section', { className: 'cm-stat-panel' }, el('style', null, contextCostsCss + spendCss),
+        callPopup != null ? el(CallPopup, { key: [query.sessionId, basis, callPopup.index].join(':'), api, sessionId: query.sessionId, revision, row: callPopup, money, text, names, onClose: () => setCallPopup(null) }) : null,
         overview ? el('nav', { className: 'cm-session-tabs', 'aria-label': text('费用视图', 'Cost views') }, ...[['summary', text('费用概览', 'Overview')], ['context', text('费用明细', 'Cost details')]].map(([id, label]) => button(label, () => { setView(id); setSelected(-1); setCallSectionOpen(false) }, { key: id, 'aria-pressed': view === id }))) : null,
         overview ? el('div', { className: 'cm-stat-metrics' }, ...[
           [basis === 'total' ? text('API + Plan 等值', 'API + Plan equivalent') : basis === 'plan' ? text('Plan 等值', 'Plan equivalent') : text('API 费用', 'API cost'), money(cost) + (parts.some(row => row.unpriced) ? ' + ?' : ''), text('按本对话调用日志估算', 'Estimated from this conversation’s call logs')],
           [text('调用次数', 'Calls'), detail.totalCalls.toLocaleString(), (detail.agents?.length ?? 0) > 1 ? text('包含子代理', 'Includes subagents') : text('本会话', 'This conversation')],
           [text('Token 用量', 'Token usage'), formatTokens(parts.reduce((n, row) => n + (row.bucket === 'reasoning' ? 0 : row.tokens), 0)), text('输入、缓存与输出', 'Input, cache and output')],
           [text('缓存命中率', 'Cache hit rate'), pct(parts.find(row => row.bucket === 'cacheRead')?.tokens ?? 0, parts.filter(row => ['input', 'cacheRead', 'cacheWrite'].includes(row.bucket)).reduce((n, row) => n + row.tokens, 0)), text('输入 Token 中的缓存读取', 'Cache reads among input tokens')],
-        ].map(([label, value, sub]) => el('div', { className: 'cm-stat-metric', key: label }, el('div', { className: 'cm-stat-sub' }, label), el('div', { className: 'cm-stat-value' }, value), el('div', { className: 'cm-stat-sub' }, sub)))) : null,
+        ].map(([label, value, sub]) => el('div', { className: 'cm-stat-metric', key: label }, el('div', { className: 'cm-stat-sub' }, label), el('div', { className: 'cm-stat-value' }, waiting ? '—' : value), el('div', { className: 'cm-stat-sub' }, waiting ? '' : sub)))) : null,
         overview && view === 'context' ? el(StepCosts, { api, sessionId: query.sessionId, revision, money, text, basis, detailed: true }) : null,
         !overview ? children : view === 'context' ? el('details', { className: 'cm-stat-secondary' }, el('summary', { style: { padding: '8px 0' } }, text('上下文费用参考', 'Context cost reference')), children) : null,
         !overview ? el('div', { className: 'cm-stat-panel-head' }, el('h3', null, overview ? text('已发生费用 · 调用明细', 'Recorded costs · call details') : text('单对话费用明细', 'Conversation cost details')), el('span', { className: 'cm-stat-sub' }, (detail.agents?.length ?? 0) > 1 ? text('包含子代理及其后代', 'Includes subagents and their descendants') : text('本会话自身的调用', 'Own conversation calls'))) : null,
@@ -822,14 +1200,14 @@ window.__ModuleLoader__.load({
         !overview ? el('div', { className: 'cm-plan cm-spend' },
           unknown ? el('p', { className: 'cm-plan-sub' }, text('存在未定价调用', 'Some calls are unpriced')) : null,
           el('div', { className: 'cm-spend-grid' },
-            costCard(text('费用构成', 'Cost composition'), parts.filter(row => row.tokens > 0 && (row.bucket !== 'reasoning' || row.cost > 0 || row.unpriced)).map(chartPart), {}, cacheComparison),
+            costCard(text('费用构成', 'Cost composition'), parts.filter(row => (row.tokens > 0 || row.requests > 0) && (row.bucket !== 'reasoning' || row.cost > 0 || row.unpriced)).map(chartPart), {}, cacheComparison),
             callShareCard,
             modelRows.length > 1 ? costCard(text('模型费用分布', 'Cost by model'), modelRows) : null,
             detail.kinds.length > 1 ? costCard(text('各环节费用占比', 'Cost by activity'), detail.kinds.map((row, i) => ({ key: row.kind, label: kinds[row.kind] ?? row.kind,
               value: amount(row, basis), tokens: tokens(row), meta: row.calls + text(' 次调用', ' calls') + ' · ' + formatTokens(tokens(row)) + ' tok', unpriced: row.unpriced,
               amount: money(amount(row, basis)) + (row.unpriced ? ' + ?' : ''), color: contextColors[i] }))) : null)) : null,
-        overview && view === 'summary' ? el(StepCosts, { api, sessionId: query.sessionId, revision, money, text, basis, composition: costCard(text('费用构成', 'Cost composition'), parts.filter(row => row.tokens > 0 && (row.bucket !== 'reasoning' || row.cost > 0 || row.unpriced)).map(chartPart)) }) : null,
-        !overview || view === 'summary' ? el('details', { className: 'cm-call-section', open: !overview || callSectionOpen || selected >= 0, onToggle: e => { if (e.target === e.currentTarget) { setCallSectionOpen(e.currentTarget.open); if (!e.currentTarget.open) setSelected(-1) } } },
+        overview && view === 'summary' ? el(StepCosts, { api, sessionId: query.sessionId, revision, money, text, basis, composition: waiting ? null : costCard(text('费用构成', 'Cost composition'), parts.filter(row => (row.tokens > 0 || row.requests > 0) && (row.bucket !== 'reasoning' || row.cost > 0 || row.unpriced)).map(chartPart)) }) : null,
+        !waiting && (!overview || view === 'summary') ? el('details', { className: 'cm-call-section', open: !overview || callSectionOpen || selected >= 0, onToggle: e => { if (e.target === e.currentTarget) { setCallSectionOpen(e.currentTarget.open); if (!e.currentTarget.open) setSelected(-1) } } },
         el('summary', { style: { padding: '10px 0', fontSize: 13 } }, text('逐次调用明细', 'Individual calls') + ' · ' + detail.totalCalls),
         overview ? el('div', { className: 'cm-plan cm-spend-grid' }, callShareCard, modelRows.length > 1 ? costCard(text('模型费用分布', 'Cost by model'), modelRows) : cacheComparison) : null,
         !overview ? el('details', { className: 'cm-stat-secondary', open: !overview }, el('summary', null, text('轮次、步骤与单价', 'Turns, steps and rates')),
@@ -843,7 +1221,7 @@ window.__ModuleLoader__.load({
         el('details', { className: 'cm-stat-help' }, el('summary', null, text('单价与 Token 明细', 'Rates and token details')),
         el('div', { className: 'cm-stat-scroll' }, el('table', { className: 'cm-stat-table' },
           el('thead', null, el('tr', null, ...[text('费用构成', 'Cost component'), 'Tokens', text('费用', 'Cost'), text('费用占比', 'Cost share')].map(v => el('th', { key: v }, v)))),
-          el('tbody', null, parts.map(row => el('tr', { key: row.bucket }, el('td', null, names[row.bucket]), el('td', null, row.tokens.toLocaleString()), el('td', null, money(row.cost) + (row.unpriced ? ' + ?' : '')), el('td', null, pct(row.cost, cost))))))),
+          el('tbody', null, parts.map(row => el('tr', { key: row.bucket }, el('td', null, names[row.bucket]), el('td', null, row.requests ? row.requests + text(' 次', ' requests') : row.tokens.toLocaleString()), el('td', null, money(row.cost) + (row.unpriced ? ' + ?' : '')), el('td', null, pct(row.cost, cost))))))),
         summaryTable(text('按调用类型统计', 'Cost by call type'), detail.kinds, row => kinds[row.kind] ?? row.kind)),
         el('section', { className: 'cm-stat-turns' }, el('div', { className: 'cm-stat-panel-head' }, el('h3', null, text('按轮次统计', 'Cost by turn')), el('span', { className: 'cm-stat-sub' }, text('展开查看输入和工具调用', 'Expand to inspect input and tool calls'))),
           detail.turns.map(row => el('div', { key: turnKey(row), className: 'cm-stat-turn' },
@@ -860,6 +1238,22 @@ window.__ModuleLoader__.load({
             el('span', { className: 'cm-call-share' }, (call.priced ? pct(amount(call, basis), cost) : '—') + ' · ' + shareLabel)),
           selected === i ? el(CallDetail, { key: (call.sessionId || query.sessionId) + ':' + (call.logSeq ?? i), call, sessionId: query.sessionId, api, revision, money, text, names }) : null)),
         el(Pager, { offset, count: detail.totalCalls, size: 50, onChange: n => { setOffset(n); setSelected(-1) }, text })) : null)
+    }
+
+    function compressionBillingNotice(text, status) {
+      if (!window.__BILI__ && !status?.connected) return null
+      let href
+      try {
+        const origin = new URL(window.__BILI__?.origin)
+        if (['http:', 'https:'].includes(origin.protocol) && !origin.username && !origin.password) href = origin.origin + '/__bili/'
+      } catch {}
+      return el('p', { className: 'cm-stat-note', 'data-billing-coverage': 'billion-context' },
+        status?.connected ? text('已接入 billion-context 的逐次请求，包括内部压缩、重试和追加请求。只从启用后开始采集，启用前的缺失记录无法补齐。', 'billion-context request metering is connected, including internal compression, retries and additional calls. Collection starts when enabled; earlier missing records cannot be recovered.')
+          + (status.failed ? text(' 用量读取失败，保留已有金额。', ' Usage refresh failed; saved amounts are retained.') : '')
+          + (status.uncovered ? text(' 未建立完整采集的请求：', ' Requests without the full metering bridge: ') + status.uncovered + text('；这些请求沿用 DSH 用量。', '; these requests retain DSH usage accounting.') : '')
+          + (status.unreported || status.partial ? text(' 没有完整用量回执的请求：', ' Requests without complete usage: ') + (status.unreported + status.partial) + text('；这些请求的未知费用没有估补。', '; unknown charges are not inferred.') : '')
+          : text('已检测到 billion-context。此处统计它上报给 DSH 的用量；代理内部未上报的压缩、重试和追加请求未计入。', 'billion-context detected. These totals use its reported DSH usage; unreported internal compression, retries and additional requests are excluded.'),
+        href ? el('a', { href, target: '_blank', rel: 'noopener noreferrer', style: { marginInlineStart: 8 } }, text('查看代理统计', 'Open proxy statistics')) : null)
     }
 
     function useStatisticsBasis(config, api, text) {
@@ -883,6 +1277,7 @@ window.__ModuleLoader__.load({
       const money = n => formatMoneyUsd(n, { ...state.config, decimals: Math.max(n !== 0 && Math.abs(n) < .01 ? 8 : 4, state.config.decimals ?? 2) })
       const query = { sessionId, from: '', to: '', provider: '', model: '', basis, offset: 0 }
       return el('div', { className: 'cm-stat cm-stat-session', 'data-session-id': sessionId }, el('style', null, css),
+        compressionBillingNotice(text, state.billionContext),
         el('div', { className: 'cm-stat-panel-head' }, el('p', { className: 'cm-stat-sub' }, text('当前对话 · 全部调用', 'This conversation · all calls')), button(text('刷新', 'Refresh'), () => setRevision(n => n + 1))),
         el(SessionDetail, { key: sessionId + ':' + basis, api, query, revision: refreshKey, money, formatTokens, text, overview: true },
           el(ContextCosts, { key: sessionId, api, sessionId, revision: refreshKey, money, text, compact: true, expanded: true })),
@@ -918,6 +1313,7 @@ window.__ModuleLoader__.load({
       const top = data?.totals
       const metric = (label, value, sub) => el('div', { className: 'cm-stat-metric', key: label }, el('div', { className: 'cm-stat-sub' }, label), el('div', { className: 'cm-stat-value' }, value), el('div', { className: 'cm-stat-sub' }, sub))
       return el('div', { className: 'cm-stat' }, el('style', null, css),
+        compressionBillingNotice(text, state.billionContext),
         contextIntegration ? el(ContextIntegrationSettings, contextIntegration) : null,
         el('header', { className: 'cm-stat-head' }, el('div', null, el('h2', null, text('计费统计', 'Cost statistics')), el('p', { className: 'cm-stat-sub' }, scope.id ? text('单对话 · ', 'Conversation · ') + (scope.title === scope.id ? data?.sessions[0]?.title || scope.title : scope.title) : text('全部对话 · 从总额查看每一笔调用', 'All conversations · from totals to individual calls'))),
           button(text('刷新', 'Refresh'), () => setRevision(n => n + 1))),
@@ -965,17 +1361,20 @@ window.__ModuleLoader__.load({
     function prefetchStatistics(api, { state, sessionId = '' } = {}) {
         if (!state || document.hidden) return
         const revision = refreshKeyOf(state, 0), today = state.meta.dayKey || new Date().toISOString().slice(0, 10)
-        const query = { sessionId, from: sessionId ? '' : shiftDate(today, -6), to: sessionId ? '' : today, provider: '', model: '', basis: state.config.showTotalWithPlan ? 'total' : 'api', offset: 0 }
-        return Promise.all(sessionId ? [readRequest(api, 'getSessionBilling', { ...query, turnOffset: 0 }, revision + ':0')] : [readRequest(api, 'getBillingStatistics', { from: query.from, to: query.to, provider: '', model: '', basis: query.basis, sessionId: '', offset: 0 }, revision)])
-      }
-
+        const query = { sessionId, from: sessionId ? '' : shiftDate(today, -6), to: sessionId ? '' : today, provider: '', model: '', basis: ['api', 'plan', 'total'].includes(state.config.statisticsBasis) ? state.config.statisticsBasis : state.config.showTotalWithPlan ? 'total' : 'api', offset: 0 }
+        return Promise.allSettled(sessionId ? [readRequest(api, 'getSessionBilling', { ...query, turnOffset: 0, background: true, generation: String(revision).slice(0, 96) }, revision + ':0'),
+          readRequest(api, 'getSessionTrajectory', { sessionId, offset: 0, basis: query.basis, order: 'cost', agent: '', group: '', operation: '', operationGroup: '', stepKey: '', background: true, generation: String(revision).slice(0, 96) }, revision + ':0')]
+          : [readRequest(api, 'getBillingStatistics', query, revision + ':0')])
+    }
     async function mount(ctx, source, resolveLocale) {
       const getLocale = typeof source === 'function' ? source : () => source && resolveLocale ? resolveLocale(source.getSnapshot().state?.config ?? { activeLocale: source.getSnapshot().locale }) : 'en'
       const unmount = await ctx.get('remote').$mount(CONTRIBUTION)
       ctx.effect(() => () => unmount(), 'cost-meter: statistics contribution')
       const remote = ctx.get('remote.costMeter')
       const api = Object.fromEntries(['getBillingStatistics', 'getSessionBilling', 'getTurnInspection', 'getCallInspection', 'getContextCosts', 'getSessionTrajectory'].map(method => [method, async query => {
-        const result = await remote[method]((method === 'getSessionTrajectory' ? parseTrajectoryQuery : method === 'getContextCosts' ? parseContextCostsQuery : method === 'getCallInspection' ? parseCallInspectionQuery : method === 'getTurnInspection' ? parseInspectionQuery : parseQuery)(query))
+        const displayCurrency = source?.getSnapshot?.()?.state?.config?.currency
+        const parsed = (method === 'getSessionTrajectory' ? parseTrajectoryQuery : method === 'getContextCosts' ? parseContextCostsQuery : method === 'getCallInspection' ? parseCallInspectionQuery : method === 'getTurnInspection' ? parseInspectionQuery : parseQuery)(query)
+        const result = await remote[method]({ ...parsed, ...(['getBillingStatistics', 'getSessionBilling', 'getSessionTrajectory'].includes(method) && ['CNY', 'EUR', 'USD'].includes(displayCurrency) ? { displayCurrency } : {}) })
         if (!result?.ok) throw new Error(result?.error?.message || 'Statistics request failed')
         return ({ getBillingStatistics: parseStatistics, getSessionBilling: parseDetail, getTurnInspection: parseInspection, getCallInspection: parseCallInspection, getContextCosts: parseContextCosts, getSessionTrajectory: parseTrajectory }[method])(result.value)
       }]))
@@ -1002,10 +1401,11 @@ window.__ModuleLoader__.load({
         if (typeof slots.inject === 'function') ctx.effect(() => slots.inject('shell.overlay', register), 'cost-meter: context preview prompt')
       }
       const Page = props => el(props.sessionId ? SessionStatistics : Statistics, { ...props, api, contextIntegration: manager ? { manager, getLocale } : null })
+      Page.BillionCompatibilityNotice = BillionCompatibilityNotice
       Page.prefetch = options => prefetchStatistics(api, options)
       ctx.effect(() => () => requestCaches.delete(api), 'cost-meter: statistics cache cleanup')
       return Page
     }
-    return { mount, prefetchStatistics, Statistics, SessionStatistics, SessionDetail, TurnInspection, ShareChart, ContextCosts, ContextPrompt, ContextPreview, ContextIntegrationSettings, createContextIntegration, contextCostBreakdown, installContextCosts, CONTRIBUTION, parseContextCosts, parseStatistics, parseDetail, parseInspection, dailyChartRows, requestStart, requestValue, requestFailure, showsPlaceholder, refreshKeyOf }
+    return { mount, prefetchStatistics, Statistics, SessionStatistics, SessionDetail, TurnInspection, ShareChart, ContextCosts, BillionCompatibilityNotice, ContextPrompt, ContextPreview, ContextIntegrationSettings, createContextIntegration, contextCostBreakdown, installContextCosts, CONTRIBUTION, parseContextCosts, parseStatistics, parseDetail, parseInspection, dailyChartRows, requestStart, requestValue, requestFailure, showsPlaceholder, refreshKeyOf }
   },
 })

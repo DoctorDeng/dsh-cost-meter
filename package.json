@@ -1,15 +1,15 @@
 {
   "name": "dsh-cost-meter",
-  "version": "1.8.26",
-  "description": "DeepSeek Harness 会话费用统计插件:本会话成本、当日费用、历史记录与官方价格同步,支持多厂商多模型价格计费(内置 170+ 模型 ID 价格目录与自动匹配)、主流 Coding Plan 订阅额度查询与显示(12 家,含小米 MiMo Token Plan 控制台 Cookie 查询、SCNet Token Plan 本地 Credits 计量与火山方舟 Volcano Ark Coding Plan AK/SK 签名查询)、自定义 Provider 余额查询(可配任意 HTTP 端点)与余额进度条、峰谷计价时段显示与切换前弹窗/系统通知提醒(位置/提前量/类型可配),界面中英双语。Session cost tracking plugin for DeepSeek Harness: per-conversation cost, daily totals, history and official price sync, with multi-vendor model pricing (built-in 170+ model-ID catalog with auto-matching), Coding Plan quota queries & display for 11 vendors (incl. Xiaomi MiMo Token Plan via console cookie, local credits metering for the SCNet Token Plan and Volcano Ark Coding Plan via AK/SK signature), plan/API dual-track billing with per-1% & full-window Token Plan usage estimates, custom provider balance lookup (configurable HTTP endpoint) and balance progress bar, plus peak/off-peak pricing display with pre-switch popup & system-notification alerts (position / lead time / type configurable), in a bilingual (Chinese/English) UI.",
+  "version": "1.8.35",
+  "description": "DeepSeek Harness 会话费用统计插件:本会话成本、当日费用、历史记录与官方价格同步,支持多厂商多模型价格计费(内置 170+ 模型 ID 价格目录与自动匹配)、主流 Coding Plan 订阅额度查询与显示(13 家,含 OpenDesign 工作区查询、含小米 MiMo Token Plan 控制台 Cookie 查询、SCNet Token Plan 本地 Credits 计量与火山方舟 Volcano Ark Coding Plan AK/SK 签名查询)、自定义 Provider 余额查询(可配任意 HTTP 端点)与余额进度条、峰谷计价时段显示与切换前弹窗/系统通知提醒(位置/提前量/类型可配),界面中英双语。Session cost tracking plugin for DeepSeek Harness: per-conversation cost, daily totals, history and official price sync, with multi-vendor model pricing (built-in 170+ model-ID catalog with auto-matching), Coding Plan quota queries & display for 13 vendors (incl. OpenDesign workspace queries, Xiaomi MiMo Token Plan via console cookie, local credits metering for the SCNet Token Plan and Volcano Ark Coding Plan via AK/SK signature), plan/API dual-track billing with per-1% & full-window Token Plan usage estimates, custom provider balance lookup (configurable HTTP endpoint) and balance progress bar, plus peak/off-peak pricing display with pre-switch popup & system-notification alerts (position / lead time / type configurable), in a bilingual (Chinese/English) UI.",
   "type": "module",
-  "main": "lib/index.js",
+  "main": "lib/bootstrap.js",
   "bin": {
     "dsh-cost-meter-repair-sessions": "./lib/repair-sessions-cli.js"
   },
   "exports": {
     ".": {
-      "default": "./lib/index.js"
+      "default": "./lib/bootstrap.js"
     },
     "./client": {
       "default": "./lib/client.js"
@@ -38,7 +38,8 @@
         "0.1.3-alpha.2": "compatible",
         "0.1.5-alpha.1": "compatible",
         "0.2.0-rc.1": "compatible",
-        "0.2.0-rc.2": "compatible"
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-alpha.5": "compatible"
       }
     }
   },
@@ -87,16 +88,23 @@
         "https://platform.qianwenai.com",
         "https://platform-home.qianwenai.com",
         "https://business.aliyuncs.com",
-        "https://platform.xiaomimimo.com"
+        "https://tokenrhythm.studio",
+        "https://platform.xiaomimimo.com",
+        "https://amr-api.open-design.ai",
+        "https://api.frankfurter.dev"
       ]
     }
   },
   "files": [
+    "docs/web-request-fees.md",
     "locale",
     "lib",
     "cordis.patch.yml",
     "docs/provider-pricing.json",
     "docs/billing-statistics.md",
+    "docs/billion-context-billing.md",
+    "docs/opendesign-billing.md",
+    "docs/update-notes-2026-10-15.md",
     "docs/ledger-lock-recovery.md",
     "docs/external-usage.md",
     "docs/qwen-cli-quota.md",
@@ -109,14 +117,33 @@
     "docs/cost-share-overview.png",
     "docs/call-detail-preview.png",
     "docs/step-billing-preview.png",
-    "docs/maintenance-review-2026-10-10.md"
+    "docs/maintenance-review-2026-10-10.md",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/display-settings.md",
+    "docs/update-notes-1.8.28.md",
+    "docs/update-notes-1.8.29.md",
+    "docs/context-stream-diagnostics.md",
+    "docs/exchange-rates.md",
+    "docs/update-notes-1.8.30.md",
+    "docs/idle-performance.md",
+    "docs/pricing-history-storage.md",
+    "docs/custom-model-prices.md",
+    "docs/update-notes-1.8.31.md",
+    "docs/update-notes-1.8.32.md",
+    "docs/update-notes-1.8.33.md",
+    "docs/update-notes-1.8.34.md",
+    "docs/update-notes-1.8.35.md",
+    "docs/model-history-repricing.md",
+    "docs/tokenrhythm-balance.md",
+    "docs/dsh-alpha5-compatibility.md"
   ],
   "dependencies": {
+    "acorn": "8.15.0",
     "zod": "4.6.5"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6 || ^0.1.1-0 || ^0.1.2-0 || ^0.1.3-0 || ^0.1.5-0 || >=0.2.0-rc.1 <0.3.0-0",
-    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6 || ^0.1.1-0 || ^0.1.2-0 || ^0.1.3-0 || ^0.1.5-0 || >=0.2.0-rc.1 <0.3.0-0"
+    "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6 || ^0.1.1-0 || ^0.1.2-0 || ^0.1.3-0 || ^0.1.5-0 || >=0.2.0-rc.1 <0.3.0-0 || ^0.2.1-0",
+    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6 || ^0.1.1-0 || ^0.1.2-0 || ^0.1.3-0 || ^0.1.5-0 || >=0.2.0-rc.1 <0.3.0-0 || ^0.2.1-0"
   },
   "repository": {
     "type": "git",

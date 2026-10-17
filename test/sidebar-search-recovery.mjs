@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { Ledger, sanitizeConfig, zeroDay } from '../lib/store.js'
+import { writeLedger } from '../lib/ledger-persistence.js'
 
 assert.ok(process.env.DSH_TEST_NODE_MODULES, 'set DSH_TEST_NODE_MODULES to the reported/current installed host dependencies')
 const req = createRequire(join(resolve(process.env.DSH_TEST_NODE_MODULES), '__sidebar_recovery.cjs'))
@@ -131,7 +132,7 @@ try {
     days[date] = day
   }
   const initial = new Ledger(sanitizeConfig({ historyDays: 90 }), days, ledgerPath)
-  writeFileSync(ledgerPath, JSON.stringify(initial.snapshot()))
+  writeLedger(ledgerPath, initial.snapshot())
   initial.close()
   ledger = Ledger.load(ledgerPath)
   assert.equal(ledger.pendingWrite, false, 'valid synthetic ledger loads without repair writes')

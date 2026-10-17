@@ -120,10 +120,8 @@ try {
   const day = ledger.days[dayKey]
   const after = day.sessions.find(s => s.id === 'complete')
   const old = before.sessions.find(s => s.id === 'complete')
-  // 只有峰时 default 调用加回另一半，谷时原金额保持。
-  const expectedDelta = costOf(tokens, baseOf(DEFAULT_PRICE_TABLE_CNY.default), now, { enabled: false }) / cfg.exchangeRate
-  near(after.cost - old.cost, expectedDelta, '完整日志逐事件修复，谷时不翻倍')
-  near(day.cost - before.cost, expectedDelta, '日期聚合同步按差额调整')
+  near(after.cost, old.cost, '价格版本启用后，升级不自动改写完整日志的历史金额')
+  near(day.cost, before.cost, '日期合计保留原金额')
   for (const id of ['partial', 'missing']) assert.deepEqual(day.sessions.find(s => s.id === id), before.sessions.find(s => s.id === id), '不完整/缺失日志保留原金额和 token')
   const migrated = JSON.stringify(ledger.days)
   const retry = new Ledger(structuredClone(ledger.config), { [dayKey]: structuredClone(before) }, join(root, 'retry.json'))
@@ -158,7 +156,7 @@ try {
   let state = projection.init()
   state = projection.apply(state, { type: 'request/header', seq: 0, time: now - 1, data: { header: { config: { provider: 'deepseek', model: 'default' } } } })
   state = projection.apply(state, { type: 'assistant/message', seq: 1, time: now, data: { usage: { inputTokens: tokens.input, cacheReadTokens: tokens.cacheRead, outputTokens: tokens.output } } })
-  near(state.totals.cost, expectedDelta * 2, '会话投影默认回退按峰价，与账本一致')
+  near(state.totals.cost, costOf(tokens, baseOf(DEFAULT_PRICE_TABLE_CNY.default), now, { enabled: false }) / cfg.exchangeRate * 2, '会话投影默认回退按峰价，与账本一致')
 
   // 运行真实服务 getState/updateConfig 和计费监听器，检查 Credits 过滤接线。
   process.env.DSH_HOME = join(root, 'service-home')

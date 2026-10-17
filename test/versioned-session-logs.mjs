@@ -55,7 +55,7 @@ try {
   assert.equal(filled.days[date].byProviderModel['deepseek:test'].input, 135)
   const oldCost = imported.days[date].cost
   imported.config.prices.models.test.cacheMiss = 20
-  const changed = await recomputeLedgerPricingBasis(imported, root)
+  const changed = await recomputeLedgerPricingBasis(imported, root, undefined, null, true)
   assert.equal(changed.recostedSessions, 3, 'versioned sources also reach currency/price reconstruction')
   assert.ok(imported.days[date].cost > oldCost)
   assert.equal(imported.days[date].input, 135)

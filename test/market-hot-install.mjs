@@ -17,6 +17,9 @@ const { default: Include } = await imp('@deepseek-ai/cordis-plugin-include')
 const { default: Registry } = await imp('@deepseek-ai/dsh-typert-registry')
 const TypertLoader = await imp('@deepseek-ai/dsh-typert-loader')
 const { default: Gateway } = await imp('@deepseek-ai/dsh-api-gateway')
+// New hosts require explicit Remote access and caller identity. Older gateways
+// keep their original invocation shape; no production permission policy changes.
+const RemoteAccess = Gateway.inject?.includes('remoteAccess') ? (await imp('@deepseek-ai/dsh-api-remote-access')).default : null
 const root = fileURLToPath(new URL('../', import.meta.url))
 const work = mkdtempSync(join(tmpdir(), 'cm-market-'))
 const oldHome = process.env.DSH_HOME
@@ -39,6 +42,9 @@ try {
   `)
   for (const mode of ['negative', 'hot', 'cold', 'stale-lock-cold', 'late-registry', 'already-registered', 'unload-before-registry']) {
     const host = new Context(), errors = []
+    const peerLifetime = new AbortController()
+    const peer = { id: 'cm-rpc-test', ctx: host, principal: { kind: 'owner' }, signal: peerLifetime.signal, interactions: 'none', dispose: async () => { peerLifetime.abort() } }
+    const invokeState = () => host.typertGateway.invoke({ namespace: 'costMeter', method: 'getState', args: {}, ...(RemoteAccess ? { peer } : {}) })
     host.baseUrl = anchor
     host.logger = { error: error => errors.push(error), warn() {}, info() {} }
     const late = mode === 'late-registry' || mode === 'unload-before-registry'
@@ -47,6 +53,7 @@ try {
       await host.plugin(Loader, { baseUrl: anchor }).await()
       if (!late) await host.plugin(Registry).await()
       await host.plugin(TypertLoader, { packages: [] }).await()
+      if (RemoteAccess) await host.plugin(RemoteAccess).await()
       await host.plugin(Gateway, {}).await()
       if (mode === 'already-registered') host.typert.register(TYPERT)
       const existing = host.get('typert')?.getPackage('dsh-cost-meter')
@@ -80,12 +87,12 @@ try {
       if (mode === 'negative') {
         await new Promise(resolve => setImmediate(resolve))
         assert.equal(host.typert.getPackage('dsh-cost-meter'), undefined)
-        await assert.rejects(host.typertGateway.invoke({ namespace: 'costMeter', method: 'getState', args: {} }),
+        await assert.rejects(invokeState(),
           error => error.code === 'gateway/invocation-unavailable', 'negative control: standalone file entry has no RPC manifest')
         continue
       }
       await settle(() => !!host.typert.getPackage('dsh-cost-meter'))
-      const state = await host.typertGateway.invoke({ namespace: 'costMeter', method: 'getState', args: {} })
+      const state = await invokeState()
       assert.ok(state.config && state.today, `${mode}: real ledger RPC works without restart`)
       if (existing) assert.equal(host.typert.getPackage('dsh-cost-meter'), existing)
       if (hot) {
@@ -96,11 +103,11 @@ try {
           hot = host.plugin(Include, { path: pathToFileURL(join(work, 'hot.json')).href })
           await hot.await()
           await settle(() => !!host.typert.getPackage('dsh-cost-meter'))
-          assert.ok((await host.typertGateway.invoke({ namespace: 'costMeter', method: 'getState', args: {} })).config)
+          assert.ok((await invokeState()).config)
         }
       }
       assert.deepEqual(errors, [], `${mode}: no duplicate registration/lifecycle errors`)
-    } finally { await host.fiber.dispose() }
+    } finally { await peer.dispose(); await host.fiber.dispose() }
   }
   console.log('[ok] #154 real host: file-entry failure control, hot/cold RPC, late registry, owned cleanup and remount')
 } finally {

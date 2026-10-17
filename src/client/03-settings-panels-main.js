@@ -10,6 +10,18 @@
 
     const loadedPages = new WeakMap()
     const warmPage = (load, props) => load?.().then(page => { loadedPages.set(load, page); return page.prefetch?.(props) }).catch(() => {})
+    function BillionCompatibilityGuide(props) {
+      const state = props.useCost?.(s => s)?.state, meter = state?.billionContext
+      const [Page, setPage] = useState(null)
+      const show = meter?.noticeId && ['needs_update', 'changed', 'bridge_missing'].includes(meter.compatibility)
+      useEffect(() => {
+        if (!show) return
+        let active = true
+        props.api.loadStatistics().then(page => { if (active) setPage(() => page.BillionCompatibilityNotice) }).catch(() => {})
+        return () => { active = false }
+      }, [!!show, props.api])
+      return show && Page ? el(Page, { meter, locale: resolveLocale(state?.config ?? {}) }) : null
+    }
     function BillingStatistics(props) {
       const load = props.load ?? props.api.loadStatistics
       const [Page, setPage] = useState(() => loadedPages.get(load) ?? null), [error, setError] = useState(''), [retry, setRetry] = useState(0)
@@ -57,11 +69,7 @@
       const open = !hidden && !!props.sessionId && openedId === props.sessionId
       useEffect(() => { if (open) dialog.current?.showModal() }, [open])
       useEffect(() => { setOpenedId(null) }, [props.sessionId, hidden])
-      useEffect(() => {
-        if (!props.sessionId || hidden || !state) return
-        const timer = setTimeout(() => { if (!document.hidden) void warmPage(props.api.loadStatistics, { state, sessionId: props.sessionId }) }, 300)
-        return () => clearTimeout(timer)
-      }, [props.sessionId, hidden, !!state, state?.total?.calls])
+      // Prefetch only on hover/focus. A mounted fee button must not replay logs.
       if (!props.sessionId || hidden) return null
       const en = resolveLocale(state?.config) === 'en'
       const label = en ? 'Conversation cost details' : '本会话费用明细'
@@ -531,6 +539,7 @@
       return el('input', {
         className: 'cm-input narrow',
         type: 'number', step: 'any', min: '0',
+        placeholder: props.placeholder, title: props.title, 'aria-label': props.label,
         value: typeof value === 'number' ? String(value) : '',
         onChange: event => {
           const text = event.target.value
@@ -551,6 +560,59 @@
       })
     }
 
+    function PriceInput({ value, entry, path, emptyMode, placeholder, label, title, t, onCommit }) {
+      const factor = priceFactor(entry, path)
+      const formatted = value == null ? '' : String(value) + (entry.multiplier !== undefined || entry.separateMultipliers ? ' × ' + factor : '')
+      const [text, setText] = useState(formatted), [invalid, setInvalid] = useState(false)
+      const dirty = useRef(false)
+      useEffect(() => { if (!dirty.current) setText(formatted) }, [formatted])
+      const commit = () => {
+        if (!dirty.current) return
+        const parts = text.trim().split(/\s*[×*xX]\s*/)
+        const number = /^[+]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i
+        if (text.trim() === '') {
+          dirty.current = false; setInvalid(false)
+          if (emptyMode === 'clear') onCommit(null)
+          else setText(formatted)
+          return
+        }
+        if (parts.length > 2 || !parts.every(part => number.test(part) && Number.isFinite(Number(part)))
+          || !Number.isFinite(Number(parts[0]) * (parts.length === 2 ? Number(parts[1]) : factor))) { setInvalid(true); return }
+        dirty.current = false; setInvalid(false)
+        setText(String(Number(parts[0])) + (entry.multiplier !== undefined || entry.separateMultipliers || parts.length === 2 ? ' × ' + (parts.length === 2 ? Number(parts[1]) : factor) : ''))
+        onCommit(Number(parts[0]), parts.length === 2 ? Number(parts[1]) : undefined)
+      }
+      return el('input', { className: 'cm-input narrow', type: 'text', value: text,
+        placeholder, 'aria-label': label, 'aria-invalid': invalid,
+        title: invalid ? t('priceMultiplyInvalid') : [title, t(entry.separateMultipliers ? 'priceMultiplySingle' : 'priceMultiplyAll'), value == null ? '' : '= ' + Number((value * factor).toPrecision(12))].filter(Boolean).join(' · '),
+        onChange: event => { dirty.current = true; setText(event.target.value); setInvalid(false) }, onBlur: commit,
+        onKeyDown: event => {
+          if (event.key === 'Enter') { event.preventDefault(); commit() }
+          if (event.key === 'Escape') { event.stopPropagation(); dirty.current = false; setInvalid(false); setText(formatted) }
+        } })
+    }
+    function setPriceFactor(entry, path, factor) {
+      if (factor !== undefined) {
+        if (entry.separateMultipliers) entry.multipliers = { ...entry.multipliers, [path]: factor }
+        else entry.multiplier = factor
+      }
+    }
+    function priceInput(entry, tier, path, field, label, t, commit, fallback = 0) {
+      const write = field === 'cacheWrite'
+      const value = tier?.[field] ?? (field === 'cacheMiss' ? tier?.input : field === 'cacheHit' ? tier?.cachedInput : undefined) ?? null
+      const fieldLabel = t({ cacheHit: 'flatCached', cacheMiss: 'flatInput', cacheWrite: 'flatCacheWrite', output: 'flatOutput' }[field])
+      return el('label', { className: 'cm-price-cell' }, el('span', { className: 'cm-price-cell-label' }, fieldLabel), el(PriceInput, { entry, value, path: path + '.' + field, t,
+        emptyMode: write || !['base', 'cny'].includes(path) ? 'clear' : 'ignore',
+        placeholder: write ? String(tier?.cacheHit ?? tier?.cachedInput ?? tier?.cacheMiss ?? tier?.input ?? fallback) : undefined,
+        label: label + ' · ' + fieldLabel,
+        title: write ? t('cacheWriteFallback') : undefined, onCommit: commit }))
+    }
+    function multiplierOptions(entry, t, onChange) {
+      return el('div', { className: 'cm-price-multiplier' },
+        el('label', null, el('input', { type: 'checkbox', checked: entry.separateMultipliers === true, onChange: event => onChange(event.target.checked) }), t('priceMultiplySeparate')),
+        el('span', { title: t(entry.separateMultipliers ? 'priceMultiplySingle' : 'priceMultiplyAll') }, t('priceMultiplyHint')))
+    }
+
     function PriceCard(props) {
       const { modelId, entry: rawEntry, isDefault, draft, setDraft, t } = props
       const entry = priceAt(rawEntry)
@@ -563,56 +625,24 @@
         }
         return next
       }
-      const setTier = (tierKey, field, value) => {
-        // 清空输入(emptyMode:'clear' 回传 null):
-        //  - offPeak/peak 档位字段 → 从档位对象中删除;档位删空则整键移除,
-        //    恢复「无该档、按基础价计」状态。此前空串被提交成显式 0 价,
-        //    normalizePrice 会保留该档,之后所有调用按 0 计费(静默变免费)。
-        //  - 基础价三桶为必填结构 → 忽略清空(numInput 'ignore' 不回调)。
-        if (value === null) {
-          if (isDefault) {
-            const def = editablePrice(draft.prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
-            const tier = { ...(def[tierKey] ?? {}) }
-            delete tier[field]
-            const next = { ...def }
-            if (Object.keys(tier).length > 0) next[tierKey] = tier
-            else delete next[tierKey]
-            setDraft({ ...draft, prices: { ...draft.prices, default: next } })
-            return
-          }
-          const models = { ...draft.prices.models }
-          const current = editablePrice(models[modelId] ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
-          const tier = { ...(current[tierKey] ?? {}) }
-          delete tier[field]
-          const next = { ...current }
-          if (Object.keys(tier).length > 0) next[tierKey] = tier
+      const write = next => {
+        const prices = isDefault ? { ...draft.prices, default: next }
+          : { ...draft.prices, models: { ...draft.prices.models, [modelId]: next } }
+        setDraft({ ...draft, prices })
+      }
+      const setTier = (tierKey, field, value, factor) => {
+        const raw = isDefault ? draft.prices.default : draft.prices.models[modelId]
+        const next = editablePrice(raw ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
+        const tier = tierKey === 'base' ? next : { ...(next[tierKey] ?? (value === null ? {} : normalizeClientTier(next))) }
+        // 可选写入价清空后恢复读取价；显式 0 保留。基础价其余三项忽略清空。
+        if (value === null) delete tier[field]
+        else tier[field] = Math.max(0, value)
+        if (tierKey !== 'base') {
+          if (Object.keys(tier).length) next[tierKey] = tier
           else delete next[tierKey]
-          models[modelId] = next
-          setDraft({ ...draft, prices: { ...draft.prices, models } })
-          return
         }
-        const nextField = Math.max(0, value)
-        if (isDefault) {
-          const def = editablePrice(draft.prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
-          let next = { ...def }
-          if (tierKey === 'base') next[field] = nextField
-          else {
-            const tier = { ...(next[tierKey] ?? {}), [field]: nextField }
-            next = { ...next, [tierKey]: tier }
-          }
-          setDraft({ ...draft, prices: { ...draft.prices, default: next } })
-          return
-        }
-        const models = { ...draft.prices.models }
-        const current = editablePrice(models[modelId] ?? { cacheHit: 0, cacheMiss: 0, output: 0 })
-        let next = { ...current }
-        if (tierKey === 'base') next[field] = nextField
-        else {
-          const tier = { ...(current[tierKey] ?? {}), [field]: nextField }
-          next = { ...current, [tierKey]: tier }
-        }
-        models[modelId] = next
-        setDraft({ ...draft, prices: { ...draft.prices, models } })
+        setPriceFactor(next, tierKey + '.' + field, factor)
+        write(next)
       }
       const remove = () => {
         const models = { ...draft.prices.models }
@@ -621,170 +651,38 @@
       }
       const tierRow = (label, tierKey) => {
         const tier = tierKey === 'base' ? entry : entry[tierKey] ?? null
-        const emptyMode = tierKey === 'base' ? 'ignore' : 'clear'
         return el('div', { className: 'cm-price-row', key: tierKey },
           el('span', null, label),
-          numInput({ value: tier?.cacheHit ?? null, emptyMode }, v => setTier(tierKey, 'cacheHit', v)),
-          numInput({ value: tier?.cacheMiss ?? null, emptyMode }, v => setTier(tierKey, 'cacheMiss', v)),
-          numInput({ value: tier?.output ?? null, emptyMode }, v => setTier(tierKey, 'output', v)))
+          ...['cacheMiss', 'cacheHit', 'cacheWrite', 'output'].map(field => el(Fragment, { key: field },
+            priceInput(entry, tier, tierKey, field, label, t, (v, factor) => setTier(tierKey, field, v, factor), entry.cacheHit))))
       }
       return el('div', { className: 'cm-price-card' },
         el('div', { className: 'cm-price-head' },
           el('span', { className: 'cm-price-name' }, modelId),
+          el('span', { className: 'cm-price-unit' }, draft.prices.currency ?? 'USD'),
           el(Fragment, null,
             entry?.legacy === true ? el('span', { className: 'cm-price-legacy' }, t('legacyModel')) : null,
             isDefault ? el('span', { className: 'cm-price-legacy' }, t('defaultFallback')) : null,
             isDefault ? null : el('button', { className: 'cm-btn small danger', onClick: remove }, t('remove')))),
-        // 列头与第三方价格卡(ProviderPriceCard)同款:命中 / 未命中(输入)/ 输出。
-        el('div', { className: 'cm-price-row' },
+        // 与第三方价格卡一样，分别编辑输入、缓存读写与输出。
+        el('div', { className: 'cm-price-row cm-price-columns' },
           el('span', null, ''),
-          el('span', null, t('flatCached')), el('span', null, t('flatInput')), el('span', null, t('flatOutput'))),
+          el('span', null, t('flatInput')), el('span', null, t('flatCached')), el('span', null, t('flatCacheWrite')), el('span', null, t('flatOutput'))),
         tierRow(t('tierBase'), 'base'),
         tierRow(t('tierOffPeak'), 'offPeak'),
         tierRow(t('tierPeak'), 'peak'),
+        multiplierOptions(entry, t, separate => write({ ...rawEntry, separateMultipliers: separate, multipliers: {} })),
         Array.isArray(rawEntry?.rateHistory) && rawEntry.rateHistory.length > 0
           ? el('p', { className: 'cm-note' }, t('datedPriceNote')) : null)
     }
 
-    // ── 拓展价格表面板(厂商/家族分类目录 + 挂载/取消挂载) ─────────────
+    // ── 厂商展示名(价格表分组标题用) ────────────────────────────────────
 
     const CATALOG_VENDOR_LABELS = {
-      deepseek: 'DeepSeek', openai: 'OpenAI', anthropic: 'Anthropic', google: 'Google Gemini',
+      deepseek: 'DeepSeek', stepfun: 'StepFun', openai: 'OpenAI', anthropic: 'Anthropic', google: 'Google Gemini',
       moonshot: 'Moonshot (Kimi)', 'z-ai': 'Z.ai / 智谱', xai: 'xAI', alibaba: '阿里云百炼',
       minimax: 'MiniMax', tencent: '腾讯混元', xiaomi: '小米', upstage: 'Upstage', nvidia: 'NVIDIA', mistral: 'Mistral',
       meta: 'Meta', meituan: '美团 LongCat', 'opencode-go': 'OpenCode Go',
-    }
-
-    /** 目录条目价格摘要(美元;峰谷两档写 谷/峰)。 */
-    function catalogPriceText(entry, t, currency = 'USD') {
-      entry = priceAt(entry)
-      if (entry === null || typeof entry !== 'object') return ''
-      if (entry.unpriced === true) return t('catalogUnpriced')
-      if (currency === 'CNY' && entry.cny) entry = entry.cny
-      const usd = n => (currency === 'CNY' ? '¥' : '$') + String(n)
-      const pk = entry.peak !== null && typeof entry.peak === 'object' ? entry.peak : null
-      if (pk !== null) return usd(entry.cacheMiss) + '/' + usd(pk.cacheMiss) + ' in · ' + usd(entry.output) + '/' + usd(pk.output) + ' out'
-      return usd(entry.cacheMiss ?? entry.input ?? 0) + ' in · ' + usd(entry.output ?? 0) + ' out'
-    }
-
-    function PriceCatalogPanel(props) {
-      const { state, draft, setDraft, t } = props
-      const [open, setOpen] = useState(false)
-      // 厂商默认全部折叠;点开某厂商后仅展开该厂商。
-      const [openVendors, setOpenVendors] = useState({})
-      const catalog = state.priceCatalog
-      if (catalog === null || typeof catalog !== 'object') return null
-      const prices = draft?.prices ?? state.config.prices
-      // 「在费用设置直接显示」开关(按模型):仅决定价格卡是否在费用设置「价格表」区直接显示,
-      // 不影响挂载与计费;不直接显示的模型其价格卡在本面板内可编辑。
-      const displayMap = draft?.priceTableDisplay ?? state.config.priceTableDisplay ?? {}
-      // 「在费用设置直接显示」精确到单个模型:键 'provider:modelId',值显式布尔;
-      // 缺省 = 默认策略(DeepSeek 模型直接显示,第三方收入拓展表)。只决定展示位置,不影响挂载与计费。
-      const isDirect = (provider, modelId) => {
-        const value = displayMap[provider + ':' + modelId]
-        return typeof value === 'boolean' ? value : provider === 'deepseek'
-      }
-      const setDirect = (provider, modelId, value) => {
-        if (draft === null) return
-        setDraft({ ...draft, priceTableDisplay: { ...displayMap, [provider + ':' + modelId]: value } })
-      }
-      const isMounted = (provider, modelId) => provider === 'deepseek'
-        ? prices.models?.[modelId] !== undefined
-        : prices.providers?.[provider]?.models?.[modelId] !== undefined
-      const mount = (provider, modelId, entry) => {
-        if (draft === null) return
-        const copy = JSON.parse(JSON.stringify(entry))
-        if (provider === 'deepseek') {
-          setDraft({ ...draft, prices: { ...draft.prices, models: { ...draft.prices.models, [modelId]: copy } } })
-          return
-        }
-        const providers = { ...(draft.prices.providers ?? {}) }
-        const table = providers[provider] ?? {}
-        providers[provider] = { ...table, models: { ...(table.models ?? {}), [modelId]: copy } }
-        setDraft({ ...draft, prices: { ...draft.prices, providers } })
-      }
-      const unmount = (provider, modelId) => {
-        if (draft === null) return
-        if (provider === 'deepseek') {
-          const models = { ...draft.prices.models }
-          delete models[modelId]
-          setDraft({ ...draft, prices: { ...draft.prices, models } })
-          return
-        }
-        const providers = { ...(draft.prices.providers ?? {}) }
-        const table = providers[provider]
-        if (table !== undefined && table.models !== undefined) {
-          const models = { ...table.models }
-          delete models[modelId]
-          providers[provider] = { ...table, models }
-          setDraft({ ...draft, prices: { ...draft.prices, providers } })
-        }
-      }
-      // 厂商顺序:DeepSeek 居首,其余按字母序;每家默认折叠,标题可点开。
-      const providerIds = Object.keys(catalog).sort((a, b) => (a === 'deepseek' ? -1 : b === 'deepseek' ? 1 : a.localeCompare(b)))
-      const countModels = provider => Object.values(catalog[provider]).reduce((n, fam) => n + Object.keys(fam).length, 0)
-      // DeepSeek 目录模型集合:目录之外手动新增的已挂载模型也要能切换直接显示/编辑。
-      const dsCatalogIds = new Set(Object.values(catalog.deepseek ?? {}).flatMap(fam => Object.keys(fam)))
-      const dsExtraMounted = Object.keys(prices.models ?? {}).filter(id => !dsCatalogIds.has(id)).sort()
-      // 单个模型行:已挂载且未直接显示 → 目录内可编辑卡片(带切回直接显示的开关);
-      // 其余 → 只读行(已挂载的带直接显示开关与挂载/取消挂载按钮)。
-      const renderModel = (provider, modelId, entry) => {
-        const mounted = isMounted(provider, modelId)
-        const direct = isDirect(provider, modelId)
-        const directToggle = mounted
-          ? el('label', { className: 'cm-check cm-vendor-display', title: t('catalogDisplayHint') },
-              el('input', {
-                type: 'checkbox',
-                checked: direct,
-                onChange: event => setDirect(provider, modelId, event.target.checked),
-              }),
-              el('span', null, t('catalogDisplayLabel')))
-          : null
-        if (mounted && !direct && draft !== null) {
-          const card = provider === 'deepseek'
-            ? el(PriceCard, { key: modelId, modelId, entry: prices.models[modelId], isDefault: false, draft, setDraft, t })
-            : el(ProviderPriceCard, { key: modelId, provider, modelId, entry: prices.providers?.[provider]?.models?.[modelId], draft, setDraft, t })
-          return el('div', { key: modelId, className: 'cm-catalog-mounted' }, directToggle, card)
-        }
-        return el('div', { key: modelId, className: 'cm-catalog-row' },
-          el('span', { className: 'cm-catalog-id' }, modelId),
-          el('span', { className: 'cm-catalog-price' }, catalogPriceText(entry, t, provider === 'deepseek' || entry?.cny ? prices.currency : 'USD')),
-          mounted ? el('span', { className: 'cm-catalog-tag' }, t('mountedTag')) : null,
-          directToggle,
-          el('button', { className: 'cm-btn small', disabled: !mounted && entry?.unpriced === true, onClick: () => (mounted ? unmount(provider, modelId) : mount(provider, modelId, entry)) },
-            mounted ? t('unmountBtn') : t('mountBtn')))
-      }
-      return el('div', { className: 'cm-budget', style: { marginTop: '8px' } },
-        el('div', { className: 'cm-budget-head' },
-          el('h3', { className: 'cm-h' }, t('catalogTitle')),
-          el('button', { className: 'cm-toggle-btn', onClick: () => setOpen(o => !o) }, open ? t('catalogCollapse') : t('catalogOpen'))),
-        open
-          ? el(Fragment, null,
-            el('p', { className: 'cm-note' }, t('catalogNote')),
-            providerIds.map(provider => {
-              const vendorOpen = openVendors[provider] === true
-              return el('div', { key: provider },
-                el('div', {
-                  className: 'cm-catalog-vendor cm-vendor-toggle',
-                  onClick: () => setOpenVendors(v => ({ ...v, [provider]: !vendorOpen })),
-                },
-                  el('span', null, (vendorOpen ? '▾ ' : '▸ ') + (CATALOG_VENDOR_LABELS[provider] ?? provider) + ' · ' + countModels(provider))),
-                vendorOpen
-                  ? el(Fragment, null,
-                    provider === 'deepseek' ? el('p', { className: 'cm-hint' }, t('catalogDeepseekNote')) : null,
-                    Object.keys(catalog[provider]).sort().map(family =>
-                      el('div', { key: family },
-                        el('div', { className: 'cm-catalog-family' }, family),
-                        Object.keys(catalog[provider][family]).sort().map(modelId =>
-                          renderModel(provider, modelId, catalog[provider][family][modelId])))),
-                    provider === 'deepseek' && dsExtraMounted.length > 0
-                      ? el('div', null,
-                          el('div', { className: 'cm-catalog-family' }, t('catalogCustomModels')),
-                          dsExtraMounted.map(id => renderModel('deepseek', id, null)))
-                      : null)
-                  : null)
-            }))
-          : null)
     }
 
     /** provider 展示名归一:历史请求携带的 'zen' 是错误叫法,统一展示为 'go'。 */
@@ -805,6 +703,7 @@
         if (!b || typeof b !== 'object') return
         const row = out[key] ?? (out[key] = Object.fromEntries([...fields, 'apiCost'].map(k => [k, 0])))
         for (const k of fields) row[k] += num(b[k])
+        for (const k of frozenMoneyFields) if (Number.isFinite(b[k])) row[k] = (row[k] ?? 0) + b[k]
         const sep = key.indexOf(':')
         row.apiCost += num(b.apiCost ?? (billingClassOfLocal(sep > 0 ? key.slice(0, sep) : 'deepseek', sep > 0 ? key.slice(sep + 1) : key, config) === 'plan' ? 0 : b.cost))
       }
@@ -961,7 +860,9 @@
     }
     /** Plan 提供商显示名(复用额度面板的 labelKey;Go 单独)。 */
     function planProviderLabelOf(id, t) {
-      if (id === 'go') return 'OpenCode Go'
+      if (id === 'go') return 'OpenCode Go / Go Plus'
+      const added = { codex: 'Codex / ChatGPT', 'volcengine-agent': 'Volcengine Agent Plan', 'tencent-coding': 'Tencent Coding Plan', 'tencent-token': 'Tencent Token Plan', 'baidu-coding': 'Baidu Qianfan Coding Plan' }
+      if (added[id]) return added[id]
       const row = CODING_PLAN_ROWS.find(r => r.id === id)
       return row !== undefined ? t(row.labelKey) : id
     }
@@ -1113,26 +1014,44 @@
           : null)
     }
 
-    /** 已挂载的第三方模型价格卡(与 DeepSeek 卡片同区展示,可编辑/取消挂载)。 */
+    /** 已挂载的第三方模型价格卡(与 DeepSeek 卡片同区展示,可编辑/取消挂载)。
+     *  OpenRouter 条目若价格已偏离同步基线,标注「已自定义」并提供交回自动同步的入口。
+     *  锁定判定由宿主下发(state.priceLockIds,与刷新跳过覆盖同源),前端不自行推断。 */
     function ProviderPriceCard(props) {
-      const { provider, modelId, entry, draft, setDraft, t } = props
+      const { provider, modelId, entry, draft, setDraft, t, api, lockedIds, releaseDisabled } = props
+      const locked = Array.isArray(lockedIds) && lockedIds.includes(modelId)
+      const [releasing, setReleasing] = useState(false), [lockError, setLockError] = useState('')
+      const releaseLock = async () => {
+        if (releasing || releaseDisabled) return
+        setReleasing(true); setLockError('')
+        try { await api.releasePriceLock(modelId) }
+        catch (error) { setLockError(String(error.message ?? error)) }
+        finally { setReleasing(false) }
+      }
       const writeModels = models => {
         const providers = { ...(draft.prices.providers ?? {}) }
         const table = providers[provider] ?? {}
         providers[provider] = { ...table, models }
         setDraft({ ...draft, prices: { ...draft.prices, providers } })
       }
-      const setNum = (field, value) => {
+      const setNum = (field, value, factor) => {
         if (draft === null) return
         const models = { ...((draft.prices.providers ?? {})[provider]?.models ?? {}) }
         models[modelId] = { ...(models[modelId] ?? {}), [field]: Math.max(0, value) }
+        if (value === null) delete models[modelId][field]
+        // Canonical aliases may be present in imported price tables.
+        if (field === 'input') delete models[modelId].cacheMiss
+        if (field === 'cachedInput') { delete models[modelId].cacheHit; delete models[modelId].cacheRead }
+        setPriceFactor(models[modelId], 'base.' + ({ input: 'cacheMiss', cachedInput: 'cacheHit' }[field] ?? field), factor)
         writeModels(models)
       }
-      const setCny = (field, value) => {
+      const setCny = (field, value, factor) => {
         if (draft === null) return
         const models = { ...((draft.prices.providers ?? {})[provider]?.models ?? {}) }
         const current = models[modelId] ?? {}
         models[modelId] = { ...current, cny: { ...current.cny, [field]: Math.max(0, value) } }
+        if (value === null) delete models[modelId].cny[field]
+        setPriceFactor(models[modelId], 'cny.' + field, factor)
         writeModels(models)
       }
       const remove = () => {
@@ -1144,26 +1063,31 @@
       return el('div', { className: 'cm-price-card' },
         el('div', { className: 'cm-price-head' },
           el('span', { className: 'cm-price-name' }, modelId),
+          el('span', { className: 'cm-price-unit' }, entry.cny ? 'USD / CNY' : 'USD'),
           el(Fragment, null,
             entry?.unpriced === true ? el('span', { className: 'cm-price-legacy' }, t('catalogUnpriced')) : null,
+            locked ? el('span', { className: 'cm-price-locked', title: t('priceLockHint') }, t('priceLockBadge')) : null,
+            locked && typeof api?.releasePriceLock === 'function'
+              ? el('button', { className: 'cm-btn small', disabled: releasing || releaseDisabled, onClick: releaseLock }, t('priceLockRelease'))
+              : null,
             el('button', { className: 'cm-btn small danger', onClick: remove }, t('unmountBtn')))),
+        lockError ? el('p', { className: 'cm-err', role: 'alert' }, lockError) : null,
         entry?.unpriced === true
           ? null
           : el(Fragment, null,
-            el('div', { className: 'cm-price-row' },
+            el('div', { className: 'cm-price-row cm-price-columns' },
               el('span', null, ''),
-              el('span', null, t('flatInput')), el('span', null, t('flatCached')), el('span', null, t('flatOutput'))),
+              el('span', null, t('flatInput')), el('span', null, t('flatCached')), el('span', null, t('flatCacheWrite')), el('span', null, t('flatOutput'))),
             el('div', { className: 'cm-price-row' },
               el('span', null, 'USD'),
               // 第三方三桶为必填计价结构:清空不提交(保留原值),避免误清成 0 价免费。
-              numInput({ value: entry?.input ?? null, emptyMode: 'ignore' }, v => setNum('input', v)),
-              numInput({ value: entry?.cachedInput ?? null, emptyMode: 'ignore' }, v => setNum('cachedInput', v)),
-              numInput({ value: entry?.output ?? null, emptyMode: 'ignore' }, v => setNum('output', v))),
+              ...['cacheMiss', 'cacheHit', 'cacheWrite', 'output'].map(field => el(Fragment, { key: field },
+                priceInput(entry, entry, 'base', field, 'USD', t, (v, factor) => setNum({ cacheMiss: 'input', cacheHit: 'cachedInput' }[field] ?? field, v, factor))))),
             entry?.cny ? el('div', { className: 'cm-price-row' },
               el('span', null, 'CNY'),
-              numInput({ value: entry.cny.cacheMiss, emptyMode: 'ignore' }, v => setCny('cacheMiss', v)),
-              numInput({ value: entry.cny.cacheHit, emptyMode: 'ignore' }, v => setCny('cacheHit', v)),
-              numInput({ value: entry.cny.output, emptyMode: 'ignore' }, v => setCny('output', v))) : null))
+              ...['cacheMiss', 'cacheHit', 'cacheWrite', 'output'].map(field => el(Fragment, { key: field },
+                priceInput(entry, entry.cny, 'cny', field, 'CNY', t, (v, factor) => setCny(field, v, factor))))) : null,
+            multiplierOptions(entry, t, separate => writeModels({ ...draft.prices.providers[provider].models, [modelId]: { ...entry, separateMultipliers: separate, multipliers: {} } }))))
     }
 
     // ── 余额面板(设置页,按 balance.display 配置挂载) ────────────────────────
@@ -1293,6 +1217,8 @@
     function CustomBalanceEntryPanel(props) {
       const { state, api, t, entry, index, canRemove, onPatch, onRemove } = props
       const aliyun = entry.adapter === 'aliyun'
+      const tokenrhythm = entry.adapter === 'tokenrhythm'
+      const fixedAdapter = aliyun || tokenrhythm
       const [open, setOpen] = useState(false)
       const readJsonText = () => ({
         headers: JSON.stringify(entry.request?.headers ?? {}, null, 2),
@@ -1321,6 +1247,7 @@
       // 请求头里出现的全部 {{VAR}} 占位符名(去重保序):驱动凭据输入区。
       const placeholderVars = (() => {
         if (aliyun) return ['ALIBABA_CLOUD_ACCESS_KEY_ID', 'ALIBABA_CLOUD_ACCESS_KEY_SECRET', 'ALIBABA_CLOUD_SECURITY_TOKEN']
+        if (tokenrhythm) return ['TOKENRHYTHM_COOKIE']
         return [...new Set(Object.values(entry.request?.headers ?? {}).flatMap(value =>
           typeof value === 'string' ? [...value.matchAll(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g)].map(match => match[1]) : []))]
       })()
@@ -1339,7 +1266,7 @@
           setJsonErr(err => ({ ...err, [field]: t('customBalanceInvalidJson') }))
         }
       }
-      const jsonField = (field, label, rows, hint) => !aliyun && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
+      const jsonField = (field, label, rows, hint) => !fixedAdapter && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
         el('label', null, t(label)),
         hint && el('span', { className: 'cm-hint' }, t(hint)),
         el('textarea', { className: 'cm-input', rows, value: jsonText[field], onChange: event => applyJsonText(field, event.target.value) }),
@@ -1359,7 +1286,7 @@
       })
       const preview = custom !== null && custom.status === 'ok'
         ? el(Fragment, null,
-          config.balance?.showProgressBar === true
+          config.balance?.showProgressBar === true && !tokenrhythm
             ? el('div', { className: 'cm-budget', style: { marginTop: '8px' } },
               el(BalanceBar, { segments: segmentsForCustomBalance(state, config, custom, entry), direction: barDirectionOf(config, 'balance') }),
               el('div', { className: 'cm-bal-line' }, customBalanceDetailText(custom, config, t, state, entry)))
@@ -1370,13 +1297,13 @@
           ? el('div', { className: 'cm-bal-line err' }, custom.message || t('unknownError'))
           : el('div', { className: 'cm-bal-line' }, custom?.message || t('balanceNotQueried'))
       const configFields = el(Fragment, null,
-          el('p', { className: 'cm-note' }, t(aliyun ? 'aliyunBalanceNote' : 'customBalanceConfigNote')),
-          el('label', { className: 'cm-check' },
+          el('p', { className: 'cm-note' }, t(tokenrhythm ? 'tokenRhythmBalanceNote' : aliyun ? 'aliyunBalanceNote' : 'customBalanceConfigNote')),
+          !tokenrhythm && el('label', { className: 'cm-check' },
             el('input', { type: 'checkbox', checked: entry.convertToDisplayCurrency === true,
               disabled: customBalanceUnitOf(config, custom, entry) !== 'USD',
               onChange: event => setField('convertToDisplayCurrency', event.target.checked) }),
             t('customBalanceConvert')),
-          el('p', { className: 'cm-note' }, t('customBalanceConvertNote')),
+          !tokenrhythm && el('p', { className: 'cm-note' }, t('customBalanceConvertNote')),
           el('div', { className: 'cm-grid' },
             [['label', 'customBalanceLabelZh'], ['labelEn', 'customBalanceLabelEn']].map(([field, label]) => el('div', { key: field, className: 'cm-field' },
               el('label', null, t(label)),
@@ -1385,7 +1312,7 @@
                 value: entry[field] ?? '',
                 onChange: event => setField(field, event.target.value),
               }))),
-            !aliyun && el('div', { className: 'cm-field' },
+            !fixedAdapter && el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceUnitLabel')),
               el('select', {
                 className: 'cm-input',
@@ -1407,7 +1334,7 @@
             el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceRefreshInterval')),
               numInput({ value: entry.refreshMinutes ?? 15 }, v => setField('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v)))))),
-            !aliyun && el('div', { className: 'cm-field' },
+            !fixedAdapter && el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceMethod')),
               el('select', {
                 className: 'cm-input',
@@ -1416,7 +1343,7 @@
               },
                 el('option', { value: 'GET' }, 'GET'),
                 el('option', { value: 'POST' }, 'POST'))),
-            !aliyun && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
+            !fixedAdapter && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
               el('label', null, t('customBalanceUrl')),
               el('input', {
                 className: 'cm-input',
@@ -1430,22 +1357,22 @@
             // 与 goQuota/codingPlans 的 CredentialField 同款(值走 setCredential,永不回显);
             // 头里还没有占位符时给一行提示,引导改用占位符而非明文。
             el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
-              el('label', null, t('customBalanceCredentialsTitle')),
+              el('label', null, tokenrhythm ? 'Token Rhythm Cookie' : t('customBalanceCredentialsTitle')),
               placeholderVars.length > 0
                 ? el(Fragment, null,
-                  !aliyun && el('span', { className: 'cm-hint' }, t('customBalanceCredentialsHint')),
+                  !fixedAdapter && el('span', { className: 'cm-hint' }, t('customBalanceCredentialsHint')),
                   placeholderVars.map(varName => el(CredentialField, {
                     key: 'cb-var-' + varName,
                     target: 'customVar:' + varName,
                     configured: (state.customVarStatus?.[varName]?.configured ?? false) === true,
                     source: state.customVarStatus?.[varName]?.source ?? '',
                     t, api,
-                    placeholder: '{{' + varName + '}}',
+                    placeholder: tokenrhythm ? 'tr_session=…' : '{{' + varName + '}}',
                   })))
                 : el('span', { className: 'cm-hint' }, t('customBalanceNoPlaceholders'))),
             // 凭据白名单(v1.7.6,issue #86):携带密钥(占位符或明文)的请求只放行列表内
             // 主机;逗号分隔文本 ↔ 字符串数组,同 headers 的草稿即时解析策略。
-            !aliyun && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
+            !fixedAdapter && el('div', { className: 'cm-field', style: { gridColumn: '1 / -1' } },
               el('label', null, t('customBalanceAllowedHosts')),
               el('input', {
                 className: 'cm-input',
@@ -1574,6 +1501,7 @@
     }
 
     const CODING_PLAN_ROWS = [
+      { id: 'opendesign', labelKey: 'codingPlanOpendesign' },
       { id: 'anthropic', labelKey: 'codingPlanAnthropic' },
       { id: 'zai', labelKey: 'codingPlanZai' },
       { id: 'minimax', labelKey: 'codingPlanMinimax' },
@@ -1663,6 +1591,10 @@
               ? el('p', { className: 'cm-note' }, live.message)
               : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried'))
       const configNode = el(Fragment, null,
+        planId === 'opendesign' ? el('div', { className: 'cm-field' },
+          el('label', null, t('opendesignWorkspace')),
+          el('input', { className: 'cm-input', 'aria-label': t('opendesignWorkspace'), value: cfgEntry.workspaceId ?? '', onChange: e => setPlan('workspaceId', e.target.value) }),
+          el('p', { className: 'cm-note' }, t('opendesignNote'))) : null,
         planId === 'factory' ? el(Fragment, null,
           el('div', { className: 'cm-field' },
             el('label', null, t('factoryPool')),
@@ -1780,13 +1712,13 @@
               el('p', { className: 'cm-note' }, t('volcengineNote')))
             : el(Fragment, null,
               el('div', { className: 'cm-field' },
-                el('label', null, planId === 'mimo' ? 'Cookie (platform.xiaomimimo.com)' : planId === 'factory' ? 'Factory Token' : t('codingPlanKeyLabel'))),
+                el('label', null, planId === 'mimo' ? 'Cookie (platform.xiaomimimo.com)' : planId === 'factory' ? 'Factory Token' : planId === 'opendesign' ? 'OpenDesign Control Key' : t('codingPlanKeyLabel'))),
               el(CredentialField, {
                 target: 'codingPlans.' + planId,
                 configured: live.keyConfigured === true,
                 source: live.keySource,
                 t, api,
-                placeholder: planId === 'mimo' ? 'api-platform_serviceToken=…; userId=…' : planId === 'factory' ? 'FACTORY_API_KEY' : 'sk-…',
+                placeholder: planId === 'mimo' ? 'api-platform_serviceToken=…; userId=…' : planId === 'factory' ? 'FACTORY_API_KEY' : planId === 'opendesign' ? 'OPENDESIGN_CONTROL_KEY' : 'sk-…',
               })))
       return el(QuotaCard, {
         name: t(labelKey), enabled, saved: config.codingPlans?.[planId], busy, open, errorMsg: msg,
@@ -1823,14 +1755,14 @@
       const addEntry = (adapter = 'custom') => {
         if (entries.length >= 8) return
         setEntries([...entries, {
-          ...(adapter === 'aliyun' ? { adapter } : {}),
+          ...(adapter !== 'custom' ? { adapter } : {}),
           enabled: false,
-          label: adapter === 'aliyun' ? '千问 / 阿里云' : '',
-          labelEn: adapter === 'aliyun' ? 'Qianwen / Alibaba Cloud' : '',
+          label: adapter === 'tokenrhythm' ? 'Token Rhythm' : adapter === 'aliyun' ? '千问 / 阿里云' : '',
+          labelEn: adapter === 'tokenrhythm' ? 'Token Rhythm' : adapter === 'aliyun' ? 'Qianwen / Alibaba Cloud' : '',
           display: 'both',
-          unit: adapter === 'aliyun' ? 'CNY' : 'USD',
+          unit: adapter !== 'custom' ? 'CNY' : 'USD',
           refreshMinutes: 15,
-          request: { url: adapter === 'aliyun' ? 'https://business.aliyuncs.com/' : '', method: adapter === 'aliyun' ? 'POST' : 'GET', headers: {} },
+          request: { url: adapter === 'tokenrhythm' ? 'https://tokenrhythm.studio/api/wallet/summary' : adapter === 'aliyun' ? 'https://business.aliyuncs.com/' : '', method: adapter === 'aliyun' ? 'POST' : 'GET', headers: {} },
           extract: {},
           allowedHosts: [],
         }])
@@ -1868,7 +1800,8 @@
         el('div', { className: 'cm-buttons' },
           el('button', { className: 'cm-btn small', onClick: addGateway, disabled: sources.length >= 4 }, t('gatewaySourceAdd')),
           el('button', { className: 'cm-btn small', onClick: () => addEntry(), disabled: entries.length >= 8 }, t('customBalanceAdd')),
-          el('button', { className: 'cm-btn small', onClick: () => addEntry('aliyun'), disabled: entries.length >= 8 }, t('aliyunBalanceAdd'))))
+          el('button', { className: 'cm-btn small', onClick: () => addEntry('aliyun'), disabled: entries.length >= 8 }, t('aliyunBalanceAdd')),
+          el('button', { className: 'cm-btn small', onClick: () => addEntry('tokenrhythm'), disabled: entries.length >= 8 }, t('tokenRhythmBalanceAdd'))))
     }
 
     // ── Token 用量统计(历史总量 + 每日格子热图;显示位置可配) ────────────────
@@ -1965,10 +1898,9 @@
       const [confirmFetch, setConfirmFetch] = useState(false)
       const [confirmReset, setConfirmReset] = useState(false)
       const [confirmImport, setConfirmImport] = useState(false)
-      const [newModelId, setNewModelId] = useState('')
       const [busy, setBusy] = useState(false)
-      // 价格表折叠开关(默认收起,保持设置页简洁;三角按钮展开)。
-      const [priceOpen, setPriceOpen] = useState(false)
+      // 只渲染当前价格分区；模型定价为首屏，价格表和同步操作按需挂载。
+      const [pricingView, setPricingView] = useState('models')
       // 设置页当前标签(issue #29):概览/额度/用量/价格/显示;仅切可见分区,不拆配置与保存逻辑。
       const [tab, setTab] = useState('overview')
       // 自动保存状态:idle(无改动) | saving | saved | error。
@@ -1979,6 +1911,8 @@
       // 本轮草稿的 diff 基点(冻结基线):草稿存在期间不随轮询推进,
       // 保证防抖 diff 始终对照「草稿创建那一刻」的基线,只提交真正改动的键。
       const draftBaseRef = React.useRef(null)
+      const saveQueue = React.useRef(Promise.resolve()), saveGeneration = React.useRef(0), flushSave = React.useRef(null)
+      useEffect(() => () => { flushSave.current?.() }, [])
 
       useEffect(() => {
         if (state !== null) {
@@ -2006,13 +1940,15 @@
         }
       }, [draft])
 
-      // 配置改动 600ms 防抖后即时保存(无需点击保存按钮)。
+      // Short debounce plus a single write queue; stale responses cannot mark a newer draft saved.
       useEffect(() => {
+        const generation = ++saveGeneration.current
         if (draft === null || api === undefined) return
         const json = JSON.stringify(draft)
-        if (json === savedRef.current) return
+        if (json === savedRef.current) { flushSave.current = null; return }
         setSaveState(prev => (prev.status === 'saving' ? prev : { ...prev, status: 'saving' }))
-        const timer = setTimeout(() => {
+        const enqueue = () => { saveQueue.current = saveQueue.current.catch(() => {}).then(async () => {
+          if (generation !== saveGeneration.current) return
           // 只提交发生变化的顶层键(diff 补丁):多窗口同开时,旧窗口的草稿
           // 不再整份覆盖其它窗口已保存的改动(否则会互相回弹)。
           // diff 基点取草稿创建时冻结的 draftBaseRef:期间到达的新 state 只推进
@@ -2030,16 +1966,19 @@
             setSaveState({ status: 'saved', at: Date.now(), error: null })
             return
           }
-          api.updateConfig(patch).then(() => {
+          try {
+            await api.updateConfig(patch)
             savedRef.current = json
             // 保存成功后把 diff 基点推进到「基线 + 已提交补丁」的新配置,
             // 与服务端实际状态对齐,下一轮 diff 从这里算起。
             if (base !== null && typeof base === 'object') draftBaseRef.current = { ...base, ...patch }
-            setSaveState({ status: 'saved', at: Date.now(), error: null })
-          }, error => {
-            setSaveState({ status: 'error', at: 0, error: error?.message ?? String(error) })
-          })
-        }, 600)
+            if (generation === saveGeneration.current) setSaveState({ status: 'saved', at: Date.now(), error: null })
+          } catch (error) {
+            if (generation === saveGeneration.current) setSaveState({ status: 'error', at: 0, error: error?.message ?? String(error) })
+          }
+        }) }
+        flushSave.current = enqueue
+        const timer = setTimeout(enqueue, 120)
         return () => { clearTimeout(timer) }
       }, [draft, api])
 
@@ -2111,29 +2050,6 @@
         if (draft === null) return
         setDraft({ ...draft, [field]: value })
       }
-      const addModel = () => {
-        if (draft === null) return
-        const id = newModelId.trim().toLowerCase()
-        if (id.length === 0 || !/^[a-z0-9_.-]+$/.test(id)) return
-        if (draft?.prices.models[id] !== undefined) return
-        const models = { ...draft.prices.models, [id]: { cacheHit: 0, cacheMiss: 0, output: 0 } }
-        setDraft({ ...draft, prices: { ...draft.prices, models } })
-        setNewModelId('')
-      }
-      const priceCards = tab !== 'pricing' || draft === null ? [] : Object.keys(draft.prices.models)
-        .filter(modelId => {
-          // priceTableDisplay 按模型门控:缺省 DeepSeek 模型直接显示;显式 false 的收入拓展价格表。
-          const displayMap = draft?.priceTableDisplay ?? config.priceTableDisplay ?? {}
-          const value = displayMap['deepseek:' + modelId]
-          return typeof value === 'boolean' ? value : true
-        })
-        .map(modelId => (
-          el(PriceCard, {
-            key: modelId, modelId,
-            entry: draft.prices.models[modelId] ?? { cacheHit: 0, cacheMiss: 0, output: 0 },
-            isDefault: false, draft, setDraft, t,
-          })
-        ))
       // 设置页标签(issue #29):按用途分五组,切换只改可见分区,不拆配置模型与保存逻辑。
       const tabItems = [
         ['overview', t('tabOverview')],
@@ -2168,7 +2084,8 @@
         // ── 概览:汇总卡片、今日会话、预算、官方余额 ──
         tab === 'overview' ? el(Fragment, { key: 'overview' },
         // 汇总卡片(今日卡片受 hideTodayCost 门控,issue #46;金额为真金白银口径,issue #64)
-        el('div', { className: 'cm-cards' },
+        el('div', { className: 'cm-overview-grid' },
+        el('div', { className: 'cm-cards', style: { '--cm-overview-count': config.hideTodayCost === true ? 2 : 3 } },
           config.hideTodayCost === true ? null : el(Card, {
             title: t('cardToday'),
             value: formatMoneyUsd(displayCostOf(state.today, config), config),
@@ -2193,7 +2110,7 @@
             title: t('cardTotal'),
             value: formatMoneyUsd(displayCostOf(state.total, config), config),
             sub: t('cardTotalSub', { calls: state.total.calls }),
-          })),
+          }))),
         el(ExternalUsagePanel, { state, t }),
         // 快照时点与 tokens 口径脚注(用户实测对账疑问:官方 5.64 vs 本地 5.78):
         // 防抖落盘产生分钟级时差;reasoning 由 API 单列上报但不计费,token 合计
@@ -2268,436 +2185,49 @@
         : null,
         // ── 显示:界面语言、徽章/侧边栏位置、图框开关等 ──
         tab === 'display' ? el(Fragment, { key: 'display' },
-          el(ModelSidebarSettings, { draft, setDraft, t }),
         // 存量明文密钥未迁出提示(v1.6.8):仅在确有密钥无法自动导入凭据库时出现。
         state?.secretMigration?.pending?.length > 0
           ? el(SecretMigrationNotice, { pending: state.secretMigration.pending, t })
           : null,
-        // 顶栏:界面语言
-        el('div', { className: 'cm-toolbar' },
-          el('div', { className: 'cm-field' },
-            el('label', null, t('languageLabel')),
-            el('select', {
-              className: 'cm-input',
-              value: draft?.locale ?? 'auto',
-              onChange: event => setField('locale', event.target.value),
-            },
-              el('option', { value: 'auto' }, t('localeAuto')),
-              el('option', { value: 'zh' }, t('localeZh')),
-              el('option', { value: 'en' }, t('localeEn'))))),
-        // 显示设置
-        el('div', null,
-          el('h3', { className: 'cm-h' }, t('displaySettings')),
-          el('div', { className: 'cm-grid' },
-            el('div', { className: 'cm-grid-group' }, t('groupGeneral')),
-            ...['includeSubagentCost', 'codexQuotaEnabled', 'codexQuotaSidebar'].map(key => el('label', { key, className: 'cm-check' },
-              el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
-              el('span', null, t(key)))),
-            USAGE_POSITION_SWITCHABLE
-              ? el('div', { className: 'cm-field' },
-                  el('label', null, t('usagePositionLabel')),
-                  el('select', {
-                    className: 'cm-input',
-                    value: draft?.usage?.position ?? 'cost',
-                    onChange: event => {
-                      if (draft === null) return
-                      setDraft({ ...draft, usage: { ...(draft.usage ?? { position: 'cost' }), position: event.target.value } })
-                    },
-                  },
-                    el('option', { value: 'cost' }, t('usagePositionCost')),
-                    el('option', { value: 'general' }, t('usagePositionGeneral')),
-                    el('option', { value: 'section' }, t('usagePositionSection'))))
-              : null,
-            el('div', { className: 'cm-field' },
-              el('label', null, t('positionLabel')),
-              el('select', {
-                className: 'cm-input',
-                value: draft?.position ?? 'dock',
-                onChange: event => setField('position', event.target.value),
-              },
-                el('option', { value: 'dock' }, t('positionDock')),
-                el('option', { value: 'header' }, t('positionHeader')),
-                el('option', { value: 'off' }, t('off')))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('sidebarLabel')),
-              el('select', {
-                className: 'cm-input',
-                value: draft?.sidebar === false ? 'off' : 'on',
-                onChange: event => setField('sidebar', event.target.value === 'on'),
-              },
-                el('option', { value: 'on' }, t('sidebarOn')),
-                el('option', { value: 'off' }, t('off')))),
-            el('label', { className: 'cm-check' },
-              el('input', {
-                type: 'checkbox',
-                checked: draft?.showSessionId === true,
-                onChange: event => setField('showSessionId', event.target.checked),
-              }),
-              el('span', null, t('showSessionIdLabel'))),
-            ...['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact'].map(key => el('label', { key, className: 'cm-check' },
-              el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
-              el('span', null, t(key)))),
-            el('div', { className: 'cm-grid-group' }, t('groupMoney')),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('currencyLabel')),
-              el('select', {
-                className: 'cm-input',
-                value: draft?.currency ?? 'CNY',
-                onChange: event => {
-                  const preset = CURRENCY_PRESETS[event.target.value]
-                  if (preset !== undefined && draft !== null) {
-                    setDraft({ ...draft, currency: event.target.value, ...preset })
-                  }
-                },
-              },
-                el('option', { value: 'CNY' }, t('currencyCny')),
-                el('option', { value: 'USD' }, t('currencyUsd')),
-                el('option', { value: 'EUR' }, t('currencyEur')))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('symbolLabel')),
-              el('input', {
-                className: 'cm-input narrow', type: 'text',
-                value: draft?.symbol ?? '',
-                onChange: event => setField('symbol', event.target.value),
-              })),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('rateLabel')),
-              // 清空不提交:汇率 0 会被服务端校验拒绝并整包报错,保留原值更友好。
-              numInput({ value: draft?.exchangeRate ?? 1, emptyMode: 'ignore' }, v => setField('exchangeRate', v))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('decimalsLabel')),
-              numInput({ value: draft?.decimals ?? 2 }, v => setField('decimals', Math.min(10, Math.floor(v))))),
-            // UI 隐藏开关(issues #45/#46):开启后官方余额/今日消耗金额的对应区块整体不渲染。
-            el('label', { className: 'cm-check' },
-              el('input', {
-                type: 'checkbox',
-                checked: draft?.hideOfficialBalance === true,
-                onChange: event => setField('hideOfficialBalance', event.target.checked),
-              }),
-              el('span', null, t('hideOfficialBalanceLabel'))),
-            el('label', { className: 'cm-check' },
-              el('input', {
-                type: 'checkbox',
-                checked: draft?.hideTodayCost === true,
-                onChange: event => setField('hideTodayCost', event.target.checked),
-              }),
-              el('span', null, t('hideTodayCostLabel'))),
-            el('div', { className: 'cm-grid-group' }, t('groupSidebar')),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('sidebarTodayMetric')),
-              el('select', { className: 'cm-input', value: draft?.sidebarTodayMetric ?? 'cost',
-                onChange: event => setField('sidebarTodayMetric', event.target.value) },
-                el('option', { value: 'cost' }, t('sidebarTodayCost')),
-                el('option', { value: 'tokens' }, t('sidebarTodayTokens')))),
-            el('label', { className: 'cm-check' },
-              el('input', { type: 'checkbox', checked: draft?.sidebarSimple === true,
-                onChange: event => { if (draft) setDraft({ ...draft, sidebarSimple: event.target.checked, sidebarSimplePromptSeen: true }) } }),
-              el('span', null, t('sidebarSimple'))),
-            el('div', { className: 'cm-field' }, el('span', { className: 'cm-hint' }, t('sidebarSimpleNote'))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('sidebarStyleLabel')),
-              el('select', {
-                className: 'cm-input',
-                value: draft?.sidebarStyle ?? 'standard',
-                disabled: draft?.sidebarSimple === true,
-                onChange: event => setField('sidebarStyle', event.target.value),
-              },
-                el('option', { value: 'standard' }, t('sidebarStyleStandard')),
-                el('option', { value: 'compact' }, t('sidebarStyleCompact')))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('balanceDisplayLabel')),
-              el('select', {
-                className: 'cm-input',
-                value: draft?.balance?.display ?? 'both',
-                onChange: event => {
-                  if (draft === null) return
-                  setDraft({ ...draft, balance: { ...(draft.balance ?? { display: 'both', refreshMinutes: 5 }), display: event.target.value } })
-                },
-              },
-                ...displayOptions(t))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('refreshIntervalLabel')),
-              numInput({ value: draft?.balance?.refreshMinutes ?? 5 }, v => {
-                if (draft === null) return
-                setDraft({ ...draft, balance: { ...(draft.balance ?? { display: 'both', refreshMinutes: 5, showProgressBar: false, budgetCap: null }), refreshMinutes: Math.min(1440, Math.max(1, Math.floor(v))) } })
-              })),
-            el('div', { className: 'cm-field' },
-              el('label', { className: 'cm-check' },
-                el('input', {
-                  type: 'checkbox',
-                  checked: draft?.balance?.showProgressBar === true,
-                  onChange: event => {
-                    if (draft === null) return
-                    setDraft({ ...draft, balance: { ...(draft.balance ?? { display: 'both', refreshMinutes: 5, showProgressBar: false, budgetCap: null }), showProgressBar: event.target.checked } })
-                  },
-                }),
-                el('span', null, t('balanceShowProgressBar')))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('balanceBudgetCapLabel')),
-              numInput({ value: draft?.balance?.budgetCap ?? '' }, v => {
-                if (draft === null) return
-                setDraft({ ...draft, balance: { ...(draft.balance ?? { display: 'both', refreshMinutes: 5, showProgressBar: false, budgetCap: null }), budgetCap: v > 0 ? v : null } })
-              }),
-              el('span', { className: 'cm-hint' }, t('balanceBudgetCapHint'))),
-            // 进度条方向(issue #67):四组条独立选择剩余/已用方向,默认保持各自原设计。
-            el('div', { className: 'cm-field' },
-              el('label', null, t('barDirectionsTitle')),
-              ['balance', 'budget', 'go', 'plan'].map(kind => el('div', { className: 'cm-dir-row', key: kind },
-                el('span', { className: 'cm-dir-label' }, t('barDirection_' + kind)),
-                el('select', {
-                  className: 'cm-input',
-                  value: draft?.barDirections?.[kind] ?? (kind === 'balance' ? 'remaining' : 'used'),
-                  onChange: event => {
-                    if (draft === null) return
-                    const fallback = { balance: 'remaining', budget: 'used', go: 'used', plan: 'used' }
-                    setDraft({ ...draft, barDirections: { ...(draft.barDirections ?? fallback), [kind]: event.target.value } })
-                  },
-                },
-                el('option', { value: 'remaining' }, t('barDirectionRemaining')),
-                el('option', { value: 'used' }, t('barDirectionUsed'))))),
-              el('span', { className: 'cm-hint' }, t('barDirectionsHint'))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('customBalanceDisplayLabel')),
-              el('select', {
-                className: 'cm-input',
-                value: draft?.customBalance?.display ?? config.customBalance?.display ?? 'both',
-                onChange: event => {
-                  if (draft === null) return
-                  setDraft({ ...draft, customBalance: { ...(draft.customBalance ?? config.customBalance ?? {}), display: event.target.value } })
-                },
-              },
-                ...displayOptions(t))),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('customBalanceRefreshInterval')),
-              numInput({ value: draft?.customBalance?.refreshMinutes ?? config.customBalance?.refreshMinutes ?? 15 }, v => {
-                if (draft === null) return
-                setDraft({ ...draft, customBalance: { ...(draft.customBalance ?? config.customBalance ?? {}), refreshMinutes: Math.min(1440, Math.max(1, Math.floor(v))) } })
-              })),
-            el(GoQuotaSettings, { config, draft, setDraft, t, api }),
-            el('div', { className: 'cm-grid-group' }, t('quotaStripGroup')),
-            el('div', { className: 'cm-field' },
-              el('label', { className: 'cm-check' },
-                el('input', {
-                  type: 'checkbox',
-                  checked: draft?.quotaStrip?.enabled === true,
-                  onChange: event => {
-                    if (draft === null) return
-                    setDraft({ ...draft, quotaStrip: { ...(draft.quotaStrip ?? { enabled: false, budget: true, go: true, plans: true }), enabled: event.target.checked, promptSeen: true } })
-                  },
-                }),
-                el('span', null, t('quotaStripEnable')))),
-            draft?.quotaStrip?.enabled === true
-              ? [['budget', 'quotaStripShowBudget'], ['go', 'quotaStripShowGo'], ['plans', 'quotaStripShowPlans']].map(([key, labelKey]) =>
-                  el('label', { key, className: 'cm-check' },
-                    el('input', {
-                      type: 'checkbox',
-                      checked: draft.quotaStrip[key] !== false,
-                      onChange: event => {
-                        if (draft === null) return
-                        setDraft({ ...draft, quotaStrip: { ...draft.quotaStrip, [key]: event.target.checked } })
-                      },
-                    }),
-                    el('span', null, t(labelKey))))
-              : null,
-            el('div', { className: 'cm-field' },
-              el('span', { className: 'cm-hint' }, t('quotaStripNote'))),
-            el('div', { className: 'cm-grid-group' }, t('groupCorner')),
-            el('div', { className: 'cm-field' },
-              el('label', null, t('cornerLabel')),
-              el('label', { className: 'cm-check' },
-                el('input', {
-                  type: 'checkbox',
-                  checked: draft?.corner?.enabled === true,
-                  onChange: event => {
-                    if (draft === null) return
-                    setDraft({ ...draft, corner: { ...(draft.corner ?? { enabled: false, goRolling: true, goWeekly: true, goMonthly: true, budget: true }), enabled: event.target.checked } })
-                  },
-                }),
-                el('span', null, t('cornerEnabledLabel'))),
-              draft?.corner?.enabled === true
-                ? [['goRolling', 'cornerGoRolling'], ['goWeekly', 'cornerGoWeekly'], ['goMonthly', 'cornerGoMonthly'], ['budget', 'cornerBudget']].map(([key, labelKey]) =>
-                  el('label', { key, className: 'cm-check' },
-                    el('input', {
-                      type: 'checkbox',
-                      checked: draft.corner[key] !== false,
-                      onChange: event => {
-                        if (draft === null) return
-                        setDraft({ ...draft, corner: { ...draft.corner, [key]: event.target.checked } })
-                      },
-                    }),
-                    el('span', null, t(labelKey))))
-                : null),
-            el('div', { className: 'cm-grid-group' }, t('groupDetail')),
-            el('div', { className: 'cm-field' },
-              el('label', { className: 'cm-check' },
-                el('input', {
-                  type: 'checkbox',
-                  checked: draft?.goQuota?.detail !== false,
-                  onChange: event => {
-                    if (draft === null) return
-                    setDraft({ ...draft, goQuota: { ...(draft.goQuota ?? { display: 'both', refreshMinutes: 15, apiKey: '', main: 'rolling', detail: true }), detail: event.target.checked } })
-                  },
-                }),
-                el('span', null, t('goDetailLabel')))),
-            el('div', { className: 'cm-field' },
-              el('label', { className: 'cm-check' },
-                el('input', {
-                  type: 'checkbox',
-                  checked: draft?.budget?.detail !== false,
-                  onChange: event => {
-                    if (draft === null) return
-                    setDraft({ ...draft, budget: { ...(draft.budget ?? { enabled: false, amount: 100, period: 'month', customStart: null, customEnd: null, detail: true }), detail: event.target.checked } })
-                  },
-                }),
-                el('span', null, t('budgetDetailLabel'))))),
-          el('p', { className: 'cm-note' }, t('badgeNote'))))
+        // 显示设置：独立加载的交互预览，共用草稿与自动保存。
+        el(BillingStatistics, { state, api, load: api.loadDisplay, draft, setDraft, t, locale,
+          numInput, displayOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, formatMoneyUsd, onNavigate: setTab,
+          renderSidebar: (preview, data = state) => renderSidebarFooter({ ...data, config: preview }, true, undefined, true),
+          renderStyleSample: (preview, data = state, examples = true) => {
+            if (!examples) return renderSidebarFooter({ ...data, config: preview }, true, undefined, true)
+            const simple = preview.sidebarSimple === true
+            const sampleConfig = { ...preview, peakNotice: false, hideBudget: false, hideTodayCost: false,
+              budget: { ...preview.budget, enabled: true, amount: Number(preview.budget?.amount) > 0 ? preview.budget.amount : 100 } }
+            const sampleState = { ...data, config: sampleConfig }
+            const windows = miniMaxWindowsOf(data.codingPlans?.minimax?.windows ?? {})
+            return el('div', { className: 'cm-footer-stack' + (simple ? ' simple' : preview.sidebarStyle === 'compact' ? ' compact' : '') },
+              el(BudgetBoxContent, { state: sampleState, wide: true, summary: simple }),
+              el(MiniMaxPlanCard, { five: windows.five ?? { percent: 24 }, seven: windows.seven ?? { percent: 18 }, fetchedAt: 0, t, wide: true, direction: barDirectionOf(preview, 'plan') }))
+          },
+          renderModelsSettings: () => el(ModelSidebarSettings, { draft, setDraft, t }) }))
         : null,
-        // ── 价格:价格表、模型名匹配、拓展价格表、峰谷计价与提示、官方价格同步 ──
-        tab === 'pricing' ? el(Fragment, { key: 'pricing' },
-        el(BillingStatistics, { state, api, load: api.loadOpenRouter }),
-        // 峰谷计价与提示(独立面板:启用/提示开关、样式切换、时段条预览)
-        el(PeakPanel, { state, draft, setDraft, t }),
-        // 价格表(可折叠,默认收起;priceTableDisplay 按模型门控:未勾选直接显示的模型收入拓展价格表,该开关只决定展示位置)
-        el('div', null,
-          collapseHeader(priceOpen, () => setPriceOpen(!priceOpen), t('priceTableTitle')),
-          priceOpen ? el('div', { className: 'cm-collapse-body' },
-          el('p', { className: 'cm-note' }, t('priceTableNote')),
-          el('p', { className: 'cm-hint' }, t('priceTableDisplayHint')),
-          el('div', { className: 'cm-catalog-vendor' }, t('deepseekMountedHeader')),
-          priceCards,
-          el(PriceCard, {
-            key: '__default__', modelId: t('defaultModelId'),
-            entry: draft?.prices.default ?? { cacheHit: 0, cacheMiss: 0, output: 0 },
-            isDefault: true, draft, setDraft, t,
-          }),
-          el('div', { className: 'cm-buttons' },
-            el('input', {
-              className: 'cm-input narrow', type: 'text', placeholder: t('newModelPlaceholder'),
-              value: newModelId,
-              onChange: event => setNewModelId(event.target.value),
-            }),
-            el('button', { className: 'cm-btn small', onClick: addModel, disabled: newModelId.trim().length === 0 }, t('addModel'))),
-          // 已挂载的第三方 provider 模型(仅逐模型勾选了「在费用设置直接显示」的条目;其余在拓展价格表内展示与编辑)
-          (() => {
-            const displayMap = draft?.priceTableDisplay ?? config.priceTableDisplay ?? {}
-            const providers = draft?.prices?.providers ?? {}
-            const directIds = p => Object.keys(providers[p]?.models ?? {}).filter(id => displayMap[p + ':' + id] === true)
-            const groups = Object.keys(providers)
-              .filter(p => directIds(p).length > 0)
-              .sort((a, b) => a.localeCompare(b))
-            if (groups.length === 0) return null
-            return groups.map(p =>
-              el('div', { key: p },
-                el('div', { className: 'cm-catalog-vendor' }, (CATALOG_VENDOR_LABELS[p] ?? p) + ' · ' + t('mountedSuffix')),
-                directIds(p).sort().map(id =>
-                  el(ProviderPriceCard, { key: p + ':' + id, provider: p, modelId: id, entry: providers[p].models[id], draft, setDraft, t }))))
-          })())
-          : null),
-        // 模型名匹配(自动匹配开关 + 未命中模型的手动指定)
-        (() => {
-          const overrides = draft?.priceOverrides ?? config.priceOverrides ?? {}
-          const dismissed = draft?.priceMatchDismissed ?? config.priceMatchDismissed ?? []
-          const pricesNow = draft?.prices ?? config.prices
-          const byProvider = state.today.byProviderModel ?? {}
-          // 今日出现但未命中价格条目的 provider:model 键:判定走 resolveClientPrice 完整
-          // 解析链(精确/归一化/宽泛/跨厂商兑底,按当前匹配模式),与计费口径一致——
-          // 路由 provider 前缀(go:/opencode: 等)下实际已正确计价的模型不再误报,
-          // 仅 DeepSeek 默认价兜底与完全未命中者需要人工指定。
-          const matchPrices = { prices: pricesNow, priceMatch: draft?.priceMatch ?? config.priceMatch }
-          const unmatchedKeys = Object.keys(byProvider).filter(key => {
-            if (dismissed.includes(key)) return false
-            if (overrides[key] !== undefined) return false // 已手动指定的键由下方 rows 展示
-            const sep = key.indexOf(':')
-            const provider = (sep > 0 ? key.slice(0, sep) : 'deepseek').toLowerCase()
-            const modelId = sep > 0 ? key.slice(sep + 1) : key
-            return resolveClientPrice(provider, modelId, matchPrices).matched !== true
-          })
-          const rows = [...new Set([...unmatchedKeys, ...Object.keys(overrides)])].filter(key => !dismissed.includes(key))
-          // 本月已命中价格且未手动指定的 provider:model 键(v1.6.11):同样允许
-          // 改挂其它条目或标记为本地模型(零消耗)。数据取 state.month.byProviderModel
-          // (比今日覆盖面广);override 写入后该键转入上方 rows(手动指定区)展示。
-          const monthByProvider = state.month?.byProviderModel ?? {}
-          const matchedKeys = Object.keys(monthByProvider).filter(key => {
-            if (dismissed.includes(key)) return false
-            if (overrides[key] !== undefined) return false
-            const sep = key.indexOf(':')
-            const provider = (sep > 0 ? key.slice(0, sep) : 'deepseek').toLowerCase()
-            const modelId = sep > 0 ? key.slice(sep + 1) : key
-            return resolveClientPrice(provider, modelId, matchPrices).matched === true
-          }).sort()
-  const targetOptions = [
-    // 「本地模型(零消耗)」哨兵(v1.6.11):__local__ 由服务端解析为未定价
-    // (token 照记、费用 0),历史桶随 updateConfig 即时归零。
-    { value: '__local__', label: t('overrideTargetLocal') },
-    { value: 'deepseek:__default__', label: t('overrideTargetDefault') },
-    // DeepSeek 目标必须带 'deepseek:' 前缀存储(issue #56):裸名会被按
-    // 「同渠道换名」解析,跨渠道映射(如 cephalon:x → deepseek-v4-flash)查无此价。
-    ...Object.keys(pricesNow.models ?? {}).map(id => ({ value: 'deepseek:' + id, label: 'DeepSeek · ' + id })),
-    ...Object.entries(pricesNow.providers ?? {}).flatMap(([p, table]) =>
-      Object.keys(table?.models ?? {}).map(id => ({ value: p + ':' + id, label: p + ' · ' + id }))),
-  ]
-          const setOverride = (key, value) => {
-            if (draft === null) return
-            const next = { ...(draft.priceOverrides ?? {}) }
-            if (value === '') delete next[key]
-            else next[key] = value
-            setDraft({ ...draft, priceOverrides: next })
-          }
-          const dismissMatch = key => {
-            if (draft === null) return
-            const next = { ...(draft.priceOverrides ?? {}) }
-            delete next[key]
-            setDraft({ ...draft, priceOverrides: next, priceMatchDismissed: [...new Set([...dismissed, key])] })
-          }
-          return el('div', null,
-            el('h3', { className: 'cm-h' }, t('priceMatchLabel')),
-            el('div', { className: 'cm-field' },
-              el('select', {
-                className: 'cm-input',
-                value: draft?.priceMatch === 'exact' ? 'exact' : 'auto',
-                onChange: event => setField('priceMatch', event.target.value),
-              },
-                el('option', { value: 'auto' }, t('priceMatchAuto')),
-                el('option', { value: 'exact' }, t('priceMatchExact')))),
-            el('p', { className: 'cm-note' }, t('priceMatchNote')),
-            rows.length > 0
-              ? el(Fragment, null,
-                el('h3', { className: 'cm-h' }, t('unmatchedTitle')),
-                el('p', { className: 'cm-hint' }, t('unmatchedHint')),
-                rows.map(key =>
-                  el('div', { key, className: 'cm-match-row' },
-                    el('span', null, prettyProviderKey(key)),
-                    el('select', {
-                      className: 'cm-input',
-                      value: overrides[key] ?? '',
-                      onChange: event => setOverride(key, event.target.value),
-                    },
-                      el('option', { value: '' }, '—'),
-                      targetOptions.map(o => el('option', { key: o.value, value: o.value }, o.label))),
-                    el('button', { className: 'cm-btn small', title: t('removePriceMatchHint'), onClick: () => dismissMatch(key) }, t('overrideRemove')))))
-              : el('p', { className: 'cm-hint' }, t('overrideNone')),
-            dismissed.length > 0 ? el('button', { className: 'cm-btn small', onClick: () => setField('priceMatchDismissed', []) }, t('restorePriceMatches', { count: dismissed.length })) : null,
-            // 已命中模型改映射(v1.6.11):默认「保持自动命中」,选择目标即写入手动覆盖。
-            matchedKeys.length > 0
-              ? el(Fragment, null,
-                el('h3', { className: 'cm-h' }, t('matchedTitle')),
-                el('p', { className: 'cm-hint' }, t('matchedHint')),
-                matchedKeys.map(key =>
-                  el('div', { key, className: 'cm-match-row' },
-                    el('span', null, prettyProviderKey(key)),
-                    el('select', {
-                      className: 'cm-input',
-                      value: '',
-                      onChange: event => { if (event.target.value !== '') setOverride(key, event.target.value) },
-                    },
-                      el('option', { value: '' }, t('matchedKeepAuto')),
-                      targetOptions.map(o => el('option', { key: o.value, value: o.value }, o.label))))))
-              : null)
-        })(),
-        // 拓展价格表(厂商/家族分类目录;挂载 ↔ 费用设置价格表)
-        el(PriceCatalogPanel, { state, draft, setDraft, t }),
+        // ── 价格:峰谷计价、价格表、模型名匹配、官方价格同步、OpenRouter 公开报价 ──
+        tab === 'pricing' ? el('div', { key: 'pricing', className: 'cm-pricing-page' },
+        el('div', { className: 'cm-pricing-heading' },
+          el('div', null, el('h3', { className: 'cm-h' }, locale === 'en' ? 'Pricing' : '价格设置'), el('p', { className: 'cm-note' }, locale === 'en' ? 'New prices apply to future calls. Historical costs keep their original rates.' : '价格修改用于后续调用，历史费用沿用原价格。')),
+          el('span', { className: 'cm-pricing-unit' }, locale === 'en' ? 'Per 1M tokens' : '每百万 Token')),
+        el('div', { className: 'cm-pricing-nav', role: 'tablist', 'aria-label': locale === 'en' ? 'Pricing sections' : '价格分区' },
+          [['models', '模型定价', 'Model pricing'], ['catalog', '参考价格表', 'Price tables'], ['tools', '同步与规则', 'Sync & rules']].map(([key, zh, en]) => el('button', { key, id: 'cm-pricing-' + key, type: 'button', role: 'tab', 'aria-selected': pricingView === key, 'aria-controls': 'cm-pricing-panel', tabIndex: pricingView === key ? 0 : -1, className: 'cm-pricing-nav-item' + (pricingView === key ? ' active' : ''), onClick: () => setPricingView(key), onKeyDown: event => { const keys = ['models', 'catalog', 'tools']; const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0; if (step) { event.preventDefault(); const next = keys[(keys.indexOf(key) + step + 3) % 3]; setPricingView(next); event.currentTarget.parentElement.querySelector('#cm-pricing-' + next)?.focus() } } }, locale === 'en' ? en : zh))),
+        el('div', { id: 'cm-pricing-panel', className: 'cm-pricing-content', role: 'tabpanel', 'aria-labelledby': 'cm-pricing-' + pricingView },
+        pricingView === 'models' ?
+        el(BillingStatistics, { state, api, load: api.loadPricing, mode: 'matching', draft, setDraft, t, locale, resolveClientPrice, prettyProviderKey, setField, priceEditor: { PriceInput, priceFactor, setPriceFactor, multiplierOptions, priceMultiplierSettings, priceAt } }) : null,
+        // 参考价格表：只在此分区挂载；未直接显示的模型保留在厂商分组。
+        pricingView === 'catalog' ? el('div', { className: 'cm-pricing-catalog' },
+          el('h3', { className: 'cm-h' }, t('priceTableTitle')),
+          el(BillingStatistics, { state, api, load: api.loadPricing, mode: 'catalog', draft, setDraft, t, locale, vendorLabels: CATALOG_VENDOR_LABELS, priceEditor: { priceAt, priceFactor },
+            renderEditor: (provider, modelId, entry) => provider === 'deepseek'
+              ? el(PriceCard, { modelId: modelId === '__default__' ? t('defaultModelId') : modelId, entry, isDefault: modelId === '__default__', draft, setDraft, t })
+              : el(ProviderPriceCard, { provider, modelId, entry, draft, setDraft, t, api, lockedIds: provider === 'openrouter' ? state.priceLockIds ?? [] : [], releaseDisabled: JSON.stringify(draft) !== savedRef.current }) })) : null,
+        pricingView === 'tools' ? el('div', { className: 'cm-pricing-tools' },
+        el('section', { className: 'cm-pricing-tool' }, el(PeakPanel, { state, draft, setDraft, t })),
+        el('section', { className: 'cm-pricing-tool' }, el(BillingStatistics, { state, api, load: api.loadPricing, mode: 'history', locale, disabled: busy || JSON.stringify(draft) !== savedRef.current })),
         // 官方价格同步(与价格表同组;自动保存状态已移至标签栏常驻)
-        el('div', null,
+        el('section', { className: 'cm-pricing-tool' },
           el('h3', { className: 'cm-h' }, t('dataSync')),
           (draft ?? config).currency === 'CNY' && (draft ?? config).prices?.currency !== 'CNY'
             ? el('div', { className: 'cm-note', role: 'status' },
@@ -2725,10 +2255,13 @@
           el('p', { className: 'cm-note' },
             t('lastSync', { time: config.fetchedAt !== null ? new Date(config.fetchedAt).toLocaleString() : t('neverSynced') })
             + t('source', { source: config.priceSource === 'official' ? t('sourceOfficial') : t('sourceBundled') })),
-          // 同步范围消歧(issue #85):同步按钮只抓 DeepSeek 官方定价页,第三方扩展目录价
-          // (z-ai / Kimi / Qwen 等)不随该按钮更新——随插件版本发布维护,可在「拓展价格表」
-          // 挂载/编辑或用「模型名匹配」为任意模型指定价格条目。
-          el('p', { className: 'cm-note' }, t('syncScopeNote'))))
+          // 同步范围消歧(issue #85):同步按钮只抓 DeepSeek 官方定价页,第三方目录价
+          // (z-ai / Kimi / Qwen 等)不随该按钮更新——随插件版本发布维护,可在价格表
+          // 展开对应厂商编辑,或用「模型名匹配」为任意模型指定价格条目。
+          el('p', { className: 'cm-note' }, t('syncScopeNote'))),
+        // OpenRouter 公开报价(只读查阅,非必做设置):放在价格标签末尾,先呈现要操作的
+        // 设置项;它本身是按需加载块,靠后渲染等于延后加载,不增加首屏开销。
+        el('section', { className: 'cm-pricing-tool' }, el(BillingStatistics, { state, api, load: api.loadOpenRouter }))) : null))
         : null,
         el(BillingStatistics, { state, api, load: api.loadCommunity, locale, quiet: true, footer: true }))
     }
@@ -2766,24 +2299,40 @@
       let lastPoll = Date.now()
       let reloading = false
       let active = true, retrySeconds = 1
+      let configRevision = 0, savingConfig = 0
+      // 宿主在价格表版本未变时省略 config.prices(占轮询载荷 56%):此时沿用上一份,
+      // 保证 config.prices 在客户端始终存在(渲染与改价逻辑都按它非空处理)。
+      // 版本号相同即价格表逐字节相同,因此沿用上一份与用新下发的那份等价;
+      // 版本号缺失(旧宿主)或不相同时一律用新下发的那份(其中必含完整价格表)。
+      const withCarriedPrices = (next, previous) => {
+        if (typeof next?.pricesRev !== 'string' || next.pricesRev !== previous?.pricesRev) return next
+        const carried = previous?.config?.prices
+        if (carried === undefined) return next
+        return { ...next, config: { ...next.config, prices: carried } }
+      }
       const reload = async () => {
-        if (!active || reloading) return // 并发防抖:轮询/手动刷新/重连不叠加 getState,避免乱序覆盖
+        if (!active || reloading || savingConfig) return // 保存期间不启动会读到旧配置的轮询。
+        const revision = configRevision
+        const current = () => active && revision === configRevision && savingConfig === 0
         reloading = true
         lastPoll = Date.now()
         const prev = store.getSnapshot()
         if (prev.state === null) store.set({ ...prev, status: 'loading' })
         try {
-          const state = await call(prev.state === null ? 'getLocalState' : 'getState')
-          if (!active) return
+          // 已知价格表版本号时回传:宿主版本一致就不重发 config.prices(占轮询载荷
+          // 56%)。首屏(getLocalState)不发,保证拿到的第一份必定完整。
+          const knownRev = prev.state?.pricesRev
+          const state = await call(prev.state === null ? 'getLocalState' : typeof knownRev === 'string' ? 'getStateSince' : 'getState', typeof knownRev === 'string' ? [knownRev] : [])
+          if (!current()) return
           retrySeconds = 1
-          store.set({ status: 'ready', error: null, state })
+          store.set({ status: 'ready', error: null, state: withCarriedPrices(state, prev.state) })
           if (prev.state === null) {
             const fresh = await call('getState')
-            if (active) store.set({ status: 'ready', error: null, state: fresh })
+            if (current()) store.set({ status: 'ready', error: null, state: withCarriedPrices(fresh, state) })
           }
           // activeLocale 只属于本客户端快照,持久化配置始终保留 auto。
         } catch (error) {
-          if (!active) return
+          if (!current()) return
           if (prev.state === null) lastPoll = Date.now()
           retrySeconds = Math.min(retrySeconds * 2, 60)
           store.set({ status: 'error', error: error?.message ?? String(error), state: store.getSnapshot().state ?? prev.state })
@@ -2834,15 +2383,27 @@
         loadStatistics: () => loadPage('statistics'),
         loadOpenRouter: () => loadPage('openrouter'),
         loadCommunity: () => loadPage('community'),
+        loadPricing: () => loadPage('pricing'),
+        loadDisplay: () => loadPage('display'),
         reload,
         updateConfig: async patch => {
           const { activeLocale: _local, ...savedPatch } = patch
-          const state = await call('updateConfig', [savedPatch])
-          store.set({ status: 'ready', error: null, state })
-          if (patch.planBilling) setTimeout(() => { void reload() }, 1500)
-          return state
+          // 使保存前发出的旧查询失效，避免套餐开关或工作区回退。
+          configRevision++; savingConfig++
+          try {
+            const state = await call('updateConfig', [savedPatch])
+            store.set({ status: 'ready', error: null, state })
+            if (patch.planBilling) setTimeout(() => { void reload() }, 1500)
+            return state
+          } finally { savingConfig--; configRevision++ }
         },
         fetchPrices: async () => receive(costMeter.fetchPrices()),
+        // 交回自动同步(OpenRouter 手改价):成功即刷新本地快照,失败抛出带原因的错误。
+        releasePriceLock: async id => {
+          const result = await receive(costMeter.releasePriceLock(id), 'rpcSyncFailed', true)
+          if (!result.ok) throw new Error(result.message)
+          return result
+        },
         resetHistory: async () => {
           const state = await call('resetHistory')
           store.set({ status: 'ready', error: null, state })
@@ -2861,7 +2422,7 @@
         getDaySessions: async date => call('getDaySessions', [date]),
         // 跨全部日期的会话排行(issue #22 不分日期视角):支持费用/时间升降序与实时顺序。
         getSessionCost: async id => call('getSessionCost', [id]),
-        getTurnCost: async (id, start, end) => call('getTurnCost', [id, start, end]),
+        getTurnCost: async (id, start, end) => call('getTurnCost', [id, start, end, store.getSnapshot().state?.config?.currency]),
         getTopSessions: async (limit, sort, dir) => call('getTopSessions', [limit, sort, dir]),
         refreshBalance: async () => receive(costMeter.refreshBalance(), 'rpcBalanceFailed'),
         refreshGoQuota: async () => receive(costMeter.refreshGoQuota()),
@@ -2936,6 +2497,8 @@
       })
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: 'cost-meter-simple-guide', order: 1, inject: injected }, SidebarSimpleGuide))
+      slots.inject('sidebar.footer.action', () => slots.register(
+        { name: 'sidebar.footer.action', id: 'cost-meter-billion-compatibility', order: 2, inject: injected }, BillionCompatibilityGuide))
       // 首次更新引导:常驻 sidebar.footer.action 挂载,组件内部按 promptSeen 门控。
       slots.inject('sidebar.footer.action', () => {
         const dispose = slots.register(
@@ -3000,6 +2563,8 @@
         const balanceDisplay = state?.config?.balance?.display ?? 'both'
         const showBalance = (balanceDisplay === 'sidebar' || balanceDisplay === 'both') && state?.config?.hideOfficialBalance !== true
         const footer = showToday || showBalance || state?.config?.codexQuotaEnabled === true || state?.config?.sidebarModels?.enabled === true
+          || (state?.config?.budget?.enabled === true && state?.config?.hideBudget !== true)
+          || (state?.config?.goQuota?.enabled === true && ['sidebar', 'both'].includes(state.config.goQuota.display))
         const cornerEnabled = state?.config?.corner?.enabled === true || state?.config?.sidebarModels?.dock === true
         const sectionLocale = resolveLocale(state?.config || { activeLocale: store.getSnapshot().locale })
         const usagePosition = state?.config?.usage?.position ?? 'cost'

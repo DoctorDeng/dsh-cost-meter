@@ -21,8 +21,9 @@ const React = {
   },
   useRef(value) { const i = current.cursor++; return current.hooks[i] ??= { current: value } },
 }
+const statisticsWindow = { __ModuleLoader__: { load: m => { factory = m.factory } } }
 vm.runInNewContext(readFileSync(new URL('../lib/client.statistics.js', import.meta.url), 'utf8'), {
-  window: { __ModuleLoader__: { load: m => { factory = m.factory } } }, navigator: { language: 'en' }, document: { getElementById: () => null },
+  setTimeout, clearTimeout, URL, window: statisticsWindow, navigator: { language: 'en' }, document: { getElementById: () => null },
 })
 const ui = factory(() => React)
 const instances = []
@@ -52,6 +53,24 @@ const config = sanitizeConfig({ locale: 'zh', currency: 'USD', symbol: '$' })
 const props = { state: { config, meta: { dayKey: '2026-09-30', now: 1, timezone: 'Asia/Shanghai' } }, api, formatMoneyUsd: n => '$' + n.toFixed(6), formatTokens: n => String(n) }
 const stat = billingStatistics({ config, days: {} }, { from: '2026-09-24', to: '2026-09-30' })
 const owner = mount(ui.Statistics, props)
+assert.ok(!nodes(owner.tree).some(node => node.props['data-billing-coverage']), 'no compression notice without the peer plugin')
+for (const Component of [ui.Statistics, ui.SessionStatistics]) for (const locale of ['zh', 'en']) {
+  statisticsWindow.__BILI__ = { origin: 'http://127.0.0.1:42133' }
+  const view = mount(Component, { ...props, sessionId: 'peer-session', state: { ...props.state, config: { ...config, locale } } })
+  assert.match(text(view.tree), locale === 'zh' ? /代理内部未上报/ : /unreported internal/)
+  assert.equal(nodes(view.tree).find(node => node.type === 'a')?.props.href, 'http://127.0.0.1:42133/__bili/')
+  view.props = { ...view.props, state: { ...view.props.state, billionContext: { protocol: 1, connected: true, failed: false, requests: 8, unreported: 1, partial: 1, uncovered: 1 } } }
+  view.render()
+  assert.match(text(view.tree), locale === 'zh' ? /已接入 billion-context 的逐次请求/ : /request metering is connected/)
+  assert.match(text(view.tree), locale === 'zh' ? /没有完整用量回执的请求：2/ : /Requests without complete usage: 2/)
+  for (const origin of ['javascript:alert(1)', 'file:///private', 'https://secret@example.com']) {
+    statisticsWindow.__BILI__ = { origin }; view.render()
+    assert.ok(!nodes(view.tree).some(node => node.type === 'a'), 'invalid peer origins never create navigation links')
+  }
+  view.dispose()
+}
+delete statisticsWindow.__BILI__
+requests.splice(1)
 assert.equal(requests[0].query.from, '2026-09-24')
 click(owner, '今天')
 assert.equal(requests[1].query.from, '2026-09-30')

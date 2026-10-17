@@ -18,7 +18,7 @@ let now = flashAt, factory, changedDraft
 class Clock extends Date { static now() { return now } }
 const directory = new URL('../src/client/', import.meta.url)
 const source = readdirSync(directory).filter(n => n.endsWith('.js')).sort().map(n => readFileSync(new URL(n, directory), 'utf8')).join('')
-vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { priceAt, tierFor, normalizeClientPrice, parseConfig, resolveClientPrice, makeT, PriceCard, catalogPriceText }; exports.apply = apply'), {
+vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { priceAt, tierFor, normalizeClientPrice, parseConfig, resolveClientPrice, makeT, PriceCard }; exports.apply = apply'), {
   Date: Clock, navigator: { language: 'en' }, window: { __ModuleLoader__: { load: value => { factory = value.factory } }, localStorage: { getItem: () => null } },
 })
 const el = (type, props, ...children) => ({ type, props: props ?? {}, children })
@@ -44,8 +44,8 @@ for (const [currency, table, old, newOff, oldFlashPeak, oldProPeak] of [
   }
   const pro = config.prices.models['deepseek-v4-pro']
   assert.deepEqual(values(tierFor(pro, proAt - 1, peak)), oldProPeak, 'Pro 不在 9 月 10 日提前切价')
-  assert.deepEqual(values(tierFor(pro, proAt, peak)), newOff)
-  assert.deepEqual(values(tierFor(pro, proAt + 2 * 3600000, peak)), newOff.map(v => v * 2))
+  assert.deepEqual(values(tierFor(pro, proAt, peak)), oldProPeak.map(v => v / 2), 'Pro 不套用 Flash 谷价')
+  assert.deepEqual(values(tierFor(pro, proAt + 2 * 3600000, peak)), oldProPeak, 'Pro 保留独立峰价')
   assert.deepEqual(tierFor(pro, Date.parse('2026-08-10T04:00:00Z'), peak), old.models['deepseek-v4-pro'].legacyBase)
   const fallback = providerPriceEntryFor('deepseek', 'unknown-model', config.prices).entry
   near(costOf({ input: 1e6, cacheRead: 1e6, output: 1e6 }, fallback, flashAt, peak), newOff.reduce((a, b) => a + b, 0))
@@ -75,7 +75,7 @@ const oldHtml = '<table><tr><th>MODEL</th><th>deepseek-v4-flash</th></tr>' + [
   ['CACHE HIT', '0.007', '0.014'], ['CACHE MISS', '0.22', '0.44'], ['OUTPUT TOKENS', '0.66', '1.32'],
 ].map(([name, off, high]) => `<tr><td>${name}</td><td>OFF-PEAK</td><td>$${off}</td></tr><tr><td>${name}</td><td>PEAK</td><td>$${high}</td></tr>`).join('') + '</table>'
 const refreshed = parsePricingHtml(oldHtml)
-assert.equal(refreshed.models['deepseek-v4-flash'].cacheMiss, 0.15, '同步尚未更新的官方网页不能回滚新价')
+assert.equal(refreshed.models['deepseek-v4-flash'].cacheMiss, 0.22, '同步尊重解析到的官方报价，不被内置迁移改写')
 assert.equal(priceAt(refreshed.default, flashAt - 1).cacheMiss, 0.22)
 
 const draft = sanitizeConfig({ prices: { ...structuredClone(DEFAULT_PRICE_TABLE_CNY), currency: 'CNY' } })
@@ -83,13 +83,15 @@ for (const time of [proAt - 1, proAt]) {
   now = time
   const card = ui.PriceCard({ modelId: 'deepseek-v4-pro', entry: draft.prices.models['deepseek-v4-pro'], draft,
     setDraft: value => { changedDraft = value }, t: ui.makeT('zh') })
-  const inputs = nodes(card).filter(node => node.type === 'input')
-  assert.equal(inputs[1].props.value, time < proAt ? '4.5' : '1', '价格卡显示当前价，不提前显示 Pro 后续价')
-  inputs[1].props.onChange({ target: { value: '12' } })
+  const inputs = nodes(card).filter(node => node.type?.name === 'PriceInput')
+  const inputPrice = inputs.find(node => node.props.path === 'base.cacheMiss')
+  assert.ok(inputPrice, '基础输入单价可编辑')
+  assert.equal(inputPrice.props.value, 4.5, '价格卡一直显示 Pro 独立单价')
+  inputPrice.props.onCommit(12)
   const updated = applyConfigPatch(draft, { prices: changedDraft.prices })
   assert.deepEqual(updated.errors, [])
   assert.equal(updated.config.prices.models['deepseek-v4-pro'].cacheMiss, 12)
-  assert.equal(updated.config.prices.models['deepseek-v4-pro'].rateHistory?.length ?? 0, time < proAt ? 0 : 1)
+  assert.equal(updated.config.prices.models['deepseek-v4-pro'].rateHistory?.length ?? 0, 0)
 }
 
 const root = mkdtempSync(join(tmpdir(), 'cm-deepseek-september-'))
@@ -119,7 +121,7 @@ try {
   await runStartupImports(ledger, sessions)
   const day = ledger.days[localDayKey(flashAt)]
   const completed = day.sessions.find(s => s.id === 'complete')
-  near(completed.cost, (0.00661 + 0.002602) / cfg.exchangeRate)
+  near(completed.cost, previous[localDayKey(flashAt)].sessions.find(s => s.id === 'complete').cost)
   near(day.sessions.find(s => s.id === 'partial').cost, previous[localDayKey(flashAt)].sessions.find(s => s.id === 'partial').cost)
   assert.deepEqual(ledger.days[localDayKey(flashAt - 86400000)], previous[localDayKey(flashAt - 86400000)], '生效日前账本不动')
   const once = JSON.stringify(ledger.days)
@@ -138,7 +140,8 @@ try {
   const state = await service.getState()
   stateSchema.parse(state)
   assert.equal(state.config.prices.models['deepseek-v4-flash'].cacheMiss, 1)
-  assert.equal(state.priceCatalog.deepseek['DeepSeek v4']['deepseek-v4-flash'].cacheMiss, 1)
+  // 目录快照不再随 state 下发;目录自身的币种口径直接由 buildPriceCatalog 断言。
+  assert.equal(buildPriceCatalog('CNY').deepseek['DeepSeek v4']['deepseek-v4-flash'].cacheMiss, 1)
   const projection = __testProjection.makeCostUsageProjection({ config: state.config })
   let projected = projection.init()
   projected = projection.apply(projected, { type: 'request/header', seq: 0, time: flashAt, data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-flash' } } } })
@@ -151,4 +154,4 @@ try {
   assert.equal(dirname(resolve(root)), resolve(tmpdir()))
   rmSync(root, { recursive: true, force: true })
 }
-console.log('[ok] DeepSeek 九月定价：双币种、精确生效边界、历史价、Pro 切换、RPC/前后端、旧表同步、升级回放与目录币种')
+console.log('[ok] DeepSeek 九月定价：双币种、精确生效边界、历史价、Pro 独立价、RPC/前后端、旧表同步、升级回放与目录币种')

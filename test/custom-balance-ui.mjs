@@ -82,6 +82,42 @@ for (const locale of ['zh', 'en']) {
 }
 verifyCreditsUI()
 
+// #290：专用入口生成可保存配置，Cookie 走凭据 RPC，固定接口不显示 HTTP 编辑项。
+for (const locale of ['zh', 'en']) {
+  slots = []
+  const config = sanitizeConfig({ locale })
+  let draft = structuredClone(config)
+  const t = ui.makeT(locale), state = { config, customBalances: [], customVarStatus: {} }
+  const props = () => ({ state, draft, setDraft: value => { draft = value }, api: {}, t })
+  let tree = render(ui.QuotasSection, props())
+  button(tree, t('tokenRhythmBalanceAdd')).props.onClick()
+  assert.equal(draft.customBalances[0].adapter, 'tokenrhythm')
+  assert.equal(draft.customBalances[0].unit, 'CNY')
+  assert.equal(draft.customBalances[0].request.method, 'GET')
+  const saved = applyConfigPatch(config, draft)
+  assert.deepEqual(saved.errors, [])
+  assert.equal(ui.parseConfig(saved.config, 'config').customBalances[0].adapter, 'tokenrhythm')
+  tree = render(ui.QuotasSection, props())
+  const entryNode = nodes(tree).find(node => node.type === ui.CustomBalanceEntryPanel)
+  slots = []
+  let card = render(ui.CustomBalanceEntryPanel, entryNode.props)
+  nodes(card).find(node => node.props.className === 'cm-collapse-h').props.onClick()
+  card = render(ui.CustomBalanceEntryPanel, entryNode.props)
+  assert.ok(textOf(card).includes(t('tokenRhythmBalanceNote')))
+  for (const key of ['customBalanceUrl', 'customBalanceHeaders', 'customBalanceExtract', 'customBalanceUnitLabel']) assert.ok(!textOf(card).includes(t(key)))
+  const fields = nodes(card).filter(node => node.props.target?.startsWith('customVar:'))
+  assert.equal(fields.length, 1)
+  assert.equal(fields[0].props.target, 'customVar:TOKENRHYTHM_COOKIE')
+  assert.equal(fields[0].props.placeholder, 'tr_session=…')
+  assert.equal(ui.formatCustomBalanceMoney(68.125, config, { unit: 'CNY' }, saved.config.customBalances[0]), '¥68.125')
+  const budgetConfig = { ...config, balance: { ...config.balance, budgetCap: 200, showProgressBar: true } }
+  const live = { status: 'ok', remaining: 68.125, unit: 'CNY', spend: null, maxBudget: null }
+  assert.equal(ui.segmentsForCustomBalance(state, budgetConfig, live, saved.config.customBalances[0]).cap, null, 'Token Rhythm 不借用其他账户预算生成进度')
+  assert.ok(!ui.customBalanceDetailText(live, budgetConfig, t, state, saved.config.customBalances[0]).includes('200'))
+  button(card, t('quotaRemove')).props.onClick()
+  assert.equal(applyConfigPatch(config, draft).config.customBalances.length, 0)
+}
+
 // #165: edit the actual POST payload without rewriting JSON numbers or strings.
 for (const locale of ['zh', 'en']) {
   slots = []

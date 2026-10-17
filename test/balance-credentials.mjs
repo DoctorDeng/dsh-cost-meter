@@ -65,7 +65,11 @@ try {
     } } : undefined,
     provide: (name, service) => { if (name === 'costMeter') api = service },
     on: () => () => {}, inject() {}, logger: { info() {}, warn() {}, error() {} },
-    effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) },
+    effect: (fn, label) => {
+      const cleanup = fn()
+      if (label === 'cost-meter: backfill timer' || label === 'cost-meter: openrouter refresh timer') cleanup?.()
+      else if (typeof cleanup === 'function') cleanups.push(cleanup)
+    },
   })
   let state = publicState(await api.getState())
   assert.equal(state.balance.status, 'error')
@@ -145,16 +149,18 @@ try {
     noCredentials = false
     await runtimeCredentials.set('DSH_DEEPSEEK_API_KEY', modelKey)
     process.env.DSH_DEEPSEEK_API_KEY = accountToken
-    assert.equal((await runtimeCredentials.resolve('DSH_DEEPSEEK_API_KEY')).value, accountToken)
-    assert.equal((await api.refreshBalance()).ok, false, 'real host reproduces the process-over-file priority')
+    const storedFirst = req('semver').satisfies(req('@deepseek-ai/dsh-credentials-local/package.json').version, '>=0.2.1-0', { includePrerelease: true })
+    const resolvedModelKey = storedFirst ? modelKey : accountToken
+    assert.equal((await runtimeCredentials.resolve('DSH_DEEPSEEK_API_KEY')).value, resolvedModelKey, 'real host owns credential-source precedence')
+    assert.equal((await api.refreshBalance()).ok, storedFirst, 'stored-key precedence in 0.2.1; legacy environment shadowing remains covered')
     assert.equal((await api.setCredential('balance', dedicatedKey)).ok, true)
     state = publicState((await api.refreshBalance()).state)
     assert.equal(state.balance.totalBalance, 15.47)
     assert.equal((await api.clearCredential('balance')).ok, true)
-    assert.equal((await runtimeCredentials.resolve('DSH_DEEPSEEK_API_KEY')).value, accountToken)
+    assert.equal((await runtimeCredentials.resolve('DSH_DEEPSEEK_API_KEY')).value, resolvedModelKey)
     delete process.env.DSH_DEEPSEEK_API_KEY
     assert.equal((await runtimeCredentials.resolve('DSH_DEEPSEEK_API_KEY')).value, modelKey, 'original stored model key is untouched')
-    console.log('[ok] #201: real host credentials-local precedence, isolated file writes and dedicated-key balance query')
+    console.log('[ok] #201: real host credentials-local precedence, isolated file writes and dedicated-key balance query; storedFirst=' + storedFirst)
   }
 
   for (const cleanup of cleanups.splice(0).reverse()) cleanup()

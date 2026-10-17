@@ -10,6 +10,8 @@ import { createRequire } from 'node:module'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { build } from 'esbuild'
+import { getContextCosts } from '../lib/context-costs.js'
+import { sanitizeConfig } from '../lib/store.js'
 
 const uiModules = resolve(process.env.DSH_TEST_UI_MODULES ?? '.tmp-context-ui/node_modules')
 const hostModules = resolve(process.env.DSH_TEST_NODE_MODULES ?? '.tmp-context-host/node_modules')
@@ -33,6 +35,18 @@ assert.ok(projection, 'the exact published host header projection must be extrac
 const statisticsPath = resolve(process.env.CM_TEST_STATISTICS_BUNDLE ?? 'lib/client.statistics.js')
 const output = resolve(process.env.CM_TEST_SCREENSHOTS ?? '.tmp-context-regression-browser')
 mkdirSync(output, { recursive: true })
+// #293: backend output under the same raw-versus-compressed disparity as the
+// report; the published peer still derives its own headline independently.
+const compressedParts = { system: 29500, tools: 623, user: 518, inject: 3300, skill: 530, assistant: 243400, tool: 66209 }
+const compressedProjections = { contextTimeline: { current: { ...compressedParts, total: 344080 } },
+  contextBreakdown: { systemTokens: 29500, toolsTokens: 623, messageTokens: 313957 } }
+const compressedSession = { snapshotEvents: () => [], requestHeader: () => ({ config: { provider: 'fixture', model: 'example-model' } }) }
+const compressedConfig = sanitizeConfig({ peakEnabled: false, prices: { providers: { fixture: { currency: 'USD', models: { 'example-model': { cacheMiss: .15, cacheHit: .015, output: .3 } } } } } })
+const compressedCases = Object.fromEntries([66400, 66000].map(tokens => [tokens, getContextCosts({ config: compressedConfig }, { get: key => ({
+  sessions: { get: () => compressedSession },
+  tokenMeter: { measure: () => ({ totalTokens: 344080, surfaceTokens: 344080, nodes: [], baseline: { kind: 'estimated' } }) },
+  sessionProjections: { snapshot: () => ({ values: { ...compressedProjections, contextPressure: { projectedTokens: tokens } } }) },
+})[key] }, { sessionId: 'fixture' })]))
 
 const source = `
 import React from ${JSON.stringify(uiReq.resolve('react'))};
@@ -117,9 +131,11 @@ const projections={
   contextBreakdown:{systemTokens:1200,toolsTokens:1800,messageTokens:9000},
   contextPressure:{projectedTokens:12000,pressureTokens:12000,contextWindow:128000}
 };
+let compressedTokens=null;
+const compressedCases=${JSON.stringify(compressedCases)};
 const api={
   getContextIntegration:async()=>({version:${JSON.stringify(peerVersion)},compatible:true,reason:'ready'}),
-  getContextCosts:async({sessionId})=>{window.reads.push(sessionId);return{status:'ready',sessionId,
+  getContextCosts:async({sessionId})=>{window.reads.push(sessionId);if(compressedTokens!==null)return{...compressedCases[compressedTokens],sessionId};return{status:'ready',sessionId,
     generatedAt:1800000000000,revision:2,provider:'fixture',model:'example-model',basis:'api',
     priced:true,source:'usage',linked:true,contextTokens:12000,
     components:Object.entries(amounts).map(([key,tokens])=>({key,tokens})),
@@ -172,6 +188,9 @@ function App(){
 }
 createRoot(document.getElementById('app')).render(h(App));
 window.fixture={
+  setPressure:tokens=>{compressedTokens=tokens;Object.assign(projections.contextTimeline.current,${JSON.stringify(compressedParts)},{total:344080});
+    projections.contextBreakdown=${JSON.stringify(compressedProjections.contextBreakdown)};
+    projections.contextPressure={projectedTokens:tokens,pressureTokens:65000,contextWindow:128000};controls.setCardGeneration(value=>value+1)},
   setView:id=>controls.setViewId(id),replaceCard:()=>controls.setCardGeneration(value=>value+1),
   setSession:id=>controls.setSessionId(id),showModal:open=>controls.setModal(open),
   refresh:()=>{manager.refresh();manager.refresh()},dispose:()=>manager.dispose(),
@@ -331,6 +350,20 @@ try {
   await assertHeader('actual published modal visible')
   await page.evaluate(() => window.fixture.showModal(false))
   await page.waitForFunction(() => !document.querySelector('[data-modal-fixture] [data-lc-current]'))
+  await page.evaluate(() => window.fixture.setPressure(66400))
+  const firstCard = page.locator('[data-main-fixture]').first().locator('[data-lc-current]')
+  await firstCard.locator('.cm-plan').scrollIntoViewIfNeeded()
+  await page.waitForFunction(() => document.querySelector('[data-main-fixture] .cm-plan-amount')?.textContent.includes('66,400'))
+  assert.equal(await firstCard.locator('.lc-overview-num>b').innerText(), '66.4k', 'published peer headline follows compressed provider usage')
+  assert.match(await firstCard.locator('.cm-plan').innerText(), /0\.00996/)
+  assert.match(await firstCard.locator('.cm-plan').innerText(), /not the session total/)
+  assert.match(await firstCard.locator('.cm-plan').innerText(), /not measured post-compression usage/)
+  // Only pressure changes on this still-mounted first card. Its composition
+  // and tokenUsage are unchanged, so this also covers the new refresh signal.
+  await page.evaluate(() => window.fixture.setPressure(66000))
+  await page.waitForFunction(() => document.querySelector('[data-main-fixture] .cm-plan-amount')?.textContent.includes('66,000'))
+  assert.equal(await firstCard.locator('.lc-overview-num>b').innerText(), '66.0k')
+  checks.push('compressed-context headline, cost calibration and pressure-only refresh')
   await page.locator('[data-main-fixture]').first().locator(':scope > [data-conversation-tabs]').screenshot({ path: join(output, 'fixed-header.png') })
   await page.locator('[data-main-fixture]').first().locator(':scope > [data-slot="conversation.view"] [data-lc-current]').screenshot({ path: join(output, 'integrated-current-card.png') })
   await page.screenshot({ path: join(output, 'two-main-sessions.png'), fullPage: true })

@@ -4,7 +4,7 @@ import vm from 'node:vm'
 import { createRequire } from 'node:module'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { getContextCosts, getContextIntegration, contextParts } from '../lib/context-costs.js'
+import { getContextCosts, getContextIntegration, contextParts, contextTokenBasis } from '../lib/context-costs.js'
 import { sanitizeConfig, applyConfigPatch } from '../lib/store.js'
 import { contextCostsSchema } from '../lib/typert.host.js'
 import { costOf } from '../lib/pricing.js'
@@ -39,6 +39,35 @@ near(data.lastCall.cost, .0023)
 near(data.lastCall.cost, costOf({ input: 100, cacheRead: 300, cacheWrite: 100, output: 200, reasoning: 50 }, { ...price, longContext: long }))
 near(data.lastCall.rows.reduce((sum, row) => sum + row.cost, 0), data.lastCall.cost)
 assert.equal(data.lastCall.longContext, false, 'the latest actual request uses its own input length, not current context length')
+// #293: a proxy compresses the prompt below measure()'s local estimate floor.
+// The peer headline and composer follow contextPressure, not that floor.
+const compressedMeasurement = { ...measurement, totalTokens: 344080, surfaceTokens: 344080, baseline: { kind: 'estimated' } }
+const compressedConfig = structuredClone(config)
+compressedConfig.prices.providers.test.models.m = { cacheMiss: .15, cacheHit: .015, output: .3,
+  longContext: { aboveInputTokens: 100000, cacheMiss: .3, cacheHit: .03, output: .6 } }
+let compressedPressure = { projectedTokens: 66400, pressureTokens: 65000 }
+const compressedCtx = { get: key => ({ ...services,
+  tokenMeter: { measure: () => compressedMeasurement },
+  sessionProjections: { snapshot: (requestedSession, keys) => {
+    assert.equal(requestedSession, session); assert.ok(keys.includes('contextPressure'))
+    return { values: { ...projections, contextPressure: compressedPressure } }
+  } },
+})[key] }
+const compressed = contextCostsSchema.parse(getContextCosts({ config: compressedConfig }, compressedCtx, { sessionId: 'one' }, at))
+assert.equal(compressed.contextTokens, 66400); assert.equal(compressed.source, 'usage')
+near(compressed.components.reduce((sum, row) => sum + row.tokens, 0), 66400)
+near(ui.contextCostBreakdown(compressed).cost, .00996)
+assert.equal(ui.contextCostBreakdown(compressed).long, false, 'a raw estimate must not trigger the long-context rate after compression')
+assert.deepEqual(compressed.lastCall, contextCostsSchema.parse(getContextCosts({ config: compressedConfig }, ctx, { sessionId: 'one' }, at)).lastCall, 'context calibration never changes actual billed usage')
+compressedPressure = { projectedTokens: 0, pressureTokens: 65000 }
+assert.equal(getContextCosts({ config }, compressedCtx, { sessionId: 'one' }).contextTokens, 0, 'zero is a valid calibrated total')
+for (const invalid of [-1, NaN, Infinity, '66400']) {
+  assert.deepEqual(contextTokenBasis(measurement, { contextPressure: { projectedTokens: invalid, pressureTokens: 600 } }), { tokens: 600, source: 'usage' })
+}
+assert.equal(contextTokenBasis(measurement, { contextTimeline: { current: { total: 900 }, last: { prompt: 300, total: 1000 } } }).tokens, 200)
+assert.equal(contextTokenBasis(measurement, { contextTimeline: { current: { total: 1100 }, requests: [{ prompt: 300, total: 1000 }] } }).tokens, 400)
+assert.equal(contextTokenBasis(measurement, { contextTimeline: { current: { total: 0 }, last: { prompt: 300, total: 1000 } } }).tokens, 0)
+assert.equal(contextTokenBasis(measurement, { contextPressure: { projectedTokens: NaN }, contextTimeline: { current: { total: Infinity }, last: { prompt: 300, total: 1000 } } }).tokens, 2000)
 const cny = structuredClone(config)
 cny.prices.currency = 'CNY'; cny.prices.providers.test.models.m.cny = { ...price, longContext: long }
 const inCny = getContextCosts({ config: cny }, ctx, { sessionId: 'one' })
@@ -107,6 +136,17 @@ if (process.argv.includes('--host')) {
     assert.ok(actual.components.find(row => row.key === 'system').tokens > 0)
     assert.ok(actual.components.find(row => row.key === 'user').tokens > 0)
     assert.equal(live.seq, seq, 'reading the real host cannot append a request or session event')
+    live.append('user/message', { role: 'user', content: [{ type: 'text', text: 'Pre-compression history. '.repeat(1000) }] }, { surfaceOp: 'append' })
+    live.append('step/start', { turn: 1, step: 1 })
+    live.append('assistant/message', { turn: 1, step: 1, stream: [], message: { role: 'assistant', content: [{ type: 'text', text: 'Compressed reply.' }] }, usage: { inputTokens: 60, cacheReadTokens: 0, outputTokens: 5 } }, { surfaceOp: 'append' })
+    live.append('step/end', { turn: 1, step: 1 })
+    const pressure = real.sessionProjections.snapshot(live, ['contextPressure']).values.contextPressure
+    const floor = real.tokenMeter.measure(live).totalTokens, beforeRead = live.seq
+    assert.ok(floor > pressure.projectedTokens * 10, 'real host reproduces the estimate floor versus compressed provider sample')
+    const calibrated = contextCostsSchema.parse(getContextCosts({ config }, real, { sessionId: live.id }))
+    assert.equal(calibrated.contextTokens, pressure.projectedTokens)
+    near(calibrated.components.reduce((n, row) => n + row.tokens, 0), pressure.projectedTokens)
+    assert.equal(live.seq, beforeRead, 'calibration is read-only')
     console.log('[ok] real DSH Session + TokenMeter + projection registry: current composition and no session mutation')
   } finally { await real.fiber.dispose() }
 }

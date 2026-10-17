@@ -1,6 +1,6 @@
 # Model & Plan Adaptation Guide
 
-Updated: 2026-10-03
+Updated: 2026-10-15
 
 Current provider-scoped catalog, exact coverage, routing compatibility and limitations: [October 2026 pricing guide](provider-pricing-2026-10.md).
 
@@ -54,8 +54,8 @@ The built-in read-only catalog is grouped by **vendor → model family**, contai
 |---|---|
 | DeepSeek | V4 Flash / V4 Pro (peak/off-peak tiers + historical base price), V4 Flash Vision-Exp (experimental multimodal, priced at Flash parity) |
 | OpenAI | GPT-6 Astra/Sol/Luna, GPT-6.1 Sol, GPT-5.6 Sol/Terra/Luna, GPT-5.5 (+Pro), 5.4 family, 5.3 Codex (+Spark), 5.2, 5.1 family, GPT-5, 4.1 |
-| Anthropic | Fable 5.1/5, Opus 5.5/5/4.8/4.7/4.6, Sonnet 5.5/5/4.6, Haiku 4.5 |
-| Google | Gemini 3.8/3.7/3.6/3.5 Flash, 3.5 Flash Lite, 3.1 Pro, 3 Flash, 2.5 family |
+| Anthropic | Fable 5.1/5, Opus 5.5/5/4.8/4.7/4.6, Sonnet 5.5/5/4.6, Haiku 5.5/4.5 |
+| Google | Gemini 4 Argon / 3.8/3.7/3.6/3.5 Flash, 3.5 Flash Lite, 3.1 Pro, 3 Flash, 2.5 family |
 | xAI | Grok 4.6/4.5/4.3, Grok Build |
 | Z.ai / Zhipu | GLM-5.3/Flash, 5.2/5.1, 4.x |
 | Alibaba Qwen | Qwen3.8 Max, 3.7, 3.6, 3.5 Plus |
@@ -81,7 +81,7 @@ Price sources: cross-checked against each direct vendor's official API prices an
 
 ## 2. Coding Plan quota adaptation
 
-The "Coding Plan quotas" panel in Settings supports **9 vendors**, each with its own enable switch / key / manual refresh / progress bars and reset times, plus a per-vendor **display position** (sidebar card / Settings page / both / off, default Settings page; v1.5.26); official domains are used by default; MiniMax supports a [custom trusted HTTPS origin](minimax-quota-endpoint.md#english). The discovery chain is: panel key → DSH credential store → environment variables → CLI login fallback.
+The "Coding Plan quotas" panel in Settings supports **12 vendors**, each with its own enable switch / key / manual refresh / progress bars and reset times, plus a per-vendor **display position** (sidebar card / Settings page / both / off, default Settings page; v1.5.26); official domains are used by default; MiniMax supports a [custom trusted HTTPS origin](minimax-quota-endpoint.md#english). The discovery chain is: panel key → DSH credential store → environment variables → CLI login fallback.
 
 | Vendor | Endpoint | Shown as | Verified status |
 |---|---|---|---|
@@ -99,12 +99,18 @@ The "Coding Plan quotas" panel in Settings supports **9 vendors**, each with its
 
 Without credentials/subscription the panel shows a **neutral soft-failure hint** and never breaks other features. The panel is collapsed by default; the open/closed state is remembered via localStorage.
 
+### New subscription attribution (2026-10-15)
+
+The per-model billing selector now offers 18 families, separately from quota adapters. Added: Codex / ChatGPT, Volcengine Agent Plan, Tencent Coding Plan, Tencent Token Plan, and Baidu Qianfan Coding Plan. Explicit vendor and plan markers are required for inference; manual assignment or API overrides win. Generic OpenAI, Tencent and Baidu API providers are not subscriptions merely because they use the same models.
+
+Go Plus shares Go's reference prices and attribution. The opencode-go-plus alias respects custom prices. Codex auto classification follows the existing Codex quota switch; quota remains read-only through the installed dsh-openai-codex plugin. The four new standalone plan families currently classify local tokens and equivalent cost; they do not invent remote quota percentages or reset windows.
+
+Official sources: [Codex / ChatGPT](https://learn.chatgpt.com/docs/pricing), [Volcengine Agent Plan](https://docs.volcengine.com/docs/ark/agent-plan-personal-plan-overview?lang=zh), [Tencent's independent plans](https://cloud.tencent.com/document/product/1823/130103), [Baidu Qianfan](https://qianfan.cloud.baidu.com/qianfandev/topic/687754), [Go / Go Plus](https://opencode.ai/v2/docs/console/go/).
+
 ### Researched but not integrated (recorded as-is)
 
 | Vendor / product | Reason |
 |---|---|
-| Alibaba Bailian Coding Plan | no public API-key endpoint; integrated via the official Bailian CLI (`bl usage coding-plan`) as the third Qwen quota source — see docs/qwen-cli-quota.md |
-| OpenAI Codex | usage is only tied to ChatGPT sessions; no standalone API-key endpoint |
 | Gemini Code Assist | organization-level Cloud API only; no personal-key endpoint |
 | GitHub Copilot (individual) | usage endpoints require the OAuth device flow, not supported yet |
 

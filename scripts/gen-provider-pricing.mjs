@@ -7,10 +7,10 @@
  */
 import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
-const { DEFAULT_PROVIDER_PRICE_TABLE } = await import('file://' + join(repoRoot, 'lib', 'pricing.js'))
+const { DEFAULT_PROVIDER_PRICE_TABLE } = await import(pathToFileURL(join(repoRoot, 'lib', 'pricing.js')).href)
 
 const today = new Date()
 const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
