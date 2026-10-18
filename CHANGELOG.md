@@ -1,10 +1,91 @@
 # Changelog
 
-## [Unreleased]
+## [1.9.6] - 2026-10-18
 
+- 修复官方余额关闭显示后，被“已关闭”缓存阻挡，重新开启必须等待刷新间隔或重启的问题；恢复显示立即查询并返回结果，切换侧栏／设置页位置继续复用有效缓存。
+- CLIProxyAPI 来源卡片补齐“允许非回环 HTTP”和带主机、端口说明的凭据白名单；每个来源分别设置，不向其他来源继承。感谢 @snhun 在 [#321](https://github.com/Han-1413141/dsh-cost-meter/issues/321) 的问题报告与配置建议。
+- 输入框上方额度组件使用透明背景，与所在页面背景一致，保留文字与进度条颜色。
+- 使用已构建客户端、生产宿主服务及本机局域网 HTTP 服务验证关闭／退出／重新进入／恢复显示，以及来源配置、查询、权限隔离和深色背景。[更新说明](docs/update-notes-1.9.6.md)
+
+## [1.9.5] - 2026-10-18
+
+- Codex 额度启用后保留侧栏入口，查询失败显示登录与点击重试提示，不再静默隐藏；成功后恢复真实额度。
+- Codex 改为简洁的剩余额度文字卡，例如“周额度 · 剩余 83% · 10/25 08:10 重置”；会话额度条也明确标注“剩余”，不再单独显示含义不清的百分比。
+- 输入区的组件列表补齐 Codex 额度，并提供独立显示开关；关闭输入区额度条不影响侧栏，两个位置都隐藏时停止额度查询。
+- 实际显示和预览都按接口返回的窗口展示；只返回周额度的账户不补造 5h，没有账号数据时默认只预览周额度，多窗口明确标注周期。
+- 增加按需恢复检查：成功数据缓存五分钟，失败一分钟后重试，手动刷新立即查询；关闭显示后清理检查定时器。
+- 修复当前数据预览读取旧 Codex 快照的问题；示例与当前数据预览仍不查询真实账户。
+- 增加 GitHub Actions 每日监控 billion-context、dsh-codex-subscription、dsh-codex-connect 的 npm 版本、导出入口、宿主依赖与接入函数指纹。变化或检查失败时由机器人创建或更新对应 issue，相同结果不重复通知。
+- 使用已构建客户端与真实 DSH Connection RPC 验证登录后恢复、双窗口显示、手动刷新及关闭清理。[更新说明](docs/update-notes-1.9.5.md)
+
+## [1.9.4] - 2026-10-18
+
+- 模型定价改为固定顺序的紧凑列表，输入、缓存、输出单价对齐显示，编辑内容按需展开；切换自定义价格不再跨分组移动模型。
+- 切换自定义后定位到编辑区开头并聚焦首个价格输入框，自动保存和普通编辑保持滚动位置与焦点。
+- 峰谷时段新增时间进度条、倒计时和切换时间选项，保留细条与分段样式；首次介绍可关闭或保留原样，预览不发起账户查询或模型请求。
+- Codex 设置页签与兼容提示跟随宿主中的实际启用状态；仅安装但未启用、依赖未就绪、停用或卸载时隐藏，并从 Codex 页返回概览。
+- 每个模型可独立设置是否计入今日费用、月度与累计费用、预算。原始调用、金额和计价记录保留，重新勾选即可恢复统计。
+- 合并显示页中重复的开关与位置选项，移除模型花费的重复启用项、重复自动保存说明，以及入口开关下不相关的会话摘要设置；模型定价卡片缩小间距。
+- 显示页直接提供预算、今日用量、峰谷时段和模型花费四个开关，不必进入组件的二级设置；今日用量行与模型花费摘要各自控制。
+- 侧栏预算、今日用量与峰谷时段独立显示，修复只开启峰谷、套餐、自定义余额或网关额度时侧栏未挂载的问题；隐藏侧栏今日用量不再连带隐藏概览今日卡片。
+- 套餐显示开关与位置统一放入显示面板，支持选择对应账户；凭据与查询参数保留在额度页，可直接跳转、展开并定位到账户。
+
+- 修复 OpenDesign Control Key 无法从凭据编辑器保存的问题，并补齐旧配置迁移。感谢 @unifilitence 在 [#317](https://github.com/Han-1413141/dsh-cost-meter/issues/317) 的问题报告与根因定位。
+- OpenDesign 整体修正：`VELA_CONTROL_KEY` 别名与环境变量正确显示凭据状态；额度／钱包部分失败的原因在卡片及提示中显示；无生效套餐时仍保留经过校验的 preflight 余额，成员身份不一致时拒绝混用。补充保存、读取、清除、工作区／密钥切换、凭据库与查询链路验证。
+
+- 修复 Codex 数据源切换时复用旧请求、显示旧来源额度的问题；订阅查询沿用宿主 Connection RPC，支持自定义连接传输。
+
+- **Codex 额度双窗口与可配置数据源**：Codex 额度卡片、输入框横条与窄栏现在同时读取 `dsh-codex-subscription` 的 5 小时（18000s）和 7 天（604800s）窗口；新增 `codexQuotaSource`（`auto` / `subscription` / `connect`），`auto` 优先订阅插件的 `/api/codex-subscription/usage`，读取失败时回退既有的 `dsh-codex-connect` 周额度路由，显式选择则只读对应来源。保留仅提供周窗口的旧路由兼容，不影响 Plan/API 计费归类。
+
+- 本版包含本地 `1.9.4-preview.6` 的预览改动。感谢 @lewispumpkin 在 [PR #316](https://github.com/Han-1413141/dsh-cost-meter/pull/316) 的 Codex 额度接入贡献。[更新说明](docs/update-notes-1.9.4.md)
+
+## [1.9.3] - 2026-10-18
+
+- 费用概览卡片去掉说明文字底部的多余边距；计费统计先显示标题和数据，计费兼容说明及 dsh-context 设置合并为默认折叠的一行。
+- 修复 Codex 标签页加载后未渲染组件的问题；复用按需页面加载、预加载缓存和失败重试，恢复订阅兼容信息与历史归类入口。
+
+- Codex 兼容提示的 ×、Esc 与“保持现状”立即关闭，不再等待接口；请求中、接口失败或浏览器存储不可用时仍可关闭，关闭状态在本地保存。设置页显示归类失败信息并防止重复提交。
+- 热更新保留旧宿主接口清单时，补齐缺失的 Codex 历史归类与关闭接口，修复 HTTP 404；归类结果直接返回本地快照，不等待远程额度刷新。
+
+## [1.9.2] - 2026-10-18
+
+- OpenDesign 直接查询接受 Control Key 的 `/billing/preflight`，省去先失败的请求；保留钱包独立查询和身份校验，补充只使用 DSH API 时的配置说明。感谢 @playgithub、@codeforker654、@yunjuanhuakai 在 [#274](https://github.com/Han-1413141/dsh-cost-meter/issues/274) 的需求、复现与端点定位，以及 @unifilitence 在 [#313](https://github.com/Han-1413141/dsh-cost-meter/issues/313) 的独立验证。
+- 自定义余额支持跟随宿主随机端口的相对路径、端口改变后的缓存失效，以及显式允许的局域网 HTTP；新增 WorkBuddy2API 活跃账号池积分预设。感谢 @Jav1es 的 [#311](https://github.com/Han-1413141/dsh-cost-meter/issues/311)，以及 @snhun 的 [#309](https://github.com/Han-1413141/dsh-cost-meter/issues/309) / [#310](https://github.com/Han-1413141/dsh-cost-meter/issues/310)。[配置说明](docs/custom-balance-sources.md)
+- 修复皮肤背景透明度导致费用页面和浮层透出后方内容，132 个浏览器场景通过。
+- 缓存宿主语言探测结果并随事件失效，处理设置描述事件重入；同条件隔离基准中，每轮 2,000 次费用读取从 1,719.58 ms 降至 40.19 ms。感谢 @XHPAN 的 [#312](https://github.com/Han-1413141/dsh-cost-meter/issues/312)。CSS 无损压缩后主客户端为 260,671 字节。[测量方法与原始数据](docs/performance-2026-10-18.md)
+
+- 发布同步：v1.9.1 未单独发布到 npm，其记账、落盘、渲染与设置比较优化一并包含在本版；最终皮肤处理以本版说明为准。[完整更新说明](docs/update-notes-1.9.2.md)
+
+## [1.9.1] - 2026-10-18
+
+- 修复皮肤类插件把主题别名（`--dsw-alias-bg-*`）调成半透明后，插件浮层与弹窗透出后方页面内容的问题：主包统计明细弹窗、额度引导、峰谷提醒与精简底栏，统计页费用明细弹窗、上下文费用开关引导与 billion-context 提示，定价页模型/价格组合浮层，统一改为「本地不透明基底（浅色 `#fff` / 深色 `#151517`）+ 皮肤色渐变叠层」合成——保留皮肤色调，半透明皮肤下不再透出内容，默认主题与不透明皮肤视觉完全不变。新增 `test/skin-occlusion-static.mjs`（源码规则 + 构建产物标记双重断言）并在真实浏览器回归中模拟 Dream Skin 半透明场景。详见[更新说明](docs/update-notes-1.9.1.md)。
+- 记账性能：不再每笔用量入账都重建整张价格历史快照（原占单笔记账耗时 99.8%），改为在落盘合并的锁内一次性推进；1000 笔连续记账 1308ms → 93ms，短窗口（1/5/20/50 笔）约 -26% / -43% / -62%。
+- 落盘性能：`mergeLedger` 不再无条件做 3 次全账本深拷贝（本地快照自有对象时跳过、磁盘快照与基线相同时复用），普通 flush 约 40ms → 30ms；合并后的内存/磁盘账本内容与语义哈希（`30f37c10373d0a50`）和原实现完全一致。
+- 渲染与设置页性能：统计页渲染缓存键改用 `pricesRev`，不再每帧序列化整张价格表（178KB，2.55ms → 0.015ms，约 170 倍；旧宿主自动回退）；设置页自动保存的逐键差异比较增加引用短路，未变化项不再序列化。
+- 测试：新增皮肤遮挡静态断言与真实浏览器 Dream Skin 回归（`test/statistics-dialog-titlebar.mjs` 229 条断言、`test/session-costs-browser.mjs` 含不透明合成断言），全量 `node test/verify.mjs` 通过；无配置或账本格式变化，升级无需迁移。
+
+## [1.9.0] - 2026-10-18
+
+- 新增 **Codex 订阅插件兼容**（`dsh-codex-subscription`）：启动时从 Profile 的 `node_modules` 检测插件，把其产生的 Codex 订阅调用归为 Plan 订阅额度，不再计入 API 按量花费；首次检测到该插件时弹出一次性「兼容修复」提示，可关闭并永久记住选择，也可随时在「设置 → 费用 → Codex」重新操作；历史 Codex 计费仅在用户确认后重算（`apiCost` 归零、Plan 等值保留，幂等）。显式 plan/api 配置不被覆盖。详见[更新说明](docs/update-notes-1.9.0.md)。
+- 新增 **ChatGPT 订阅插件兼容**（`@eddyskywalker/dsh-chatgpt-subscription`）：识别九条订阅线路 `codex-chatgpt` / `kimi-code` / `command-code` / `workbuddy-subscription` / `claude-subscription` / `minimax-code` / `antigravity` / `glm-coding-plan` / `step-code`，映射到 Codex / Kimi / CommandCode / WorkBuddy / Anthropic / MiniMax / Antigravity / Z.AI / StepFun，并在 `plan-billing` 新增 `workbuddy`、`antigravity`、`stepfun` 三个 Plan 厂商；启动时把分类仍为「自动」的对应厂商归为 Plan，不覆盖用户显式选择。
+- 新增 **better-session SQLite 会话存储兼容**（`@morlay/better-session` / `@morlay/session-rdb`）：新增会话存储适配层，自动探测宿主会话后端；当 better-session 接管会话存储、不再产生 JSONL 日志时，历史回填、旧账本导入、按模型历史重定价、小时桶修复、fork 种子清洗、逐会话费用/轨迹/调用详情/标题与统计缓存仍可正常工作。JSONL 路径逐字节不变；RDB 模式走宿主 `sessionPersistence`/`sessionQuery` 接口，不直接读 SQLite 文件，也不自动合并旧 JSONL 与 RDB 历史。修正 5 个一次性迁移标记在 RDB 空扫描时被误消费的问题；启动日志打印会话存储后端，会话修复 CLI 检测到 RDB 时明确提示不支持并以退出码 2 结束。详见[兼容说明](docs/better-session.md)。
+- 全部费用界面适配 **dsh-pocket 手机端**：主设置面板、侧栏卡片、额度横条、预算框、统计页、显示设置、定价页、OpenRouter 与社区面板、Codex 兼容面板在 `≤1023px` 窄屏与 `body[data-dsh-pocket-layout="mobile"]` 移动布局下单列排列、标签横向滚动、按钮/标签 36px 触控高度、对话框不超过 90vh 并避开安全区、宽表横向滚动；桌面布局不变。
+- 修复 [@playgithub 反馈的 #274](https://github.com/Han-1413141/dsh-cost-meter/issues/274#issuecomment-6215322540) OpenDesign 额度查询：按 [@codeforker654 的 401 复现报告](https://github.com/Han-1413141/dsh-cost-meter/issues/274#issuecomment-6236228870) 与 [@yunjuanhuakai 的端点实测](https://github.com/Han-1413141/dsh-cost-meter/issues/274#issuecomment-6236591566)，Control Key 以 Bearer 调用主端点返回 401/403 时，保守回退一次 `/billing/preflight`（同 Bearer + `x-vela-workspace-id`、不发送 Cookie，仅回退一次；主端点其它失败不回退），恢复窗口查询。解析器支持解包 preflight 的 `codingPlan`，`balanceUsd` 仅在钱包接口不可读时兜底显示。
+- OpenDesign 窗口与钱包读取完全独立并行：单侧失败只降级该部分（窗口失败 → 仅显示钱包余额并标记 partial；钱包失败 → 保留窗口），两者都失败才报错；错误区分鉴权失败 / 无生效订阅 / 响应无效 / 网络失败，提示不再混同。文档补充端点权限、Control Key 适用范围、`workspaceId` 必须取 `GET /api/v1/workspaces` 的 `items[].workspaceId`（误用用户 id 会 403）以及 401 排查步骤，见[OpenDesign 计费与排查](docs/opendesign-billing.md)。
+- 测试：新增 Codex / ChatGPT 订阅插件兼容、OpenDesign preflight 与窗口/钱包独立降级、会话存储适配层与 RDB 读取路径、手机端静态适配等 fixture；全量 `node test/verify.mjs` 通过。账本格式、价格规则与历史金额口径不变；除用户主动确认的历史 Codex 归类外不自动重算历史金额。
+
+## [1.8.36] - 2026-10-17
+
+- 修复 [@uahoi 报告并定位的 #302](https://github.com/Han-1413141/dsh-cost-meter/issues/302)：赠送余额「部分」减少（到期/回收）且充值余额未变、本地官方渠道费用远低于该减量时，不再把整块失效金额误报为消费对账偏差；改为重置对账基准并给出一次性「更可能是赠送余额到期/回收」的说明。#89 的赠送余额归零重置行为保留，本地费用能解释减量 1/4 以上时仍按真实 drift 提示。
+- 修复 [@ZIye1208 报告并定位的 #300](https://github.com/Han-1413141/dsh-cost-meter/issues/300)：从 1.8.26 升级到 1.8.35 后，升级前产生的老会话费用显示 ¥0 而 Token 正常。加载时为旧账本回填的冻结汇率金额只在内存中，首次三方合并按磁盘副本把它们当成陈旧数据丢弃；现在合并基线按磁盘实际字段对齐，未落盘的冻结金额作为本地值保留并继续累加，跨进程合并与重复落盘均不丢失、不重复。
+- 客户端在冻结金额缺失或为 0 而 USD 金额非 0 时回退到 USD 原值 × 当前汇率（含含 Plan 总额、会话徽章与分渠道明细）；会话与统计聚合不再把缺失的冻结字段补成有限的 0。USD 计费数据未受影响，不自动重算历史金额。
 - 修复 [@XHPAN 报告并定位的 #297](https://github.com/Han-1413141/dsh-cost-meter/issues/297)：历史价表无损差分保存，每 24 层保留完整快照；旧账本自动转换前原样备份，所有时间点、历史金额与重算记录保留。另提供离线转换命令。
 - 账本合并共享不可变历史价表，跨进程用量更新复用已验证版本；自己的落盘不再触发下一轮重复读盘与深拷贝。普通写入遇锁保留待提交记录，交由定时器重试，不同步等待。详见[存储与迁移说明](docs/pricing-history-storage.md)。
 - 修复 [@playgithub 反馈的 #274](https://github.com/Han-1413141/dsh-cost-meter/issues/274#issuecomment-6215322540)：后台旧查询不能再覆盖刚保存的 OpenDesign 开关、工作区及其他费用配置；保存期间暂停重复读取，保存失败后恢复轮询。
+- 最低兼容要求从 DSH 0.1.x 提升到 **0.2.0**，适配目标为 npm `next` 标签的 `0.2.1-rc.2`：`package.json` 新增 `engines.dsh` 准入闸门（0.2.1 起的宿主按它判定，`0.2.0-rc.x` 仍按收紧后的 peer 判定），`dsh.compatibility.dsh` / `dshhub.compatibility.dsh` / `dsh.compatibility.dshReleases` 同步收紧并只保留 0.2.x 逐版本记录，两个宿主 peer 去掉全部 0.1.x 备选（旧范围里的 `^0.1.5-0` 会放行 `0.1.5-alpha.1`；该组合历史上通过安装与启动检查，本轮起不再支持），开发回归依赖升到 `0.2.1-rc.1` 并同步锁文件与供应链排除表。**DSH 0.1.x 不再支持。** 字段取值、范围写法、peer 第二段的保留理由与两套 semver 语义的差异见[兼容性说明](docs/dsh-0.2.1-compatibility.md)。
+- 文档口径统一：双语 README 与[宿主兼容验证](docs/host-compatibility.md)改为「最低 DSH 0.2.0、目标 0.2.1-rc.2、0.1.x 不再支持」，并补上 0.2.1-rc.1 / 0.2.1-rc.2 的实测记录；alpha.5 专题改写为 [最低 0.2.0 / 目标 0.2.1-rc.2 兼容性说明](docs/dsh-0.2.1-compatibility.md)，`package.json` 的 `files` 清单同步。
+- 补充 DSH `0.2.1-rc.2`（当前 npm `next`）真机覆盖：next-host 夹具升到 rc.2，`dsh.compatibility.dshReleases` 增加 `0.2.1-rc.2: compatible`；按真实 rc.2 宿主复核准入判定、依赖闭包与运行时导入面，并与 rc.1 逐项对比。同时修正兼容性说明中关于旧版宿主下限的表述、`0.1.5-alpha.1` 的历史状态描述，以及 1.8.35 更新说明的验证链接。
+- 文档：说明 DSH 0.2.1-rc.x 宿主内置 pnpm 11.28.5 的 24 小时 `minimumReleaseAge` 策略导致的安装/卸载失败（`ERR_PNPM_RESOLUTION_POLICY_VIOLATIONS_UNHANDLED`，与 [#250](https://github.com/Han-1413141/dsh-cost-meter/issues/250) 同族日志），给出等待 24 小时、Profile 精确排除、CLI 透传 `--config.minimum-release-age=0` 等绕行方案。见[pnpm 供应链策略](docs/pnpm-supply-chain-policy.md)。
 
 ## [1.8.35] - 2026-10-16
 

@@ -3,29 +3,42 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { supportedLocale, hostLocaleOf, localeOf } from '../lib/locale.js'
+import { supportedLocale, hostLocaleOf, localeOf, invalidateHostLocale, forgetHostLocale, HOST_LOCALE_MAX_AGE_MS } from '../lib/locale.js'
 import { apply } from '../lib/index.js'
 import { stateSchema } from '../lib/typert.host.js'
 
 for (const [input, expected] of [['zh', 'zh'], ['ZH-CN', 'zh'], ['en_US', 'en'], ['en-GB', 'en'], ['fr', null], ['auto', null], [null, null], [42, null]]) assert.equal(supportedLocale(input), expected)
 assert.equal(hostLocaleOf(null), null)
 assert.equal(hostLocaleOf({ get: () => { throw Error('unsupported service') } }), null)
-let preference = 'zh', active
+let preference = 'zh', active, describeCalls = 0
 const ctx = { get: name => name === 'locale' ? active : name === 'settings' ? {
-  describe: options => { assert.deepEqual(options, { redactSecrets: true }); return [{ ns: 'other', value: { preference: 'en' } }, { ns: 'locale', value: { preference } }] },
+  describe: options => { describeCalls++; assert.deepEqual(options, { redactSecrets: true }); return [{ ns: 'other', value: { preference: 'en' } }, { ns: 'locale', value: { preference } }] },
 } : undefined }
 assert.equal(localeOf({ locale: 'auto' }, ctx), 'zh')
 assert.equal(localeOf({ locale: 'en' }, ctx), 'en')
-preference = 'en'
+preference = 'en'; invalidateHostLocale(ctx)
 assert.equal(localeOf({ locale: 'zh' }, ctx), 'zh')
 assert.equal(localeOf({ locale: 'auto' }, ctx), 'en')
 active = { getSnapshot: () => ({ active: 'zh-CN' }) }
 assert.equal(hostLocaleOf(ctx), 'zh')
 active = { getSnapshot: () => ({ active: 'fr' }) }
 assert.equal(hostLocaleOf(ctx), 'en', 'unsupported optional face falls through to saved supported preference')
-active = undefined; preference = undefined
+active = undefined; preference = undefined; invalidateHostLocale(ctx)
 assert.equal(hostLocaleOf(ctx), null)
 assert.equal(localeOf({ locale: 'auto' }, ctx), 'zh', 'unobservable browser/native preference retains the Host compatibility fallback')
+
+let recursiveReads = 0
+const reentrant = { get: name => name === 'settings' ? { describe: () => {
+  recursiveReads++
+  assert.equal(invalidateHostLocale(reentrant), false)
+  hostLocaleOf(reentrant)
+  return [{ ns: 'locale', value: { preference: 'en' } }]
+} } : undefined }
+assert.equal(hostLocaleOf(reentrant), 'en')
+assert.equal(recursiveReads, 1)
+for (let i = 0; i < 1000; i++) assert.equal(hostLocaleOf(reentrant), 'en')
+assert.equal(recursiveReads, 1)
+forgetHostLocale(reentrant); assert.equal(hostLocaleOf(reentrant), 'en'); assert.equal(recursiveReads, 2)
 
 const work = mkdtempSync(join(tmpdir(), 'cm-host-locale-'))
 const names = ['DSH_HOME', 'DEEPSEEK_API_KEY', 'DSH_DEEPSEEK_API_KEY', 'DEEPSEEK_BALANCE_API_KEY', 'OPENCODE_GO_API_KEY', 'OPENCODE_API_KEY', 'GO_API_KEY']
@@ -53,6 +66,9 @@ try {
   assert.match(state.goQuota.message, /未找到/)
   stateSchema.parse(JSON.parse(JSON.stringify(state)))
   assert.match((await service.refreshBalance()).message, /关闭/)
+  const beforeReads = describeCalls
+  for (let i = 0; i < 200; i++) await service.getSessionCost('no-session')
+  assert.equal(describeCalls, beforeReads, 'unchanged service calls reuse the parsed fallback language')
   // No explicit refresh: a language event must invalidate the soft cached missing-key message.
   preference = 'en'; emit('settings/document-updated')
   state = await service.getState()
@@ -67,14 +83,19 @@ try {
   await assert.rejects(service.updateConfig({ locale: 'en', decimals: -1 }), /rejected/i)
   await assert.rejects(service.updateConfig({ locale: 'zh', decimals: -1 }), /配置/)
   await service.updateConfig({ locale: 'auto' })
-  // Hosts lacking events still recompute language at the next RPC; no new side-channel/persistence.
+  // Hosts lacking events refresh the fallback on the next RPC after the bounded cache age.
+  const realNow = Date.now
+  let clockOffset = HOST_LOCALE_MAX_AGE_MS + 1
+  Date.now = () => realNow() + clockOffset
   preference = 'zh'
+  try {
   state = await service.getState()
   assert.match(state.goQuota.message, /未找到/)
-  preference = undefined
+  preference = undefined; clockOffset += HOST_LOCALE_MAX_AGE_MS + 1
   state = await service.getState()
   assert.equal(Object.hasOwn(state.meta, 'locale'), false, 'missing preference is omitted, not fabricated')
   stateSchema.parse(JSON.parse(JSON.stringify(state)))
+  } finally { Date.now = realNow }
   for (const dispose of effects.splice(0).reverse()) dispose()
   assert.equal(JSON.parse(readFileSync(file)).config.locale, 'auto', 'resolved locale never replaces persisted auto')
   console.log('[ok] #226 Host locale preferences, live cached errors, explicit overrides, optional codec metadata and cleanup')

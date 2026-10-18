@@ -70,7 +70,7 @@ const packedMessages = Object.entries(messages).map(([locale, dict]) => [locale,
 // restore them before exposing dictionaries. All translations round-trip below.
 const phraseCounts = new Map()
 for (const value of Object.values(messages).flatMap(Object.values)) {
-  for (const match of value.matchAll(/[A-Za-z][A-Za-z0-9'-]{6,}/g)) {
+  for (const match of value.matchAll(/[A-Za-z][A-Za-z0-9'-]{2,}/g)) {
     phraseCounts.set(match[0], (phraseCounts.get(match[0]) ?? 0) + 1)
   }
   const words = [...value.matchAll(/[A-Za-z][A-Za-z0-9'-]*(?: [A-Za-z][A-Za-z0-9'-]*)+/g)]
@@ -81,8 +81,8 @@ for (const value of Object.values(messages).flatMap(Object.values)) {
       if (phrase.length >= 8) phraseCounts.set(phrase, (phraseCounts.get(phrase) ?? 0) + 1)
     }
   }
-  for (const match of value.matchAll(/[\u3400-\u9fff]{3,}/g)) {
-    for (let i = 0; i < match[0].length; i++) for (let n = 3; n <= 16 && i + n <= match[0].length; n++) {
+  for (const match of value.matchAll(/[\u3400-\u9fff]{2,}/g)) {
+    for (let i = 0; i < match[0].length; i++) for (let n = 2; n <= 16 && i + n <= match[0].length; n++) {
       const phrase = match[0].slice(i, i + n)
       phraseCounts.set(phrase, (phraseCounts.get(phrase) ?? 0) + 1)
     }
@@ -127,12 +127,30 @@ if (cssResult.warnings.length) throw new Error('client CSS contains build warnin
 // Store repeated native-theme and component prefixes once; restore before injection.
 // This is lossless text packing: the actual stylesheet and cascade do not change.
 const compactCss = cssResult.code.trim()
-const cssPhrases = ['color:var(--dsw-alias-', 'var(--dsw-alias-', '.cm-', 'background:', 'align-items:', 'border-radius:', 'font-size:',
-  'display:', 'padding:', 'justify-content:', 'margin:', 'gap:', 'font-weight:', 'line-height:', 'border:', 'min-width:', 'max-width:']
-const cssTokenBase = 0x0180, cssTokenRange = `[${String.fromCharCode(cssTokenBase)}-${String.fromCharCode(cssTokenBase + cssPhrases.length - 1)}]`
+// Select repeated declarations, selectors and theme tokens by their actual UTF-8 savings.
+// Decode once at load time; the stylesheet is byte-for-byte identical to esbuild's output.
+const cssCounts = new Map()
+for (const pattern of [/[a-z-]+:[^;{}]+;?/g, /\.cm-[a-z-]+/g, /var\(--[a-z0-9-]+(?:,[^()]*)?\)/g]) {
+  for (const [phrase] of compactCss.matchAll(pattern)) {
+    if (phrase.length > 7 && !phrase.includes('~')) cssCounts.set(phrase, (cssCounts.get(phrase) ?? 0) + 1)
+  }
+}
+for (const phrase of ['var(--dsw-alias-', '.cm-', 'background:', 'align-items:', 'border-radius:', 'font-size:', 'display:', 'padding:', 'justify-content:', 'margin:', 'gap:', 'font-weight:', 'line-height:', 'border:', 'min-width:', 'max-width:']) {
+  cssCounts.set(phrase, compactCss.split(phrase).length - 1)
+}
+const cssCandidates = [...cssCounts].filter(([, count]) => count >= 2).sort((a, b) =>
+  (Buffer.byteLength(b[0]) - 2) * (b[1] - 1) - (Buffer.byteLength(a[0]) - 2) * (a[1] - 1) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+const cssPhrases = [], cssTokenBase = 0x0180
+const cssTokenRange = `[${String.fromCharCode(cssTokenBase)}-${String.fromCharCode(cssTokenBase + 127)}]`
 assert.ok(!new RegExp(cssTokenRange).test(compactCss), 'CSS packing markers must be unused')
 let packedCss = compactCss
-for (const [i, phrase] of cssPhrases.entries()) packedCss = packedCss.replaceAll(phrase, String.fromCharCode(cssTokenBase + i))
+for (const [phrase] of cssCandidates) {
+  const count = packedCss.split(phrase).length - 1, bytes = Buffer.byteLength(phrase)
+  if (count * (bytes - 2) - bytes - 1 < 12) continue
+  packedCss = packedCss.replaceAll(phrase, String.fromCharCode(cssTokenBase + cssPhrases.length))
+  cssPhrases.push(phrase)
+  if (cssPhrases.length === 128) break
+}
 assert.equal(packedCss.replace(new RegExp(cssTokenRange, 'g'), token => cssPhrases[token.charCodeAt(0) - cssTokenBase]), compactCss)
 src = src.replace(cssMatch[0], () => `const cssPhrases=${javascriptLiteral(cssPhrases.join('~'))}.split("~");const css=${javascriptLiteral(packedCss)}.replace(/${cssTokenRange}/g,token=>cssPhrases[token.charCodeAt(0)-${cssTokenBase}])`)
 const result = await transform(src, {
@@ -159,7 +177,7 @@ console.log('✓ lib/client.js within DSH STORE per-file bound (262144)')
 
 // DSH 0.2.0-rc.2 package-local chunks use the host's require.async contract.
 // Each on-demand screen has readable source and a bounded runtime asset.
-for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'display']) {
+for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak']) {
   let source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
   if (chunk === 'display') {
     source = source.replace('/* DISPLAY_NATIVE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/native.js'), 'utf8'))
@@ -167,6 +185,11 @@ for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'displa
     for (const part of ['sidebar', 'controls', 'examples']) source = source.replace(`/* DISPLAY_${part.toUpperCase()}_SOURCE */`, readFileSync(resolve(projectRoot, `src/display/${part}.js`), 'utf8'))
     const styles = await transform(readFileSync(resolve(projectRoot, 'src/display/preview.css'), 'utf8'), { loader: 'css', minify: true })
     source = source.replace("'DISPLAY_STYLE_SOURCE'", () => javascriptLiteral(styles.code))
+  }
+  if (chunk === 'peak') {
+    source = source.replace('/* PEAK_COMPONENT_SOURCE */', readFileSync(resolve(projectRoot, 'src/peak/component.js'), 'utf8'))
+    const styles = await transform(readFileSync(resolve(projectRoot, 'src/peak/style.css'), 'utf8'), { loader: 'css', minify: true })
+    source = source.replace("'PEAK_STYLE_SOURCE'", () => javascriptLiteral(styles.code))
   }
   const result = await transform(source, { minify: true, target: 'es2022', charset: 'utf8', legalComments: 'none' })
   for (const [name, text] of [[`src/${chunk}/index.js`, source], [`lib/client.${chunk}.js`, result.code]]) {

@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # Single pin for every job that installs a DSH closure directly: the npm `latest` closure
+  # (0.2.0-rc.2). The other two hosts live in their fixtures: test/fixtures/install-host
+  # (plugin install smoke, same closure) and test/fixtures/next-host (npm `next`, currently
+  # 0.2.1-rc.2; the next-host job exercises it end to end).
+  DSH_PIN: 0.2.0-rc.2
+
 jobs:
   billion-context-compatibility:
     runs-on: ubuntu-latest
@@ -41,7 +48,7 @@ jobs:
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
-          npm install --prefix .tmp-context-host --no-audit --no-fund @deepseek-ai/dsh@0.2.0-rc.2 react@18.2.0 react-dom@18.2.0 jsdom@28.1.0 playwright-core@1.56.1
+          npm install --prefix .tmp-context-host --no-audit --no-fund @deepseek-ai/dsh@${{ env.DSH_PIN }} react@18.2.0 react-dom@18.2.0 jsdom@28.1.0 playwright-core@1.56.1
           mkdir -p .tmp-context-062 .tmp-context-066 .tmp-context-068
           npm pack dsh-context@0.62.0 --pack-destination .tmp-context-062
           npm pack dsh-context@0.66.0 --pack-destination .tmp-context-066
@@ -68,6 +75,7 @@ jobs:
           node test/statistics-warmup.mjs
           node test/cost-views-browser.mjs
           node test/pricing-theme-browser.mjs
+          node test/skin-opacity-browser.mjs
           node test/custom-model-prices.mjs
           node test/price-multiplier.mjs
           node test/billion-context-compatibility-browser.mjs
@@ -75,20 +83,26 @@ jobs:
           node test/model-stats-browser.mjs
           node test/factory-quota-browser.mjs
           node test/display-settings-browser.mjs
+          node test/balance-gateway-browser.mjs
+          node test/peak-progress-browser.mjs
+          node test/peak-style-picker-browser.mjs
           git fetch --depth=1 origin tag v1.8.29
           node test/idle-performance-browser.mjs
       - name: Save context regression browser evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: context-costs-browser-evidence
           path: |
             .tmp-context-regression-browser/*.png
             .tmp-display-review/*
+            .tmp-balance-gateway-browser/*
             .tmp-idle-performance/result.json
             .tmp-context-regression-browser/report.json
             .tmp-pricing-theme-browser/*.png
             .tmp-pricing-theme-browser/report.json
+            .tmp-skin-opacity-after/*.png
+            .tmp-skin-opacity-after/result.json
             .tmp-billion-notice-browser/*.png
             .tmp-billion-notice-browser/report.json
             .tmp-cache-write-price-browser/*.png
@@ -97,16 +111,13 @@ jobs:
             .tmp-model-stats-browser/report.json
             .tmp-factory-quota-browser/*.png
             .tmp-factory-quota-browser/report.json
+            .tmp-peak-progress-preview/
           if-no-files-found: ignore
           retention-days: 7
           include-hidden-files: true
 
   sidebar-search-recovery:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dsh: ['0.1.7-rc.2', '0.2.0-rc.2']
     steps:
       - uses: actions/checkout@v7
         with:
@@ -114,13 +125,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Install reported and current workspace UI runtimes
-        env:
-          DSH_VERSION: ${{ matrix.dsh }}
+      - name: Install the current workspace UI runtime
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
-          npm install --prefix .tmp-sidebar-host --no-audit --no-fund --ignore-scripts "@deepseek-ai/dsh-client-ui-workspace@$DSH_VERSION" react@18.2.0 react-dom@18.2.0 jsdom@28.1.0
+          npm install --prefix .tmp-sidebar-host --no-audit --no-fund --ignore-scripts "@deepseek-ai/dsh-client-ui-workspace@${{ env.DSH_PIN }}" react@18.2.0 react-dom@18.2.0 jsdom@28.1.0
       - name: Verify query recovery and scoped credential editor
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-sidebar-host/node_modules"
@@ -129,22 +138,16 @@ jobs:
 
   statistics-client:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dsh: ['0.1.7-rc.2', '0.2.0-rc.2']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Install reported and current browser runtimes
-        env:
-          DSH_VERSION: ${{ matrix.dsh }}
+      - name: Install the current browser runtimes
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
-          npm install --prefix .tmp-statistics-client --no-audit --no-fund --ignore-scripts "@deepseek-ai/dsh-api-gateway@$DSH_VERSION" "@deepseek-ai/dsh-typert-registry@$DSH_VERSION" "@deepseek-ai/dsh-client-ui-model-selection@$DSH_VERSION" @deepseek-ai/cordis@4.0.4 react@18.2.0 react-dom@18.2.0 jsdom@28.1.0
+          npm install --prefix .tmp-statistics-client --no-audit --no-fund --ignore-scripts "@deepseek-ai/dsh-api-gateway@${{ env.DSH_PIN }}" "@deepseek-ai/dsh-typert-registry@${{ env.DSH_PIN }}" "@deepseek-ai/dsh-client-ui-model-selection@${{ env.DSH_PIN }}" @deepseek-ai/cordis@4.0.4 react@18.2.0 react-dom@18.2.0 jsdom@28.1.0
       - name: Verify statistics mount together, and that the cost dialog keeps its content on refetch
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-statistics-client/node_modules"
@@ -179,11 +182,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
-      - name: Install the reported DSH search runtime
+      - name: Install the current DSH search runtime
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
-          npm install --prefix .tmp-native-search-host --no-audit --no-fund @deepseek-ai/dsh@0.2.0-rc.2 undici@${{ matrix.undici }}
+          npm install --prefix .tmp-native-search-host --no-audit --no-fund @deepseek-ai/dsh@${{ env.DSH_PIN }} undici@${{ matrix.undici }}
       - name: Verify real services, provider, transport and ledger
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-native-search-host/node_modules"
@@ -226,7 +229,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Install pinned DSH 0.2.1-alpha.5 host
+      - name: Install the pinned next host (test/fixtures/next-host)
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
@@ -239,7 +242,9 @@ jobs:
           node test/host-peer-compatibility.mjs
           node test/verify.mjs
           node test/market-hot-install.mjs
-      - name: Verify alpha.5 context calibration and published peer UI
+          node test/codex-compat-http.mjs
+          node test/plugin-compatibility-watch.mjs
+      - name: Verify next-host context calibration and published peer UI
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-next-host/node_modules"
           export DSH_TEST_UI_MODULES="$DSH_TEST_NODE_MODULES"
@@ -252,6 +257,7 @@ jobs:
           node test/context-costs-regression-browser.mjs
           node test/native-search-host.mjs
           node test/web-request-host.mjs
+          node test/codex-quota-browser.mjs
       - name: Install the packed plugin and start the real Web host
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-next-host/node_modules"
@@ -285,8 +291,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      # npm 0.1.6-alpha.1 predates the create() contract in source checkouts (#149).
-      # Pin actual upstream code so a package-only smoke test cannot mask this failure.
+      # The plugin floor is 0.2.0, so the npm closure is an in-range 0.2.x host (env.DSH_PIN, the
+      # same pin the rest of this workflow uses); the previous 0.1.x pin is out of range. The
+      # upstream commit stays pinned: it carries the create() contract in source checkouts that a
+      # package-only smoke test cannot mask (#149).
       - uses: actions/checkout@v7
         with:
           repository: deepseek-ai/deepseek-harness
@@ -300,7 +308,7 @@ jobs:
         run: |
           npm install -g pnpm
           pnpm install --frozen-lockfile
-          npm install --prefix .tmp-typert-host --no-audit --no-fund @deepseek-ai/dsh@0.1.6-alpha.1
+          npm install --prefix .tmp-typert-host --no-audit --no-fund @deepseek-ai/dsh@${{ env.DSH_PIN }}
       - name: Validate source host and shipped client codecs
         run: |
           export DSH_TEST_SOURCE_ROOT="$PWD/.tmp-typert-upstream"
@@ -327,9 +335,10 @@ jobs:
           node-version: 22
       - name: Install DeepSeek Harness
         shell: bash
-        # Pin the tested host graph: upstream ^0.1.5-rc.1 ranges currently select
-        # rc.3 packages requiring an unpublished sidebar-documentpreview@rc.3.
-        # Exercise the real host and install.ps1 without skipping any assertions.
+        # Pin the tested host graph to an in-range 0.2.x host: the fixture installs
+        # @deepseek-ai/dsh@0.2.0-rc.2, whose closure pins every @deepseek-ai/dsh-* package
+        # exactly, so no overrides are needed. Exercise the real host and install.ps1
+        # without skipping any assertions.
         run: |
           mkdir -p .tmp-install-host
           cp test/fixtures/install-host/package.json .tmp-install-host/package.json
@@ -379,4 +388,9 @@ jobs:
       # 的产物差异都会让 CI 变红,杜绝把过期 bundle 发布出去。
       - name: Check client bundle is in sync with src
         shell: bash
-        run: node scripts/build.mjs && git diff --exit-code lib/bootstrap.js lib/client.js lib/client.statistics.js lib/client.openrouter.js lib/client.community.js lib/client.pricing.js
+        run: |
+          node scripts/build.mjs
+          # Compare the whole directory rather than a hand-kept file list: the chunk list lives in
+          # scripts/build.mjs, so a new chunk must not be able to escape this gate.
+          git diff --exit-code -- lib
+          test -z "$(git status --porcelain --untracked-files=all -- lib)"

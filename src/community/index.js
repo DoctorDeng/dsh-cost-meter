@@ -38,6 +38,8 @@ window.__ModuleLoader__.load({
     function mount(ctx) {
       const style = document.createElement('style')
       style.textContent = '.cm-community-notice{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);font-size:12px;color:var(--dsw-alias-label-secondary)}.cm-community-notice button{margin-left:auto;flex:none;min-width:28px;min-height:28px}.cm-community-notice a,.cm-community-entry a{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary,#4d6bfe));text-decoration:none}.cm-community-notice a:hover,.cm-community-entry a:hover{text-decoration:underline}.cm-community-entry{display:flex;border-top:1px solid var(--dsw-alias-border-l1);padding-top:12px;font-size:12px}.cm-community-notice :focus-visible,.cm-community-entry a:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:3px;border-radius:4px}'
+      // dsh-pocket 手机端适配(task-10):窄屏收紧提示条内边距;桌面端规则不变。
+      style.textContent += '@media (max-width:1023px){.cm-community-notice{padding:8px 10px;gap:8px}}body[data-dsh-pocket-layout="mobile"] .cm-community-notice{flex-wrap:wrap}'
       document.head.appendChild(style)
       ctx.effect(() => () => style.remove(), 'cost-meter: community styles')
       return Community

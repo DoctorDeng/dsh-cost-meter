@@ -137,7 +137,7 @@ const displaySource = readFileSync(new URL('../src/display/index.js', import.met
 // classic script 语法错误不触发 error 事件、宿主只报「loaded without registering」,
 // 而本套件此前只做字符串断言、从不解析该文件——语法错误一路溜到线上。
 // 这里用 vm.Script 整份编译(只编译不执行,window 引用无碍),任何语法错误当场失败。
-for (const browserBundle of ['../lib/client.js', '../lib/client.statistics.js', '../lib/client.openrouter.js', '../lib/client.community.js', '../lib/client.pricing.js', '../lib/client.display.js']) {
+for (const browserBundle of ['../lib/client.js', '../lib/client.codex.js', '../lib/client.statistics.js', '../lib/client.openrouter.js', '../lib/client.community.js', '../lib/client.pricing.js', '../lib/client.display.js']) {
   const src = readFileSync(new URL(browserBundle, import.meta.url), 'utf8')
   new vm.Script(src, { filename: browserBundle })
 }
@@ -232,7 +232,7 @@ console.log('[ok] 浏览器端 bundle 语法门禁(client.js vm 编译)通过')
   assert.ok(src96.includes("live.status !== 'ok' && live.status !== 'partial' && live.status !== 'stale'"), 'issue #96:仅 ok/partial/stale(有数据)状态出卡,error/loading/off 留在设置页')
   assert.ok(src96.includes('live.accounts.length === 0') && src96.includes("if (rows.length === 0) rows.push({ name: t('gatewayQuotaEmpty')"), '无账号的来源隐藏；空额度账号保留切换入口')
   // 挂载:SidebarFooter 早退条件与节点插入都包含网关卡片(此前整条路径无 gateway 分支)。
-  assert.ok(src96.includes('!showToday && gatewayNodes.length === 0) return null'), 'issue #96:SidebarFooter 早退条件纳入网关卡片')
+  assert.ok(src96.includes('!showToday && !peakOn && gatewayNodes.length === 0) return null'), 'issue #96:SidebarFooter 早退条件纳入网关卡片与独立峰谷条')
   assert.ok(src96.includes('nodes.push(...gatewayNodes)'), 'issue #96:SidebarFooter 节点序列插入网关卡片(计划卡之后、Codex 之前)')
   assert.ok(src96.indexOf('nodes.push(...gatewayNodes)') > src96.indexOf('MiniMaxPlanBox, { state, wide, api: api }') && src96.indexOf('nodes.push(...gatewayNodes)') < src96.indexOf('el(CodexPlanBox'), 'issue #96:网关卡片排序在计划卡之后、Codex 探测卡之前')
   // 行渲染:复用 MiniMax 行(已用口径/告警阈值一致),Provider 前缀与 credits 兜底都在。
@@ -1331,8 +1331,8 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   // 概览卡片 / BalancePanel / 预算明细今日行。
   assert.ok(clientSource.includes('config.hideTodayCost === true ? null : el(Card,'), '概览今日卡片可整体隐藏')
   assert.ok(clientSource.includes("&& config.hideOfficialBalance !== true\n          ? el(BalancePanel"), '设置页官方余额面板可整体隐藏')
-  assert.ok(clientSource.includes('config.hideTodayCost === true ? null : el(\'div\', { \'data-cm-display\': \'today\', className: \'cm-bbox-line cm-num\' }'), '预算盒明细今日金额行可隐藏')
-  assert.ok(clientSource.includes("...(config.hideTodayCost === true ? [] : [config.sidebarTodayMetric === 'tokens'"), '预算 tooltip 今日金额行可隐藏')
+  const budgetBody = clientSource.slice(clientSource.indexOf('function budgetBoxBody('), clientSource.indexOf('function goBoxBody('))
+  assert.ok(!budgetBody.includes("'data-cm-display': 'today'") && !budgetBody.includes('peakNoticeEl('), '预算容器不再包裹今日用量或峰谷组件；独立显示由运行时组合回归覆盖')
   // 设置开关与读侧白名单。
   assert.ok(displaySource.includes("setField('hideOfficialBalance'"), '独立显示页含隐藏官方余额开关')
   assert.ok(displaySource.includes("setField('hideTodayCost'"), '独立显示页含隐藏今日消耗开关')
@@ -1390,7 +1390,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   const qstripBody = clientSource.slice(clientSource.indexOf('function QuotaStrip('), clientSource.indexOf('function QuotaStripGuide('))
   assert.ok(qstripBody.indexOf('const [busyKey, setBusyKey] = useState(null)') < qstripBody.indexOf('if (!state) return null'), 'Hook 先于条件返回(React 规则)')
   assert.ok(clientSource.includes("key === 'budget' ? api.reload()") && clientSource.includes("key === 'go' ? api.refreshGoQuota()") && clientSource.includes("api.refreshCodingPlan(key)"), '点击按 key 多路分发刷新')
-  assert.ok(clientSource.includes("key === 'codex' ? fetchCodexQuota(true, config.codexQuotaEnabled === true)"), 'Codex chip 点击仅在开启后重探')
+  assert.ok(clientSource.includes("key === 'codex' ? fetchCodexQuota(true, config.codexQuotaEnabled === true, config.codexQuotaSource)"), 'Codex chip 点击仅在开启后重探')
   assert.ok(clientSource.includes('clickableRefreshProps(busy, () => doRefresh(c.key))'), 'chip 复用可点击属性 helper(role/tabIndex/aria-busy/键盘)')
   assert.ok(clientSource.includes("'cm-qseg'") && clientSource.includes("'cm-qsep'"), '厂商多窗口分段渲染与竖分隔线样式类存在')
   console.log('[ok] 输入框上方额度横条(默认值/校验/清洗/双端声明/接线/首次引导/点击刷新与厂商融合)通过')
@@ -1866,8 +1866,8 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
 // 实际已正确计价的模型不再误报「未命中」,仅默认价兜底与完全未命中者列入。
 {
   const matchClientSource = readClientSource() + readFileSync(new URL('../src/pricing/index.js', import.meta.url), 'utf8')
-  assert.ok(matchClientSource.includes('resolveClientPrice(provider, modelId, matchPrices).matched !== true'), '未命中判定走 resolveClientPrice 完整解析链(与计费口径一致)')
-  assert.ok(matchClientSource.includes('if (overrides[key] !== undefined) return false'), '已手动指定的键不重复列入未命中(rows 仍展示)')
+  assert.ok(matchClientSource.includes('resolved = resolveClientPrice(') && matchClientSource.includes('const automatic = !source && resolved.matched === true'), '价格来源状态走 resolveClientPrice 完整解析链(与计费口径一致)')
+  assert.ok(matchClientSource.includes('Object.keys(byProvider), ...Object.keys(overrides)') && matchClientSource.includes("'data-model-key': key"), '自动匹配与手动价格共用稳定模型行，切换来源不会移动模型')
   assert.ok(matchClientSource.includes('matched: true') && matchClientSource.includes('matched: false'), 'resolveClientPrice 区分显式命中与默认价兜底(matched 标志)')
   assert.ok(matchClientSource.includes('待匹配与手动设置') && matchClientSource.includes('Unmatched and manually configured models'), '未命中与手动价格区提供双语标题')
   console.log('[ok] 未命中列表判定与计费口径一致断言通过')
@@ -3165,6 +3165,9 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const indexSrcRecon = readFileSync(join(import.meta.dirname, '..', 'lib', 'index.js'), 'utf8')
   assert.ok(indexSrcRecon.includes('exchangeRate: ledger.config.exchangeRate'), '对账调用传入汇率做折算')
   assert.ok(indexSrcRecon.includes('spentCurrency'), '提示按余额真实币种取符号')
+  assert.equal((indexSrcRecon.match(/reconcileGrantedRelease: '/g) ?? []).length, 2, '赠送余额到期/回收提示 zh/en 双份(issue #302)')
+  assert.ok(indexSrcRecon.includes('赠送余额到期/回收而非消费'), 'zh 提示说明差额不是消费')
+  assert.ok(indexSrcRecon.includes('granted balance expiring or being reclaimed'), 'en 提示说明差额不是消费')
   // 旧参考点无币种标记(升级前账本):重置一次基准。
   const legacyBase = { date: day, total: 10, granted: 1, topped: 9, at: t0 }
   r = reconcileBalanceDelta(legacyBase, { ...bal(9), currency: 'CNY' }, 0.95, day, t1)
@@ -3186,6 +3189,48 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     const keepBase = reconcileBalanceDelta(null, { ...bal(100, 80, 20), currency: 'CNY' }, 0, day, t0).ref
     r = reconcileBalanceDelta(keepBase, { ...bal(98.6, 78.6, 20), currency: 'CNY' }, 1.4 / 7.2, day, t1, { exchangeRate: 7.2 })
     assert.equal(r.event.kind, 'ok', 'granted 剩余时 total 差值口径不变(¥1.4≈$0.194)')
+  }
+  // 赠送余额「部分」减少(issue #302):#89 只覆盖归零;赠送桶到期/回收造成部分减量时,
+  // 充值桶不变、本地官方渠道费用远低于减量——整块差额不是消费,降级为「到期/回收」
+  // 提示并重置基准,不再报消费 drift;本地费用能解释相当比例时仍保留 drift。
+  {
+    // 复现 issue #302 的实测数值(CNY 账户):基准 00:02 → 19:53 刷新,赠送 −5.5471。
+    const ref302 = reconcileBalanceDelta(null, { ...bal(827.262, 38.4004, 788.8616), currency: 'CNY' }, 0, day, t0).ref
+    r = reconcileBalanceDelta(ref302, { ...bal(821.7149, 32.8532, 788.8617), currency: 'CNY' }, 0, day, t1, { exchangeRate: 7.2 })
+    assert.equal(r.event.kind, 'granted-release', '赠送余额部分减少不再报消费 drift(#302 实测数值)')
+    assert.notEqual(r.event.kind, 'drift', '不再把到期金额当成消费偏差')
+    assert.equal(r.ref.total, 821.7149, '重置后的基准为当前余额快照')
+    assert.equal(r.ref.granted, 32.8532, '重置后的基准记录当前赠送余额')
+    assert.equal(r.ref.ledgerCost, 0, '重置后的基准记录当前累计账本费用')
+    assert.ok(Math.abs(r.event.spent - 5.5471) < 1e-9, '事件携带原生币种减量')
+    assert.ok(Math.abs(r.event.spentUsd - 5.5471 / 7.2) < 1e-9, '事件携带折算 USD 减量')
+    assert.equal(r.event.spentCurrency, 'CNY', '事件携带余额币种供提示取符号')
+    // 基准已重置:同日下一次刷新余额持平静默,不重复提示。
+    r = reconcileBalanceDelta(r.ref, { ...bal(821.7149, 32.8532, 788.8617), currency: 'CNY' }, 0.39 / 7.2, day, t1 + 60_000, { exchangeRate: 7.2 })
+    assert.equal(r.event.kind, 'flat', '重置后同日继续对账(余额持平静默)')
+  }
+  {
+    // 本地官方渠道费用已解释减量 1/4 以上:不能排除真实漏记消费,仍报 drift。
+    const ref302b = reconcileBalanceDelta(null, { ...bal(100, 20, 80), currency: 'CNY' }, 0, day, t0).ref
+    r = reconcileBalanceDelta(ref302b, { ...bal(90, 10, 80), currency: 'CNY' }, 0.5, day, t1, { exchangeRate: 7.2 })
+    assert.equal(r.event.kind, 'drift', '本地费用能解释较多减量时保留 drift')
+    // 阈值边界(USD):本地费用占减量 24% → 降级提示;26% → 保留 drift。
+    const ref302c = reconcileBalanceDelta(null, { ...bal(100, 20, 80), currency: 'USD' }, 0, day, t0).ref
+    const snap302c = { ...bal(90, 10, 80), currency: 'USD' }
+    r = reconcileBalanceDelta(ref302c, snap302c, 2.4, day, t1)
+    assert.equal(r.event.kind, 'granted-release', '本地费用不超过减量 1/4 时降级提示')
+    r = reconcileBalanceDelta(ref302c, snap302c, 2.6, day, t1)
+    assert.equal(r.event.kind, 'drift', '本地费用超过减量 1/4 时保留 drift')
+  }
+  {
+    // 充值桶自身减少:仍按真实消费 drift 上报,不被赠送桶降级规则吞掉。
+    const ref302d = reconcileBalanceDelta(null, { ...bal(827.262, 32.8532, 794.4088), currency: 'CNY' }, 0, day, t0).ref
+    r = reconcileBalanceDelta(ref302d, { ...bal(821.7149, 32.8532, 788.8617), currency: 'CNY' }, 0, day, t1, { exchangeRate: 7.2 })
+    assert.equal(r.event.kind, 'drift', '充值余额减少仍报 drift')
+    // 赠送余额归零仍沿用 #89 的静默重置(新降级分支不改变归零行为)。
+    const ref302e = reconcileBalanceDelta(null, { ...bal(100, 20, 80), currency: 'CNY' }, 0, day, t0).ref
+    r = reconcileBalanceDelta(ref302e, { ...bal(79, 0, 79), currency: 'CNY' }, 0, day, t1, { exchangeRate: 7.2 })
+    assert.equal(r.event.kind, 'structure-reset', '赠送余额归零仍沿用 #89 静默重置')
   }
   // 配置链路:非布尔拒绝、默认开启、可关闭。
   assert.ok(applyConfigPatch(sanitizeConfig({}), { balance: { reconcile: 'yes' } }).errors.length > 0, 'reconcile 非布尔被拒绝')
@@ -3709,7 +3754,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(patched.config.legacyAutoImportedAt > 0, '配置补丁后标记保真')
   // 宿主接线:apply 的启动定时器调用 runStartupImports。
   const hostSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-  assert.ok(hostSource.includes('runStartupImports(ledger, join(resolveDshHome(), \'sessions\'))'), 'apply 启动定时器接线自动导入')
+  assert.ok(hostSource.includes('runStartupImports(ledger, join(resolveDshHome(), \'sessions\'), sessionSource)'), 'apply 启动定时器接线自动导入')
   rmSync(autoRoot, { recursive: true, force: true })
   if (prevHome === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = prevHome
@@ -3721,7 +3766,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 {
   const tabsSrc = readClientSource()
   // 标签状态:默认落在概览。
-  assert.ok(tabsSrc.includes("const [tab, setTab] = useState('overview')"), '默认标签为概览')
+  assert.ok(tabsSrc.includes("const [activeTab, setTab] = useState('overview')"), '默认标签为概览')
   // 五个标签项 + 中英双语文案(zh 区与 en 区各一份)。
   for (const key of ['tabOverview', 'tabQuotas', 'tabUsage', 'tabPricing', 'tabDisplay']) {
     const count = [...tabsSrc.matchAll(new RegExp(key + ":", 'g'))].length
@@ -3758,7 +3803,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   between('el(BalancePanel, { state, api, t, draft, setDraft })', branch.overview, branch.quotas, '官方余额面板在概览标签')
   between('el(TodaySessions, { state, t })', branch.overview, branch.quotas, '今日会话在概览标签')
   // 额度:四类来源(订阅 / Go / 网关 / 自定义余额)统一由 QuotasSection 总装,仍落在同一标签分支。
-  between("el(QuotasSection, { key: 'quotas', state, api, t, draft, setDraft })", branch.quotas, branch.usage, '统一额度区(QuotasSection)在额度标签')
+  between("el(QuotasSection, { key: 'quotas'", branch.quotas, branch.usage, '统一额度区(QuotasSection)在额度标签')
   // 用量:用量统计 + 按模型 + 历史 + 会话排行 + 历史数据操作。
   between('el(ModelStatsPanel, { state, config: draft ?? config, t, draft, setDraft })', branch.usage, branch.display, '按模型统计在用量标签')
   between('el(HistoryPanel, { state, api })', branch.usage, branch.display, '历史面板在用量标签')
@@ -3821,7 +3866,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // issue #59-2:Codex 周额度客户端探测模块。
   assert.ok(src.includes("'/plugins/dsh-openai-codex/auth/status'"), 'issue #59: dsh-codex-connect 状态路由在册')
   assert.ok(src.includes('function parseCodexStatus(data)'), 'issue #59: auth/status 解析器存在')
-  assert.ok(src.includes("data.status !== 'signed-in'") && src.includes('Number(w.windowSeconds) === CODEX_WEEK_SECONDS'), 'issue #59: 仅接受已登录的 codex 周窗口')
+  assert.ok(src.includes("data.status !== 'signed-in'") && src.includes('CODEX_WINDOWS[Number(win.windowSeconds)]'), 'issue #59: 仅接受已登录的 codex 5h/7d 窗口')
   assert.ok(src.includes('100 - Number(win.remainingPercent)'), 'issue #59: remainingPercent 折算为已用口径(与 #57 一致)')
   assert.ok(src.includes('function CodexPlanBox(props)'), 'issue #59: Codex 侧边栏卡片组件存在')
   assert.ok(src.includes('!codexOn && !budgetOn'), 'issue #59: SidebarFooter 门控纳入 codexOn')
@@ -4591,7 +4636,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 额度区统一后 Go/Plan 的窗口行共用 quotaWindowRow(方向由调用方传入),断言改指统一函数内的
   // 换算点 + Go/Plan 卡片各自传入的方向配置,覆盖语义不变。
   assert.ok(clientSrcV16.includes("BalanceBar, { segments, direction: barDirectionOf") && clientSrcV16.includes("simpleBarByDirection(pct === null") && clientSrcV16.includes("simpleBarByDirection(percent, direction)") && clientSrcV16.includes("barDirectionOf(config, 'go')") && clientSrcV16.includes("barDirectionOf(config, 'plan')"), '余额/预算/Go 条按方向换算填色与标签')
-  assert.ok(clientSrcV16.includes("barDirectionOf(state.config, 'plan')") && clientSrcV16.includes("miniMaxRow(t('goShortWeekly'), win, direction"), 'Plan/Codex/MiniMax 额度条按 plan 方向换算')
+  assert.ok(clientSrcV16.includes("barDirectionOf(state.config, 'plan')") && clientSrcV16.includes("miniMaxRow(t('codingPlanRemain5h'), five, direction") && clientSrcV16.includes("miniMaxRow(t('codingPlanRemain7d'), seven, direction"), 'Plan/MiniMax 额度条按 plan 方向换算')
+  assert.ok(clientSrcV16.includes("quotaValueText(simpleBarByDirection(win.percent, 'remaining').label, 'remaining', t)") && clientSrcV16.includes("className: 'cm-codex-window'"), 'Codex 文本卡始终明确显示剩余额度')
   assert.ok(clientSrcV16.includes("barDirectionRemaining") && clientSrcV16.includes("barDirectionUsed") && clientSrcV16.includes("barDirectionsTitle"), '条方向中英文案存在')
   assert.ok(clientSrcV16.includes("segments.rev") && clientSrcV16.includes("cm-dir-row"), '条方向 CSS 与设置 UI 存在')
   console.log('[ok] 一致性重建/路由归类/含 Plan 总额开关(v1.6.0)通过')
@@ -5791,6 +5837,75 @@ await import('./typert-codecs.mjs')
   console.log('[ok] 对账警告币种符号一致(CNY 账户 e2e drift 文案)通过')
 }
 
+// ── issue #302:赠送余额部分减少降级为「到期/回收」提示 ──
+
+// 15-3) e2e:预置 #302 实测形态(赠送 38.4004 → 32.8532、充值不变、本地官方费用 0),
+// 刷新后不再显示「偏差较大」的消费 drift 文案,而是赠送余额到期/回收说明 + 已重置基准;
+// 下一次刷新余额持平,提示清空(基准重置生效,不重复告警)。
+{
+  const prevHome302 = process.env.DSH_HOME
+  const root302 = join(tmpdir(), `cm-reconcile-granted-release-${Date.now()}`)
+  mkdirSync(join(root302, 'storages', 'cost-meter'), { recursive: true })
+  const todayKey302 = localDayKey(Date.now())
+  writeFileSync(join(root302, 'storages', 'cost-meter', 'ledger.json'), JSON.stringify({
+    version: 1,
+    config: sanitizeConfig({ balance: { reconcile: true }, exchangeRate: 7.2 }),
+    balanceRef: { date: todayKey302, total: 827.2620, granted: 38.4004, topped: 788.8616, currency: 'CNY', at: Date.now() - 3600_000, ledgerCost: 0 },
+    days: {},
+  }))
+  process.env.DSH_HOME = root302
+  const prevKey302 = process.env.DEEPSEEK_API_KEY
+  process.env.DEEPSEEK_API_KEY = 'sk-test-302'
+  try {
+    const provided302 = {}
+    const origFetch302 = globalThis.fetch
+    // 当日主要使用第三方渠道:官方余额只在赠送桶减少,充值桶不变。
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        is_available: true,
+        balance_infos: [{ currency: 'CNY', total_balance: '821.7149', granted_balance: '32.8532', topped_up_balance: '788.8617' }],
+      }),
+      text: async () => '',
+    })
+    try {
+      const { apply: apply302 } = await import('../lib/index.js')
+      apply302({
+        on: () => () => {},
+        effect: () => {},
+        inject: () => {},
+        provide: (k, v) => { provided302[k] = v },
+        logger: console,
+        get: key => (key === 'settings' ? { get: () => ({}) } : undefined),
+      })
+      const first302 = await provided302.costMeter.refreshBalance()
+      const notice302 = first302?.state?.reconcile ?? {}
+      const msg302 = notice302.message ?? ''
+      assert.ok(msg302.length > 0, '赠送余额部分减少给出一次性说明:' + JSON.stringify(notice302))
+      assert.ok(msg302.includes('赠送余额') && (msg302.includes('到期') || msg302.includes('回收')), '文案说明可能是赠送余额到期/回收:' + msg302)
+      assert.ok(msg302.includes('¥5.5471'), '文案携带官方余额减量(原生 ¥):' + msg302)
+      assert.ok(msg302.includes('已重置本次对账基准'), '文案说明已重置对账基准:' + msg302)
+      assert.ok(!msg302.includes('偏差较大'), '不再出现消费 drift 的「偏差较大」文案:' + msg302)
+      // 基准已重置:同一余额再刷新 → flat,提示清空。
+      const second302 = await provided302.costMeter.refreshBalance()
+      assert.equal(second302?.state?.reconcile?.ok, true, '重置基准后同日不再重复提示')
+      assert.equal(second302?.state?.reconcile?.message, '', '余额持平时提示清空')
+      // 基准重置会触发 2s 防抖落盘:等写入完成再删临时目录,避免写定时器对已删路径无限重试。
+      await new Promise(resolve => setTimeout(resolve, 2300))
+    } finally {
+      globalThis.fetch = origFetch302
+    }
+  } finally {
+    rmSync(root302, { recursive: true, force: true })
+    if (prevKey302 === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = prevKey302
+    if (prevHome302 === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = prevHome302
+  }
+  console.log('[ok] 赠送余额部分减少 e2e(到期/回收提示 + 基准重置,issue #302)通过')
+}
+
 // ── v1.7.3:中转链路缓存字段未上报的显式标注(issue #65 讨论) ──
 
 // 16-1) cacheUnreportedOf 判定:量级阈值(多轮长上下文恒零命中才标);真零命中不误标。
@@ -6777,9 +6892,12 @@ await import('./openrouter-catalog.mjs')
 await import('./pr145-147.mjs')
 await import('./antigravity-endpoint-fallback.mjs')
 await import('./custom-balance-ui.mjs')
+await import('./custom-balance-host.mjs')
 await import('./custom-balance-post.mjs')
 await import('./balance-display-currency.mjs')
 await import('./settings-regressions.mjs')
+await import('./model-statistics.mjs')
+await import('./display-controls.mjs')
 await import('./settings-poll-race.mjs')
 await import('./plan-provider-matching.mjs')
 await import('./community-client.mjs')
@@ -6826,12 +6944,24 @@ await import('./mimo-v26-pricing.mjs')
 await import('./host-locale.mjs')
 await import('./host-locale-client.mjs')
 await import('./conversation-totals.mjs')
+await import('./ledger-frozen-fx.mjs')
+await import('./session-cost-display-fx.mjs')
 await import('./billion-context-billing.mjs')
 await import('./billion-context-compatibility.mjs')
 await import('./billion-context-auto.mjs')
 await import('./billion-context-receipts.mjs')
 await import('./opendesign.mjs')
 await import('./prices-revision.mjs')
+await import('./codex-subscription-compat.mjs')
+await import('./codex-client-loading.mjs')
+await import('./chatgpt-subscription-compat.mjs')
+await import('./opendesign-quota-degradation.mjs')
+await import('./session-storage-compat.mjs')
+await import('./session-readpaths-rdb.mjs')
+await import('./opendesign-preflight.mjs')
+await import('./opendesign-credentials.mjs')
+await import('./pocket-layout-static.mjs')
+await import('./skin-occlusion-static.mjs')
 console.log('[ok] 全部验证通过')
 
 await import('./exchange-rates.mjs')

@@ -10,7 +10,7 @@ const expose = ['mergeSessionUsage', 'useSessionUsage', 'SessionCost', 'DockLine
 const element = (type, props, ...children) => ({ type, props: props ?? {}, children })
 expose.push('TurnCost')
 expose.push('QuotaStrip')
-expose.push('CONTRIBUTION')
+expose.push('CONTRIBUTION', 'resetCodexQuota')
 const nodes = value => Array.isArray(value) ? value.flatMap(nodes) : value && typeof value === 'object' ? [value, ...nodes(value.children)] : []
 const textOf = value => Array.isArray(value) ? value.map(textOf).join('') : value && typeof value === 'object' ? textOf(value.children) : typeof value === 'string' || typeof value === 'number' ? String(value) : ''
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
@@ -45,7 +45,7 @@ function environment(fetchImpl = async () => ({ ok: false })) {
     },
   }
   vm.runInNewContext(source.replace('exports.apply = apply', `exports.test = { ${expose.join(', ')} }; exports.apply = apply`), {
-    navigator: { language: 'en' }, console, AbortSignal,
+    navigator: { language: 'en' }, console, AbortSignal, crypto: globalThis.crypto,
     window: { __ModuleLoader__: { load: value => { factory = value.factory } }, localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)) } },
     fetch: (...args) => { requests.push(args); return fetchImpl(...args) },
     setTimeout: (fn, delay) => schedule(fn, delay, false), clearTimeout: id => timers.delete(id),
@@ -287,12 +287,13 @@ for (const locale of ['en', 'zh']) {
 // Codex 插件查询是显式选择:关闭状态不探测,开启才查询同源路由,关闭解除订阅。
 const quotaRequest = deferred()
 const quota = environment(() => quotaRequest.promise)
-const disabled = quota.mount(p => quota.ui.useCodexQuota(p.enabled), { enabled: false })
+const disabled = quota.mount(p => quota.ui.useCodexQuota(p.enabled, p.source), { enabled: false, source: 'connect' })
 await quota.flush()
 assert.equal(quota.requests.length, 0)
 await quota.ui.fetchCodexQuota(true, false)
 assert.equal(quota.requests.length, 0, '强制刷新也不能绕过禁用开关')
-disabled.render({ enabled: true })
+disabled.render({ enabled: true, source: 'connect' })
+await quota.flush()
 assert.equal(quota.requests.length, 1)
 assert.equal(quota.requests[0][0], '/plugins/dsh-openai-codex/auth/status')
 assert.equal(quota.requests[0][1].credentials, 'same-origin')
@@ -301,15 +302,16 @@ assert.equal(quota.ui.codexQuotaCache.listeners.length, 0)
 quotaRequest.resolve({ ok: true, json: async () => ({ status: 'signed-in', usage: { rateLimits: [{ id: 'codex', windows: [{ windowSeconds: 604800, remainingPercent: 72, resetAt: 1800000000 }] }] } }) })
 await quota.flush()
 assert.equal(disabled.tree.status, 'idle', '关闭后进行中的返回不写已取消订阅的hook')
-disabled.render({ enabled: true }); await quota.flush()
+disabled.render({ enabled: true, source: 'connect' }); await quota.flush()
 assert.equal(disabled.tree.status, 'ok', '重新启用可恢复在关闭期间完成的缓存')
 assert.equal(disabled.tree.windows.weekly.percent, 28)
 assert.equal(quota.requests.length, 1, '有效缓存无需重复查询')
-const visible = quota.mount(quota.ui.CodexPlanBox, { state: { config: { ...config, codexQuotaEnabled: true } }, wide: true })
+const visible = quota.mount(quota.ui.CodexPlanBox, { state: { config: { ...config, codexQuotaEnabled: true, codexQuotaSource: 'connect' } }, wide: true })
 await quota.flush()
 assert.ok(visible.tree)
+assert.doesNotMatch(textOf(visible.tree), /5h/, 'a weekly-only quota response never invents a five-hour window')
 // #207: sidebar display is independent of the conversation's quota strip.
-let quotaConfig = { ...config, codexQuotaEnabled: true, codexQuotaSidebar: false, quotaStrip: { enabled: true, budget: false, go: false, plans: false } }
+let quotaConfig = { ...config, codexQuotaEnabled: true, codexQuotaSidebar: false, codexQuotaSource: 'connect', quotaStrip: { enabled: true, budget: false, go: false, plans: false } }
 const quotaProps = () => ({ wide: true, useCost: pick => pick({ state: { config: quotaConfig } }) })
 visible.render({ state: { config: quotaConfig }, wide: true })
 assert.equal(visible.tree, null)
@@ -321,20 +323,166 @@ assert.match(textOf(strip.tree), /Codex/)
 quotaConfig = { ...quotaConfig, codexQuotaSidebar: true }
 sidebar.render(quotaProps())
 assert.ok(nodes(sidebar.tree).some(n => n.type === quota.ui.CodexPlanBox), 're-enabling restores the sidebar card')
+quotaConfig = { ...quotaConfig, codexQuotaStrip: false }
+sidebar.render(quotaProps()); strip.render(quotaProps())
+assert.ok(nodes(sidebar.tree).some(n => n.type === quota.ui.CodexPlanBox), 'hiding the composer Codex strip preserves the sidebar card')
+assert.equal(strip.tree, null, 'the independent composer switch hides Codex even when the shared strip is enabled')
+quotaConfig = { ...quotaConfig, codexQuotaStrip: true }
+strip.render(quotaProps())
+assert.match(textOf(strip.tree), /remaining/, 're-enabling restores the explicitly labelled remaining quota')
 quotaConfig = { ...quotaConfig, codexQuotaEnabled: false }
 sidebar.render(quotaProps()); strip.render(quotaProps())
 assert.equal(sidebar.tree, null)
 assert.equal(strip.tree, null, 'the global toggle still hides both surfaces')
 sidebar.dispose(); strip.dispose()
-visible.render({ state: { config: { ...config, codexQuotaEnabled: false } }, wide: true })
+visible.render({ state: { config: { ...config, codexQuotaEnabled: false, codexQuotaSource: 'connect' } }, wide: true })
 assert.equal(visible.tree, null, '禁用后即使缓存是ok也隐藏卡片')
 disabled.render({ enabled: false })
 await quota.tick(60000); await quota.tick(300000)
 assert.equal(quota.requests.length, 1, '关闭后不重试、不轮询')
 quota.dispose()
 
+// The host can carry RPC without serving browser HTTP at the page origin.
+const rpcCalls = []
+const subscription = environment(async () => { throw Error('subscription must use the host RPC transport') })
+subscription.ui.codexQuotaCache.rpc = { async call(channel, method, payload, signal) {
+  rpcCalls.push({ channel, method, payload, signal })
+  assert.equal(channel, '/api')
+  assert.equal(method, 'codex-subscription/usage')
+  assert.ok(signal instanceof AbortSignal)
+  return { ok: true, value: { rateLimits: [
+      { id: 'codex', windows: [{ windowSeconds: 18000, remainingPercent: 60, resetsAt: 1800000001 }, { windowSeconds: 604800, remainingPercent: 20, resetsAt: 1800000002 }] },
+      { id: 'code_review', windows: [{ windowSeconds: 604800, remainingPercent: 5 }] },
+    ] } }
+} }
+const subHook = subscription.mount(p => subscription.ui.useCodexQuota(p.enabled, p.source), { enabled: true, source: 'subscription' })
+await subscription.flush()
+assert.equal(subscription.requests.length, 0, 'the subscription transport does not use page-origin fetch')
+assert.equal(rpcCalls.length, 1)
+assert.equal(rpcCalls[0].payload.force, false)
+assert.equal(subHook.tree.status, 'ok')
+assert.equal(subHook.tree.windows.five.percent, 40)
+assert.equal(subHook.tree.windows.weekly.percent, 80)
+assert.equal(subHook.tree.windows.five.resetsAt, new Date(1800000001 * 1000).toISOString())
+const subCard = subscription.mount(subscription.ui.CodexPlanBox, { state: { config: { ...config, codexQuotaEnabled: true, codexQuotaSource: 'subscription' } }, wide: true })
+assert.ok(subCard.tree)
+assert.match(textOf(subCard.tree), /5h/)
+assert.match(textOf(subCard.tree), /Weekly quota/)
+assert.match(textOf(subCard.tree), /60% remaining/)
+assert.match(textOf(subCard.tree), /20% remaining/)
+subCard.dispose()
+await subscription.ui.fetchCodexQuota(true, true, 'subscription')
+assert.equal(rpcCalls[1].payload.force, true, 'manual refresh reaches the host RPC')
+subHook.render({ enabled: false, source: 'subscription' })
+subscription.dispose()
+
+const subscriptionReply = remainingPercent => ({ ok: true, value: {
+  rateLimits: [{ id: 'codex', windows: [{ windowSeconds: 18000, remainingPercent }] }],
+} })
+// Starting while logged out must leave a retry entry and recover after login.
+for (const locale of ['en', 'zh']) {
+  let signedIn = false
+  const recovery = environment()
+  let calls = 0
+  recovery.ui.codexQuotaCache.rpc = { async call() { calls++; return signedIn ? subscriptionReply(80) : { ok: false } } }
+  const state = { config: { ...config, locale, codexQuotaEnabled: true, codexQuotaSource: 'subscription' } }
+  const footer = recovery.mount(recovery.ui.SidebarFooter, { wide: true, useCost: pick => pick({ state }) })
+  const card = recovery.mount(recovery.ui.CodexPlanBox, { state, wide: true })
+  assert.match(textOf(card.tree), locale === 'en' ? /Refreshing/ : /刷新中/)
+  await recovery.flush()
+  assert.ok(nodes(footer.tree).some(node => node.type === recovery.ui.CodexPlanBox), 'Codex alone mounts even before quota is available')
+  assert.match(textOf(card.tree), locale === 'en' ? /sign in.*retry/ : /登录.*重试/)
+  assert.equal(card.tree.props.role, 'button')
+  assert.doesNotMatch(textOf(card.tree), /\d+%/, 'missing quota is never shown as an invented percentage')
+  assert.equal(calls, 1, 'sidebar and card share one request')
+  signedIn = true
+  recovery.ui.codexQuotaCache.fetchedAt -= 61_000
+  await recovery.tick(60_000)
+  assert.equal(calls, 2, 'the minute retry recovers without remounting or toggling settings')
+  assert.match(textOf(card.tree), locale === 'en' ? /80% remaining/ : /剩余 80%/)
+  await recovery.tick(60_000)
+  assert.equal(calls, 2, 'successful data remains cached for five minutes')
+  recovery.ui.codexQuotaCache.fetchedAt -= 301_000
+  await recovery.tick(60_000)
+  assert.equal(calls, 3, 'successful quota is refreshed after its cache expires')
+  signedIn = false
+  await recovery.ui.fetchCodexQuota(true, true, 'subscription'); await recovery.flush()
+  assert.match(textOf(card.tree), locale === 'en' ? /sign in.*retry/ : /登录.*重试/)
+  signedIn = true
+  card.tree.props.onClick(); await recovery.flush()
+  assert.match(textOf(card.tree), locale === 'en' ? /80% remaining/ : /剩余 80%/, 'clicking the fallback retries immediately, bypassing the failure cache')
+  recovery.dispose()
+  assert.equal(recovery.timers.size, 0, 'unmount removes all quota timers')
+}
+
+// Both display preview modes are render-only; neither queries a real account.
+{
+  const preview = environment()
+  let calls = 0
+  preview.ui.codexQuotaCache.rpc = { call() { calls++; throw Error('preview queried account') } }
+  const state = { config: { ...config, codexQuotaEnabled: true } }
+  const card = preview.mount(preview.ui.CodexPlanBox, { state, wide: true, preview: true })
+  card.render({ state: { ...state, displayPreviewCodex: { status: 'ok', windows: { weekly: { percent: 42 } } } }, wide: true, preview: true })
+  assert.match(textOf(card.tree), /58%/)
+  card.tree.children[0].props.onClick(); await preview.flush(); await preview.tick(60_000)
+  Object.assign(preview.ui.codexQuotaCache, { status: 'ok', windows: { weekly: { percent: 75 } } })
+  card.render({ state, wide: true, preview: true })
+  assert.match(textOf(card.tree), /25%/, 'current-data preview reads the current cache without mounting a query')
+  card.render({ state: { config: { ...state.config, codexQuotaSource: 'subscription' } }, wide: true, preview: true })
+  assert.doesNotMatch(textOf(card.tree), /25%/, 'a preview cannot show quota belonging to a previously selected source')
+  assert.equal(calls, 0); assert.equal(preview.requests.length, 0); assert.equal(preview.timers.size, 0)
+  preview.dispose()
+}
+
+// Source changes start their own request and discard late replies in both orders.
+const connectReply = remainingPercent => ({ ok: true, json: async () => ({ status: 'signed-in', usage: {
+  rateLimits: [{ id: 'codex', windows: [{ windowSeconds: 604800, remainingPercent }] }],
+} }) })
+const oldConnect = deferred(), newSubscription = deferred()
+const race = environment(() => oldConnect.promise)
+let raceRpcCalls = 0
+race.ui.codexQuotaCache.rpc = { call: () => { raceRpcCalls++; return newSubscription.promise } }
+const raceHook = race.mount(p => race.ui.useCodexQuota(true, p.source), { source: 'connect' })
+await race.flush()
+raceHook.render({ source: 'subscription' })
+const sameSource = race.mount(p => race.ui.useCodexQuota(true, p.source), { source: 'subscription' })
+await race.flush()
+const pendingSubscription = race.ui.codexQuotaCache.inFlight
+assert.equal(race.requests.length, 1)
+assert.equal(raceRpcCalls, 1, 'same-source callers share the pending subscription request')
+oldConnect.resolve(connectReply(90)); await race.flush()
+assert.equal(raceHook.tree.status, 'idle', 'the old source cannot show its quota after a switch')
+assert.equal(race.ui.codexQuotaCache.inFlight, pendingSubscription, 'an old completion cannot release the current pending request')
+newSubscription.resolve(subscriptionReply(30)); await race.flush()
+assert.equal(raceHook.tree.windows.five.percent, 70)
+assert.equal(sameSource.tree.windows.five.percent, 70)
+assert.equal(raceHook.tree.windows.weekly, undefined)
+assert.equal(race.ui.codexQuotaCache.source, 'subscription')
+race.dispose()
+
+const lateSubscription = deferred()
+const reverse = environment(async () => connectReply(85))
+reverse.ui.codexQuotaCache.rpc = { call: () => lateSubscription.promise }
+const reverseHook = reverse.mount(p => reverse.ui.useCodexQuota(true, p.source), { source: 'subscription' })
+await reverse.flush()
+reverseHook.render({ source: 'connect' }); await reverse.flush()
+assert.equal(reverseHook.tree.windows.weekly.percent, 15)
+lateSubscription.resolve(subscriptionReply(0)); await reverse.flush()
+assert.equal(reverseHook.tree.windows.weekly.percent, 15, 'a late subscription reply cannot replace the selected connect source')
+assert.equal(reverse.ui.codexQuotaCache.source, 'connect')
+reverse.dispose()
+
+for (const result of [null, { ok: false }, subscriptionReply(undefined)]) {
+  const fallback = environment(async () => connectReply(75))
+  fallback.ui.codexQuotaCache.rpc = { call: async () => result }
+  await fallback.ui.fetchCodexQuota(false, true, 'auto')
+  assert.equal(fallback.ui.codexQuotaCache.windows.weekly.percent, 25)
+  assert.equal(fallback.requests.length, 1, 'auto falls back when the subscription RPC is missing, fails or has no supported windows')
+  fallback.dispose()
+}
+
 const missing = environment(async () => ({ ok: false, status: 404 }))
-const missingHook = missing.mount(p => missing.ui.useCodexQuota(p.enabled), { enabled: true })
+const missingHook = missing.mount(p => missing.ui.useCodexQuota(p.enabled, p.source), { enabled: true, source: 'connect' })
 await missing.flush()
 assert.equal(missingHook.tree.status, 'unavailable')
 missingHook.render({ enabled: false })

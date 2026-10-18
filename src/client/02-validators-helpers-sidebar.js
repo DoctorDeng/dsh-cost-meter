@@ -119,6 +119,7 @@
       display: oneOf(e.display, ['sidebar', 'settings', 'off'], 'both'),
       unit: e.adapter === 'tokenrhythm' ? 'CNY' : ['CNY', 'EUR', 'CREDITS'].includes(e.unit) ? e.unit : 'USD',
       convertToDisplayCurrency: e.convertToDisplayCurrency === true,
+      allowInsecureHttp: e.allowInsecureHttp === true,
       refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
       request: e.request && typeof e.request === 'object' ? e.request : { url: '' },
       extract: e.extract && typeof e.extract === 'object' ? e.extract : {},
@@ -139,6 +140,7 @@
         hideOfficialBalance: v.hideOfficialBalance === true,
         hideBudget: v.hideBudget === true,
         hideTodayCost: v.hideTodayCost === true,
+        modelStatistics: v.modelStatistics ?? {},
         ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost'], value => value === true),
         sessionCostCompact: v.sessionCostCompact === true,
         contextCostsEnabled: v.contextCostsEnabled === true,
@@ -151,6 +153,12 @@
         sidebarModels: Object.fromEntries(Object.entries(MODEL_SIDEBAR_DEFAULTS).map(([k, v0]) => [k, v.sidebarModels?.[k] ?? v0])),
         codexQuotaEnabled: v.codexQuotaEnabled === true,
         codexQuotaSidebar: v.codexQuotaSidebar !== false,
+        codexQuotaStrip: v.codexQuotaStrip !== false,
+        codexQuotaSource: ['connect', 'subscription'].includes(v.codexQuotaSource) ? v.codexQuotaSource : 'auto',
+        // Codex 订阅兼容(契约 B-5):用户已关闭一次性提示 / 已应用历史归类的时点。
+        // 直通白名单缺失会导致关闭后重开页面又弹提示,或应用后状态行回落「未应用」。
+        codexCompatPromptDismissed: v.codexCompatPromptDismissed === true,
+        codexCompatHistoryAppliedAt: num0(v.codexCompatHistoryAppliedAt),
         includeSubagentCost: v.includeSubagentCost === true,
         sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
         priceMatchDismissed: Array.isArray(v.priceMatchDismissed) ? v.priceMatchDismissed.filter(key => typeof key === 'string') : [],
@@ -174,7 +182,10 @@
         peakAlertTarget: v.peakAlertTarget === 'peak' || v.peakAlertTarget === 'offpeak' ? v.peakAlertTarget : 'both',
         peakAlertPosition: v.peakAlertPosition === 'center' ? 'center' : 'corner',
         peakAlertWebNotify: v.peakAlertWebNotify === true,
-        peakStyle: v.peakStyle === 'classic' || v.peakStyle === 'dot' ? v.peakStyle : 'compact',
+        // fork 的 dot 与上游的 progress 并存(两者语义不同:圆点状态 vs 时间进度条)。
+        peakStyle: ['classic', 'dot', 'progress'].includes(v.peakStyle) ? v.peakStyle : 'compact',
+        peakTimeDisplay: ['countdown', 'switch'].includes(v.peakTimeDisplay) ? v.peakTimeDisplay : 'both',
+        peakProgressPromptSeen: v.peakProgressPromptSeen === true,
         priceMatch: v.priceMatch === 'exact' ? 'exact' : 'auto',
         priceOverrides: (() => {
           const out = {}
@@ -415,6 +426,22 @@
       }
       return { generatedAt: num0(v.generatedAt), providers }
     }
+    // Codex 订阅兼容(契约 C/E):旧宿主无该键 → undefined;字段白名单收敛。
+    function parseCodexCompat(v) {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+      const u = v.usage && typeof v.usage === 'object' ? v.usage : {}
+      return {
+        installed: v.installed === true,
+        enabled: v.enabled === true,
+        version: typeof v.version === 'string' ? v.version : '',
+        detection: oneOf(v.detection, ['package', 'profile', 'none'], 'none'),
+        planClass: oneOf(v.planClass, ['auto', 'plan', 'api'], 'auto'),
+        usage: { calls: num0(u.calls), cost: num0(u.cost), tokens: num0(u.tokens), days: num0(u.days), providers: (Array.isArray(u.providers) ? u.providers : []).filter(p => typeof p === 'string') },
+        historyAppliedAt: num0(v.historyAppliedAt),
+        promptDismissed: v.promptDismissed === true,
+        promptDue: v.promptDue === true,
+      }
+    }
     function parseState(v, path) {
       needObject(v, path)
       return {
@@ -442,6 +469,8 @@
         codingPlans: v.codingPlans !== null && typeof v.codingPlans === 'object' && !Array.isArray(v.codingPlans) ? v.codingPlans : {},
         // Token Plan 统计(issue #64):宽容解析,缺失/畸形回落 null(UI 隐藏面板)。
         planStats: parsePlanStats(v.planStats),
+        // Codex 订阅兼容(契约 C):宿主未检出插件/旧宿主时无此键,回落 undefined。
+        codexCompat: parseCodexCompat(v.codexCompat),
         history: Array.isArray(v.history) ? v.history.map((d, i) => parseDay(d, path + '.history[' + i + ']')) : [],
         billionContext: v.billionContext?.protocol === 1 ? { protocol: 1, connected: v.billionContext.connected === true, failed: v.billionContext.failed === true,
           requests: Number(v.billionContext.requests) || 0, unreported: Number(v.billionContext.unreported) || 0, partial: Number(v.billionContext.partial) || 0, uncovered: Number(v.billionContext.uncovered) || 0,
@@ -623,6 +652,8 @@
             rpcParam('target', 'CredentialTarget', credTargetCodec),
           ],
           },
+        // Codex 订阅兼容(契约 D/E):并入/忽略 Codex 历史用量,宿主回传完整 state。
+        ...['applyCodexCompatHistory', 'dismissCodexCompat'].map(method => ({ method, result: strictCodec('CostState', stateCodec) })),
       ].map(def => ({ id: 'dsh-cost-meter#costMeter/' + def.method, service: 'costMeter', namespace: 'costMeter',
         invocation: { kind: 'direct' }, parameters: [], result: strictCodec('FetchPricesResult', fetchCodec), ...def })),
     }
@@ -1087,19 +1118,31 @@
      */
     function displayCostOf(entry, config) {
       const suffix = { CNY: 'Cny', EUR: 'Eur' }[config?.currency]
-      const saved = suffix && entry?.[(config?.showTotalWithPlan ? 'cost' : 'apiCost') + suffix]
-      if (Number.isFinite(saved)) return saved / (config.exchangeRate || 1)
-      if (config !== null && typeof config === 'object' && config.showTotalWithPlan === true) {
-        return Number(entry?.cost) || 0
-      }
-      return moneyCostOf(entry)
+      const withPlan = config?.showTotalWithPlan === true
+      const saved = suffix && entry?.[(withPlan ? 'cost' : 'apiCost') + suffix]
+      const usd = withPlan ? (Number(entry?.cost) || 0) : moneyCostOf(entry)
+      // Old rows were written before frozen FX amounts existed, and a merge could
+      // drop the derived fields; a finite 0 would then hide real spend (issue #300).
+      // Fall back to the USD amount so the current rate converts it for display.
+      if (!Number.isFinite(saved)) return usd
+      if (saved === 0 && usd > 0) return usd
+      return saved / (config.exchangeRate || 1)
     }
     // ── Plan/API 双轨分类(issue #64):与 lib/plan-billing.js 同逻辑的镜像实现
     //    (bundle 无法导入 Node 模块,修改时两处同步)。──
     const PLAN_PROVIDER_ALIASES_LOCAL = {
       opendesign: OPENDESIGN_PROVIDER_IDS,
       go: ['go', 'zen', 'opencode', 'opencode-go', 'opencode-go-plus'],
-      codex: ['codex', 'openai-codex', 'dsh-openai-codex'],
+      codex: ['codex', 'openai-codex', 'dsh-openai-codex', 'codex-chatgpt'],
+      // 以下别名来自 ChatGPT 订阅渠道的订阅线路(与 lib/plan-billing.js PLAN_PROVIDER_ALIASES 同步)。
+      anthropic: ['anthropic', 'claude-subscription'],
+      zai: ['zai', 'glm-coding-plan'],
+      minimax: ['minimax', 'minimax-code'],
+      kimi: ['kimi', 'kimi-code'],
+      commandcode: ['commandcode', 'command-code'],
+      workbuddy: ['workbuddy', 'workbuddy-subscription'],
+      antigravity: ['antigravity'],
+      stepfun: ['stepfun', 'step-code'],
       'volcengine-agent': ['volcengine-agent', 'ark-agent-plan', 'volcengine-agent-plan'],
       'tencent-coding': ['tencent-coding', 'tencent-coding-plan', 'tokenhub-coding-plan'],
       'tencent-token': ['tencent-token', 'tencent-token-plan', 'tokenhub-token-plan'],
@@ -1110,7 +1153,7 @@
       mimo: ['mimo', 'xiaomimimo', 'mimo-token-plan', 'xiaomi-token-plan', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-ams'],
       factory: ['factory', 'droid', 'factory-a', 'factory-g', 'factory-o'],
     }
-    const PLAN_PROVIDER_IDS_LOCAL = ['opendesign', 'anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go', 'codex', 'volcengine-agent', 'tencent-coding', 'tencent-token', 'baidu-coding']
+    const PLAN_PROVIDER_IDS_LOCAL = ['opendesign', 'anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go', 'codex', 'volcengine-agent', 'tencent-coding', 'tencent-token', 'baidu-coding', 'workbuddy', 'antigravity', 'stepfun']
     const PLAN_NAME_HINTS_LOCAL = {
       opendesign: 'opendesign|open[._-]?design',
       codex: 'codex|chatgpt', 'baidu-coding': 'baidu|qianfan|百度|千帆',
@@ -2353,9 +2396,24 @@
           el('span', { className: 'cm-peak-dot-circle ' + phase }),
           el('span', { className: 'cm-peak-dot-text' }, t(keys.chip) + ' · ' + chipText)))
     }
+    // fork:圆点样式仍由上面的 PeakStripDot 承载;下面这段是上游的进度条(按需模块)。
+    // 进度条与首次介绍共用按需模块，不增加旧样式的定时器和主包体积。
+    let peakPage
+    function loadPeakPage() {
+      return peakPage ??= require.async('./client.peak.js').then(module => module.mount({ peakView, peakPhaseAt, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip }))
+        .catch(error => { peakPage = null; throw error })
+    }
+    function PeakProgress(props) {
+      return el(BillingStatistics, { ...props, load: loadPeakPage, quiet: true })
+    }
+    function PeakProgressGuide(props) {
+      const state = props.useCost?.(s => s)?.state, config = state?.config
+      return config?.peakEnabled && config.peakNotice !== false && !config.peakProgressPromptSeen
+        ? el(PeakProgress, { ...props, state, config, view: 'guide' }) : null
+    }
     function peakNoticeEl(state, config, t) {
       const style = config?.peakStyle
-      return el(style === 'classic' ? PeakStripClassic : style === 'dot' ? PeakStripDot : PeakStrip, { config, t })
+      return el(style === 'progress' ? PeakProgress : style === 'classic' ? PeakStripClassic : style === 'dot' ? PeakStripDot : PeakStrip, { config, t })
     }
 
     /** 收起(rail)态简洁样式:竖向同构时段条 + 横排短词(「峰时/平价」),倒计时与完整文案在悬停提示中。 */
@@ -2427,13 +2485,13 @@
           el('span', { className: 'cm-peak-rail-label' }, t(keys.short))))
     }
     function peakNoticeRailEl(state, config, t) {
+      // fork 的 dot 与上游的 progress 并存;rail 态同样按样式分派。
       const style = config?.peakStyle
-      return el(style === 'classic' ? PeakRailStripClassic : style === 'dot' ? PeakRailStripDot : PeakRailStrip, { config, t })
+      return el(style === 'progress' ? PeakProgress : style === 'classic' ? PeakRailStripClassic : style === 'dot' ? PeakRailStripDot : PeakRailStrip, { config, t, rail: true })
     }
 
     /** 预算图框内容(不含外框),供单独显示与「Go+预算」合并卡片复用;详细信息按 budget.detail 开关。 */
     function budgetBoxBody(state, config, t) {
-      const today = state.today
       const budget = config.budget ?? { enabled: false, amount: 100, period: 'month' }
       const rate = Number(config.exchangeRate)
       const budgetUsedUsd = state.budgetUsed ?? (
@@ -2445,8 +2503,6 @@
       const pct = amount > 0 ? Math.min(999, used / amount * 100) : null
       // 条形方向(issue #67):默认已用方向(#57 口径);剩余方向时填充与标签显示剩余%。
       const barView = simpleBarByDirection(pct === null ? null : Math.min(100, pct), barDirectionOf(config, 'budget'))
-      const todayUsed = displayCostOf(today, config) * (Number.isFinite(rate) && rate > 0 ? rate : 1)
-      const todayPct = amount > 0 ? Math.min(999, todayUsed / amount * 100) : null
       const detail = budget.detail !== false
       return {
         level: pct === null ? 'ok' : pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok',
@@ -2459,14 +2515,6 @@
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
           detail
             ? el(Fragment, null,
-              // 今日金额行受 hideTodayCost 门控(issue #46);金额为真金白银口径(issue #64)。
-              config.hideTodayCost === true ? null : el('div', { 'data-cm-display': 'today', className: 'cm-bbox-line cm-num' },
-                config.sidebarTodayMetric === 'tokens'
-                  ? t('today') + ' ' + sidebarTodayValue(today, config, t)
-                  : t('todayShare', {
-                    amount: formatMoneyUsd(displayCostOf(today, config), config),
-                    pct: todayPct === null ? '—' : todayPct.toFixed(1) + '%',
-                  })),
               el('div', { className: 'cm-bbox-line cm-num' },
                 t('usedOf', { used: formatMoneyValue(used, config), amount: formatMoneyValue(amount, config) })))
             : null),
@@ -2633,7 +2681,7 @@
         el('div', { className: 'cm-bbox-rail cm-num' }, sevenView.text))
       return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
-          ...hoverProps, 'data-cm-display': 'plan', className: 'cm-bbox cm-mm' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '')
+          ...hoverProps, 'data-cm-display': 'plan', 'data-cm-plan': 'minimax', className: 'cm-bbox cm-mm' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '')
             + (refresh ? ' clickable' + (refresh.busy ? ' busy' : '') : ''),
           ...(refresh ? clickableRefreshProps(refresh.busy, refresh.run) : {}),
         },
@@ -2651,30 +2699,52 @@
       return el(MiniMaxPlanCard, { five, seven, fetchedAt: live.fetchedAt, t, wide, refresh, direction: barDirectionOf(state.config, 'plan') })
     }
 
-    // ── ChatGPT PLUS(Codex)周额度(issue #59)──────────────────────────────
-    // 数据源是 dsh-codex-connect 插件(dsh-openai-codex)暴露在 web 同源的只读状态路由,
-    // 不读凭据、不配置 Key;插件不在/未登录时探测失败,相关 UI 自动隐藏。
-    // 宿主进程无法感知 web 端口,故由浏览器端同源 fetch(与 .tmp 社区补丁同思路,收敛为独立模块)。
+    // ── ChatGPT PLUS(Codex)额度(issue #59 / dsh-codex-subscription)──────────
+    // 数据源二选一:dsh-codex-connect 的只读状态路由,或 dsh-codex-subscription 的
+    // 宿主 Connection RPC。两条均只读,启用后查询失败保留提示与重试入口。
 
     const CODEX_STATUS_PATH = '/plugins/dsh-openai-codex/auth/status'
-    const CODEX_WEEK_SECONDS = 7 * 24 * 3600
+    const CODEX_WINDOWS = { 18000: 'five', 604800: 'weekly' }
 
-    /** 解析 dsh-codex-connect 的 auth/status 响应 → 与 coding plan 同构的窗口对象(percent=已用)。 */
-    function parseCodexStatus(data) {
-      if (data === null || typeof data !== 'object' || data.status !== 'signed-in') return null
-      const limits = data.usage !== null && typeof data.usage === 'object' ? data.usage.rateLimits : null
+    /** 把 rateLimits[] 归一化为与 coding plan 同构的窗口对象(percent=已用)。 */
+    function parseCodexWindows(limits) {
       if (!Array.isArray(limits)) return null
       const bucket = limits.find(l => l !== null && typeof l === 'object' && l.id === 'codex')
       if (!bucket || !Array.isArray(bucket.windows)) return null
-      const win = bucket.windows.find(w => w !== null && typeof w === 'object' && Number(w.windowSeconds) === CODEX_WEEK_SECONDS)
-      if (!win || typeof win.remainingPercent !== 'number' || !Number.isFinite(Number(win.remainingPercent))) return null
-      const usedPct = Math.max(0, Math.min(100, Math.round((100 - Number(win.remainingPercent)) * 10) / 10))
-      const resetSec = Number(win.resetAt)
-      const resetsAt = Number.isFinite(resetSec) && resetSec > 0 ? new Date(resetSec * 1000).toISOString() : ''
-      return { weekly: { percent: usedPct, resetsAt } }
+      const out = {}
+      for (const win of bucket.windows) {
+        const key = win !== null && typeof win === 'object' ? CODEX_WINDOWS[Number(win.windowSeconds)] : null
+        if (!key || typeof win.remainingPercent !== 'number' || !Number.isFinite(Number(win.remainingPercent))) continue
+        const resetSec = Number(win.resetAt ?? win.resetsAt)
+        out[key] = {
+          percent: Math.max(0, Math.min(100, Math.round((100 - Number(win.remainingPercent)) * 10) / 10)),
+          resetsAt: Number.isFinite(resetSec) && resetSec > 0 ? new Date(resetSec * 1000).toISOString() : '',
+        }
+      }
+      return out
     }
 
-    const codexQuotaCache = { status: 'idle', windows: {}, fetchedAt: 0, inFlight: null, listeners: [] }
+    /** 解析 dsh-codex-connect 的 auth/status 响应。 */
+    function parseCodexStatus(data) {
+      if (data === null || typeof data !== 'object' || data.status !== 'signed-in') return null
+      return parseCodexWindows(data.usage?.rateLimits)
+    }
+
+    /** 读取 dsh-codex-subscription 的 DSH 同源认证 RPC;失败返回 null 以便 auto 回退。 */
+    async function fetchCodexSubscription(force) {
+      try {
+        const result = await codexQuotaCache.rpc?.call('/api', 'codex-subscription/usage', { force }, AbortSignal.timeout(8000))
+        return result?.ok ? parseCodexWindows(result.value?.rateLimits) : null
+      } catch { return null }
+    }
+
+    const codexQuotaCache = { source: 'auto', listeners: [] }
+    const resetCodexQuota = rpc => Object.assign(codexQuotaCache, { rpc, request: null, inFlight: null, fetchedAt: 0, status: 'idle', windows: {} })
+    resetCodexQuota(null)
+    const codexQuotaSnapshot = () => {
+      const { rpc, request, inFlight, listeners, ...view } = codexQuotaCache
+      return view
+    }
     const subscribeCodexQuota = fn => {
       codexQuotaCache.listeners.push(fn)
       return () => { codexQuotaCache.listeners = codexQuotaCache.listeners.filter(f => f !== fn) }
@@ -2682,83 +2752,97 @@
     const notifyCodexQuota = () => { for (const fn of codexQuotaCache.listeners) { try { fn() } catch { /* 订阅方异常不扩散 */ } } }
 
     /**
-     * 探测 Codex 周额度。结果写模块缓存并广播;非 force 时 5 分钟内直接用缓存
-     * (404/未登录/网络错误都按 unavailable 缓存,避免每次渲染反复打同一空路由)。
+     * 探测 Codex 额度。auto 优先 subscription,失败回退 connect;非 force 且同一数据源
+     * 成功缓存 5 分钟,失败 1 分钟后可重试。
      */
-    async function fetchCodexQuota(force = false, enabled = false) {
+    async function fetchCodexQuota(force = false, enabled = false, source = 'auto') {
       if (!enabled) return
-      if (codexQuotaCache.inFlight !== null) return codexQuotaCache.inFlight
-      if (!force && codexQuotaCache.fetchedAt > 0 && Date.now() - codexQuotaCache.fetchedAt < 5 * 60_000) return undefined
-      const task = (async () => {
+      if (codexQuotaCache.inFlight !== null && codexQuotaCache.source === source) return codexQuotaCache.inFlight
+      if (!force && codexQuotaCache.source === source && codexQuotaCache.fetchedAt > 0 && Date.now() - codexQuotaCache.fetchedAt < (codexQuotaCache.status === 'ok' ? 5 : 1) * 60_000) return undefined
+      const request = {}
+      codexQuotaCache.request = request
+      if (codexQuotaCache.source !== source) Object.assign(codexQuotaCache, { status: 'idle', windows: {}, fetchedAt: 0, source })
+      notifyCodexQuota()
+      const task = Promise.resolve().then(async () => {
+        let windows = {}
         try {
-          const resp = await fetch(CODEX_STATUS_PATH, { credentials: 'same-origin', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) })
-          let windows = {}
-          if (resp.ok) {
-            const parsed = parseCodexStatus(await resp.json().catch(() => null))
-            if (parsed !== null) windows = parsed
+          if (source !== 'connect') windows = await fetchCodexSubscription(force) ?? {}
+          if (Object.keys(windows).length === 0 && source !== 'subscription') {
+            const resp = await fetch(CODEX_STATUS_PATH, { credentials: 'same-origin', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) })
+            if (resp.ok) windows = parseCodexStatus(await resp.json().catch(() => null)) ?? {}
           }
+        } catch {} finally {
+          // Only the latest selected source may publish or clear its request.
+          if (codexQuotaCache.request !== request) return
           codexQuotaCache.status = Object.keys(windows).length > 0 ? 'ok' : 'unavailable'
           codexQuotaCache.windows = windows
-        } catch {
-          codexQuotaCache.status = 'unavailable'
-        } finally {
           codexQuotaCache.fetchedAt = Date.now()
           codexQuotaCache.inFlight = null
           notifyCodexQuota()
         }
-      })()
+      })
       codexQuotaCache.inFlight = task
       return task
     }
 
-    function useCodexQuota(enabled) {
-      const [snap, setSnap] = useState(() => ({
-        status: codexQuotaCache.status,
-        windows: codexQuotaCache.windows,
-        fetchedAt: codexQuotaCache.fetchedAt,
-      }))
+    function useCodexQuota(enabled, source = 'auto') {
+      const [snap, setSnap] = useState(codexQuotaSnapshot)
       useEffect(() => {
         if (!enabled) return
         let mounted = true
         const sync = () => {
-          if (mounted) setSnap({ status: codexQuotaCache.status, windows: codexQuotaCache.windows, fetchedAt: codexQuotaCache.fetchedAt })
+          if (mounted) setSnap(codexQuotaSnapshot())
         }
         const unsubscribe = subscribeCodexQuota(sync)
         sync()
-        void fetchCodexQuota(false, true)
-        return () => { mounted = false; unsubscribe() }
-      }, [enabled])
-      return snap
+        void fetchCodexQuota(false, true, source)
+        const timer = setInterval(() => { void fetchCodexQuota(false, true, source) }, 60_000)
+        return () => { mounted = false; clearInterval(timer); unsubscribe() }
+      }, [enabled, source])
+      return snap.source === source ? snap : { status: 'idle', windows: {}, fetchedAt: 0 }
     }
 
-    /** Codex 周额度侧边栏卡片:复用 MiniMax 行渲染(已用口径,issue #57 统一后的方向)。 */
+    /** Codex 额度侧边栏卡片:明确显示剩余额度和本机时区的重置时间。 */
     function CodexPlanBox(props) {
       const hoverProps = useQuotaHoverRefresh()
       const { state, wide } = props
       const t = makeT(resolveLocale(state.config))
       const enabled = state.config?.codexQuotaEnabled === true && state.config?.codexQuotaSidebar !== false
-      const cached = useCodexQuota(enabled && !props.preview)
-      const snap = props.preview && state.displayPreviewCodex ? state.displayPreviewCodex : cached
-      const refresh = useClickRefresh(props.preview ? null : () => fetchCodexQuota(true, enabled))
-      if (!enabled || snap.status !== 'ok') return null
-      const win = snap.windows.weekly ?? null
-      if (win === null) return null
-      const direction = barDirectionOf(state.config, 'plan')
-      const view = miniMaxRow(t('goShortWeekly'), win, direction, t)
+      const source = state.config?.codexQuotaSource ?? 'auto'
+      const cached = useCodexQuota(enabled && !props.preview, source)
+      const snap = props.preview ? state.displayPreviewCodex ?? (codexQuotaCache.source === source ? codexQuotaCache : { status: 'idle' }) : cached
+      const refresh = useClickRefresh(props.preview ? null : () => fetchCodexQuota(true, enabled, source))
+      if (!enabled) return null
+      if (snap.status !== 'ok') return el('div', {
+        'data-cm-display': 'codex', className: 'cm-bbox cm-mm clickable' + (wide === false ? ' rail' : ''),
+        title: t('codexQuotaUnavailable'), ...clickableRefreshProps(refresh.busy, refresh.run),
+      }, el('div', { className: 'cm-mm-title' }, wide === false ? 'Codex' : t('codexQuotaTitle')),
+      el('span', { className: 'cm-hint' }, wide === false ? '—' : t(snap.status === 'idle' || refresh.busy ? 'refreshing' : 'codexQuotaUnavailable')))
+      const views = [['five', 'codexQuotaFive'], ['weekly', 'codexQuotaWeek']].flatMap(([key, label]) => {
+        const win = snap.windows[key]
+        if (!win) return []
+        const text = quotaValueText(simpleBarByDirection(win.percent, 'remaining').label, 'remaining', t)
+        const date = new Date(typeof win.resetsAt === 'string' ? win.resetsAt : NaN)
+        const reset = Number.isFinite(date.getTime()) ? t('codexQuotaReset', { time: date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) }) : ''
+        return [{ key, label: t(label), text, reset, win }]
+      })
+      if (!views.length) return null
+      const level = views.some(v => v.win.percent >= 100) ? 'over' : views.some(v => v.win.percent >= 80) ? 'warn' : 'ok'
       const detail = [
         t('codexQuotaTitle'),
-        quotaValueText(view.label, direction, t),
-        miniMaxResetText(win, t),
+        ...views.map(view => view.label + ' · ' + view.text + (view.reset ? ' · ' + miniMaxResetText(view.win, t) : '')),
         snap.fetchedAt > 0 ? t('goQuotaFetchedAt', { time: new Date(snap.fetchedAt).toLocaleTimeString() }) : null,
         ...clickRefreshTipLines(t, refresh),
       ].filter(Boolean).join('\n')
       const body = el(Fragment, null,
         el('div', { className: 'cm-mm-title' }, t('codexQuotaTitle')),
-        view.row)
-      const rail = el('div', { className: 'cm-bbox-rail cm-num' }, view.label === null ? '—' : view.label + '%')
+        ...views.map(view => el('div', { key: view.key, className: 'cm-codex-window' },
+          el('span', null, view.label + ' ·'), el('strong', null, view.text),
+          view.reset ? el('span', { className: 'cm-mm-reset' }, '· ' + view.reset) : null)))
+      const rail = el(Fragment, null, ...views.map(view => el('div', { className: 'cm-bbox-rail cm-num' }, view.text)))
       return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
-          ...hoverProps, 'data-cm-display': 'codex', className: 'cm-bbox cm-mm clickable' + (view.level === 'ok' ? '' : ' ' + view.level)
+          ...hoverProps, 'data-cm-display': 'codex', className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level)
             + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
           ...clickableRefreshProps(refresh.busy, refresh.run),
         },
@@ -2815,6 +2899,7 @@
         return codingPlanWindowLabel(name, t) + ' ' + value + (reset ? ' · ' + reset : '')
       })
       if (live.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }))
+      if (live.message) detailParts.push(live.message)
       detailParts.push(...clickRefreshTipLines(t, refresh))
       const detail = [t(rowDef.labelKey), ...detailParts].join('\n')
       const pcts = entries.map(([, win]) => pctOf(win)).filter(p => p !== null)
@@ -2823,7 +2908,7 @@
         ? pcts.slice(0, 2).map(p => simpleBarByDirection(p, planDirection).label + '%').join(' ')
         : (typeof entries[0][1]?.text === 'string' ? entries[0][1].text : '—')
       return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
-        el('div', { ...hoverProps, 'data-cm-display': 'plan', className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
+        el('div', { ...hoverProps, 'data-cm-display': 'plan', 'data-cm-plan': id, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
           wide === false
             ? el('div', { className: 'cm-bbox-rail cm-num' }, railText)
             : el(Fragment, null,
@@ -2958,7 +3043,8 @@
 
     function QuotaStrip(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
-      useCodexQuota(costStore?.state?.config?.codexQuotaEnabled === true)
+      const cfg = costStore?.state?.config
+      useCodexQuota(cfg?.codexQuotaEnabled === true && cfg.codexQuotaStrip !== false && cfg.quotaStrip?.enabled === true, cfg?.codexQuotaSource)
       // Hook 先于一切条件返回(React 规则):横条会因 state 缺失/开关关闭随时提前 return null。
       const [busyKey, setBusyKey] = useState(null)
       const [errs, setErrs] = useState({})
@@ -3033,6 +3119,7 @@
           const vendor = STRIP_VENDOR_SHORT[rowDef.id] ?? rowDef.id
           const segs = []
           const detailParts = []
+          if (live.message) detailParts.push(live.message)
           let worst = 0 // 0 ok < 1 warn < 2 over;chip 告警级别取所有窗口的最差
           let shown = 0
           for (const [name, win] of entries) {
@@ -3065,19 +3152,28 @@
           }
         }
       }
-      // Codex chip(issue #59):dsh-codex-connect 在位且已登录时出现;已用口径与各家一致。
+      // Codex chip(issue #59):connect / subscription 在位且已登录时出现;5h + 周双窗口。
       // 独立于 Coding Plan 开关:即使 strip.plans 为 false,Codex chip 仍应渲染。
-      const codexWin = config.codexQuotaEnabled === true && codexQuotaCache.status === 'ok' ? codexQuotaCache.windows.weekly ?? null : null
-      if (codexWin !== null && typeof codexWin.percent === 'number') {
-        const pct = Math.max(0, Math.min(100, Math.round(Number(codexWin.percent) || 0)))
-        const resets = typeof codexWin.resetsAt === 'string' && codexWin.resetsAt.length > 0
-          ? ' · ' + t('goResetAt', { time: new Date(codexWin.resetsAt).toLocaleString() }) : ''
+      const codexWins = config.codexQuotaEnabled === true && config.codexQuotaStrip !== false && codexQuotaCache.source === (config.codexQuotaSource ?? 'auto') && codexQuotaCache.status === 'ok' ? codexQuotaCache.windows : {}
+      const fiveWin = codexWins.five ?? null
+      const weekWin = codexWins.weekly ?? null
+      const pctOf = win => Math.max(0, Math.min(100, Math.round(Number(win.percent) || 0)))
+      if (fiveWin !== null || weekWin !== null) {
+        const fivePct = fiveWin === null ? null : pctOf(fiveWin)
+        const weekPct = weekWin === null ? null : pctOf(weekWin)
+        const worst = Math.max(fivePct ?? 0, weekPct ?? 0)
         chips.push({
           key: 'codex',
           label: 'Codex',
-          level: pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok',
-          tip: t('codexQuotaTitle') + ': ' + pct + '%' + resets,
-          segs: [{ name: 'weekly', pct: Math.round(simpleBarByDirection(pct, barDirectionOf(config, 'plan')).width) }],
+          level: worst >= 100 ? 'over' : worst >= 80 ? 'warn' : 'ok',
+          tip: t('codexQuotaTitle') + ': ' + [
+            fivePct === null ? null : '5h ' + quotaValueText(100 - fivePct, 'remaining', t),
+            weekPct === null ? null : t('codingPlanRemain7d') + ' ' + quotaValueText(100 - weekPct, 'remaining', t),
+          ].filter(Boolean).join(' · '),
+          segs: [
+            fivePct === null ? null : { name: '5h', pct: 100 - fivePct },
+            weekPct === null ? null : { name: 'weekly', pct: 100 - weekPct },
+          ].filter(Boolean),
         })
       }
       if (chips.length === 0) return null
@@ -3091,7 +3187,7 @@
         Promise.resolve()
           .then(() => (key === 'budget' ? api.reload()
             : key === 'go' ? api.refreshGoQuota()
-              : key === 'codex' ? fetchCodexQuota(true, config.codexQuotaEnabled === true)
+              : key === 'codex' ? fetchCodexQuota(true, config.codexQuotaEnabled === true, config.codexQuotaSource)
                 : key === 'factory:core' ? api.refreshCodingPlan('factory') : api.refreshCodingPlan(key)))
           .catch(error => { setErrs(m => ({ ...m, [key]: error?.message ?? String(error) })) })
           .finally(() => setBusyKey(null))
@@ -3111,7 +3207,7 @@
               } else {
                 kids.push(el('span', { className: 'cm-qseg', key: s.name },
                   el('span', { className: 'cm-qbar' }, el('span', { className: 'cm-qfill', style: { width: s.pct + '%' } })),
-                  el('span', null, s.pct + '%')))
+                  el('span', null, c.key === 'codex' ? (c.segs.length > 1 ? (s.name === '5h' ? '5h' : t('goShortWeekly')) + ' ' : '') + quotaValueText(s.pct, 'remaining', t) : s.pct + '%')))
               }
             })
           }
@@ -3269,19 +3365,12 @@
       const pct = amount > 0 ? Math.min(999, used / amount * 100) : null
       const level = pct === null ? 'ok' : pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
 
-      if (budget.enabled === true && config.hideBudget !== true) {
+      if (budget.enabled === true && config.hideBudget !== true && props.todayOnly !== true) {
         // 预算圆角方形图框(渲染在设置按钮上方、余额行下方)。
-        const todayApi = displayCostOf(today, config)
-        const todayUsed = todayApi * (Number.isFinite(rate) && rate > 0 ? rate : 1)
-        const todayPct = amount > 0 ? Math.min(999, todayUsed / amount * 100) : null
         const detail = [
           t('budgetOf', { period: t(PERIOD_KEYS[budget.period] ?? 'periodMonth') }),
           t('usedOf', { used: formatMoneyValue(used, config), amount: formatMoneyValue(amount, config) })
             + ' · ' + (pct === null ? '—' : pct.toFixed(1) + '%'),
-          // 今日金额行受 hideTodayCost 门控(issue #46)。
-          ...(config.hideTodayCost === true ? [] : [config.sidebarTodayMetric === 'tokens'
-            ? t('today') + ' ' + todayValue
-            : t('todayShare', { amount: todayValue, pct: todayPct === null ? '—' : todayPct.toFixed(1) + '%' })]),
           t('monthTotal', {
             month: formatMoneyUsd(displayCostOf(state.month, config), config),
             total: formatMoneyUsd(displayCostOf(state.total, config), config),
@@ -3289,8 +3378,8 @@
         ].join('; ')
         if (props.summary === true) return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
           el('div', { 'data-cm-display': 'budget', className: 'cm-simple-summary' + (level === 'ok' ? '' : ' ' + level), tabIndex: 0 },
-            el('span', null, t('todayBudget', { period: t(PERIOD_KEYS[budget.period] ?? 'periodMonth') })),
-            el('span', { className: 'cm-num' }, todayValue + ' / ' + formatMoneyValue(amount, config))))
+            el('span', null, t('budgetOf', { period: t(PERIOD_KEYS[budget.period] ?? 'periodMonth') })),
+            el('span', { className: 'cm-num' }, formatMoneyValue(used, config) + ' / ' + formatMoneyValue(amount, config))))
         const view = budgetBoxBody(state, config, t)
         return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
           el('div', { 'data-cm-display': 'budget', className: 'cm-bbox' + (level === 'ok' ? '' : ' ' + level) + (wide ? '' : ' rail') },
@@ -3309,10 +3398,8 @@
         t('totalCost', { amount: formatMoneyUsd(displayCostOf(state.total, config), config) }),
       ].join('; ')
       return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
-        el(Fragment, null,
-          el('div', { 'data-cm-display': 'today', className: 'cm-foot' + (wide ? '' : ' cm-foot-rail') },
-            wide ? el(Fragment, null, t('today'), ' ', el('span', { className: 'cm-num' }, todayValue)) : el(WalletIcon, { size: 16 })),
-          wide ? peakNoticeEl(state, config, t) : null))
+        el('div', { 'data-cm-display': 'today', className: 'cm-foot' + (wide ? '' : ' cm-foot-rail') },
+          wide ? el(Fragment, null, t('today'), ' ', el('span', { className: 'cm-num' }, todayValue)) : el(WalletIcon, { size: 16 })))
     }
 
     /**
@@ -3418,6 +3505,8 @@
       return el(Fragment, null,
         el('div', {
           ref: cardRef,
+          // 上游 v1.9.x 的显示目标标记:合并卡在「今日费用可见」时就是 today 目标,便于预览/测试按目标计数。
+          ...(showToday ? { 'data-cm-display': 'today' } : {}),
           className: 'cm-bbox cm-todaybal' + (balanceOn ? ' clickable' : '') + (refresh.busy ? ' busy' : ''),
           ...(balanceOn ? clickableRefreshProps(refresh.busy, refresh.run) : {}),
           onMouseEnter: onCardEnter,
@@ -3444,7 +3533,7 @@
 
     function SidebarFooter(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
-      useCodexQuota(costStore?.state?.config?.codexQuotaEnabled === true && costStore?.state?.config?.codexQuotaSidebar !== false)
+      useCodexQuota(costStore?.state?.config?.codexQuotaEnabled === true && costStore?.state?.config?.codexQuotaSidebar !== false, costStore?.state?.config?.codexQuotaSource)
       // 侧边栏页脚非会话作用域插槽:useProjection 在部分宿主/页面可能不可用或
       // 抛错(无活跃会话),try/catch 退化,联动刷新随之失效(60s 轮询兜底)。
       let projectionUsage
@@ -3488,25 +3577,21 @@
       const plansOn = sidebarPlanIds.length > 0
       // 网关额度侧边栏卡片(issue #96):按来源 display 门控,卡片本体见 GatewayQuotaBox。
       const gatewayNodes = gatewaySidebarCards(state, config, wide, api)
-      // Codex 周额度(issue #59):客户端探测 dsh-codex-connect,ok 时并入侧边栏;
-      // 其余显示全关时也要为它保留渲染入口(模块装载即有被动探测,快照同步读)。
-      const codexSnapshot = preview && state.displayPreviewCodex ? state.displayPreviewCodex : codexQuotaCache
-      const codexOn = config.codexQuotaEnabled === true && config.codexQuotaSidebar !== false && codexSnapshot.status === 'ok'
-        && codexSnapshot.windows.weekly !== null
+      // 启用后始终保留卡片,避免未登录/接口失败时没有提示和手动重试入口。
+      const codexOn = config.codexQuotaEnabled === true && config.codexQuotaSidebar !== false
       const budgetOn = (config.budget ?? {}).enabled === true && config.hideBudget !== true
       const showToday = config.sidebar !== false && config.hideTodayCost !== true
+      const peakOn = peakView(config, Date.now()) !== null
       const modelsOn = config.sidebarModels?.enabled === true
-      if (!modelsOn && !showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && gatewayNodes.length === 0) return null
+      if (!modelsOn && !showBalance && !showCustomBalance && !goOk && !plansOn && !codexOn && !budgetOn && !showToday && !peakOn && gatewayNodes.length === 0) return null
       // 紧凑模式(侧边栏进度条样式):宽栏下各额度卡内部的时间段进度行排两列
       // (CSS 于 .cm-footer-stack.compact 生效);卡片本身与收起(rail)态维持原样。
       const simple = config.sidebarSimple === true
       const compactWide = !simple && wide && config.sidebarStyle === 'compact'
-      const mergedBudget = simple && wide && showToday && budgetOn
       const nodes = []
-      // simple 模式(上游 v1.7.18 极简侧栏):宽栏摘要行;预算开启时由 BudgetBoxContent
-      // 合并为一条「今日 / 预算」摘要(上游 #123),余额仍走原图框/行。
-      if (mergedBudget) nodes.push(el(BudgetBoxContent, { state, wide, summary: true }))
-      else if (simple && wide && showToday) nodes.push(el('div', { 'data-cm-display': 'today', className: 'cm-simple-summary' },
+      // simple 模式(上游极简侧栏):宽栏摘要行由 BudgetBoxContent(simple && wide 时自带 summary,
+      // 见下方预算分支)与这一行今日用量共同承载;余额仍走原图框/行。
+      if (simple && wide && showToday) nodes.push(el('div', { 'data-cm-display': 'today', className: 'cm-simple-summary' },
         el('span', null, t('today')), el('span', { className: 'cm-num' }, sidebarTodayValue(state.today, config, t))))
       // 展开态:今日费用 + 官方余额 + 峰谷条合并为一张卡(含今日/累计 Token 量,见 TodayBalanceCard);
       // 收起(rail)态与 simple 模式维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
@@ -3534,17 +3619,17 @@
           el('div', { 'data-cm-display': 'budget', className: 'cm-bbox-section' + (budgetView.level === 'ok' ? '' : ' ' + budgetView.level) }, budgetView.body)))
       } else {
         if (goOk) nodes.push(el(GoQuotaBox, { state, wide }))
-        if (budgetOn && !mergedBudget) nodes.push(el(BudgetBoxContent, { state, wide }))
+        if (budgetOn) nodes.push(el(BudgetBoxContent, { state, wide, summary: simple && wide }))
       }
-      // 今日费用行:展开态已并入顶部合并卡 TodayBalanceCard(其内部自带峰谷条),simple 宽栏由摘要行表达;
-      // 收起(rail)态保留钱包图标行 —— 故仅在收起态补渲染,避免与合并卡重复。
-      if (!budgetOn && showToday && !wide) nodes.push(el(BudgetBoxContent, { state, wide }))
-      // 简化摘要不再承载峰谷条;单独渲染宽栏条,避免漏掉无预算配置或合并后重复(上游 #122)。
-      // fork:标准宽栏由合并卡承载峰谷条,简化宽栏没有该卡,故不随今日金额显隐门控
-      // (组件自身按 peakEnabled / peakNotice 门控),两种宽栏模式表现一致。
-      if (simple && wide) nodes.push(peakNoticeEl(state, config, t))
-      // 收起(rail)态:无论预算/Go 额度开关状态,统一在图框下方追加竖向峰谷进度条(受 peakNotice 等门控,内部自行返回 null)。
-      if (!wide) nodes.push(peakNoticeRailEl(state, config, t))
+      // fork:标准宽栏用合并信息卡承载今日费用/余额/峰谷条;它与 TodayBalanceCard 内部的
+      // 「!showToday && !balanceOn 就返回 null」保持一致,避免卡片缺席时把峰谷条一起吞掉。
+      const mergedCardOn = wide && !simple && (showToday
+        || (showBalance && (state.balance?.status === 'ok' || state.balance?.status === 'error')))
+      // 今日费用行:标准宽栏已并入合并卡,故只在合并卡缺席或收起态补渲染;
+      // 上游 v1.9.x 改为每个显示目标自管可见性(todayOnly 卡片 + peakOn 门控),条件按承载关系收窄。
+      if (showToday && !mergedCardOn && !(simple && wide)) nodes.push(el(BudgetBoxContent, { state, wide, todayOnly: true }))
+      // fork:宽栏且合并卡在场时峰谷条由卡片承载,其余情况(简化宽栏 / 合并卡缺席 / 收起态)独立渲染。
+      if (peakOn && !mergedCardOn) nodes.push(wide ? peakNoticeEl(state, config, t) : peakNoticeRailEl(state, config, t))
       if (modelsOn) nodes.splice(config.sidebarModels.position === 'first' ? 0 : config.sidebarModels.position === 'afterBalance' ? afterBalance : nodes.length, 0,
         el(SidebarModelCosts, { key: 'models', state, wide, preview }))
       return el('div', { ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : '') }, ...nodes)

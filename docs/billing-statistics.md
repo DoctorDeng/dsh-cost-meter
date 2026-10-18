@@ -49,7 +49,7 @@ Call details use the price version recorded for the call time, including peak/of
 
 Cache hit rate is `cacheRead / (input + cacheRead + cacheWrite)`. Token composition is a token-count share, not a cost share. Reported reasoning tokens can overlap output and are shown separately; the configured reasoning rate determines any additional charge.
 
-The statistics screen uses DSH's package-local asynchronous module loader. Since **1.8.2**, the main and statistics Remote contributions have distinct registration identities; their combined lifecycle is tested against the real **0.1.7-rc.2** and **0.2.0-rc.2** client registry/gateway. Older hosts without that loader show an upgrade message; existing metering and settings remain available. Both shipped client files stay below the 256 KiB per-file limit.
+The statistics screen uses DSH's package-local asynchronous module loader. Since **1.8.2**, the main and statistics Remote contributions have distinct registration identities; their combined lifecycle is tested against the real **0.2.0-rc.2** client registry/gateway (the 0.1.7-rc.2 leg was dropped together with the 0.2.0 floor). That loader exists throughout the supported host range, so hosts below the floor are refused at admission instead of showing an in-app upgrade message. Both shipped client files stay below the 256 KiB per-file limit.
 
 ## 简体中文
 
@@ -98,7 +98,7 @@ API 费用是按上报用量和配置单价计算的估算，不是厂商账单�
 
 缓存命中率为 `缓存读取 / (未缓存输入 + 缓存读取 + 缓存写入)`。Token 构成展示数量占比，不是费用占比。推理 Token 可能包含在输出中，因此单独列示，不再次加入总 Token；是否另收推理费取决于配置的单价。
 
-统计页使用 DSH 的异步模块加载器。从 **1.8.2** 起，主客户端与统计模块使用各自的 Remote 注册标识；两部分组合加载的流程已通过真实 **0.1.7-rc.2** 和 **0.2.0-rc.2** 客户端 registry/gateway 验证。没有该能力的旧宿主会显示升级提示，原有计费和设置继续可用。两个客户端文件分别遵守 256 KiB 大小限制。
+统计页使用 DSH 的异步模块加载器。从 **1.8.2** 起，主客户端与统计模块使用各自的 Remote 注册标识；两部分组合加载的流程已通过真实 **0.2.0-rc.2** 客户端 registry/gateway 验证（0.1.7-rc.2 档位已随 0.2.0 下限一并移除）。该加载器在受支持的宿主范围内恒存在，低于下限的宿主在准入阶段即被拒绝，不再走应用内升级提示。两个客户端文件分别遵守 256 KiB 大小限制。
 
 宿主启动后在后台准备最近查看的会话，回合结束后更新对应结果；会话入口也会预加载费用总览和分类图。计费结果和独立于价格的精简用量缓存都可跨重启保留，先显示已有数据，再后台更新。分类图不必等调用汇总读完，切换视图、排序和翻页共用计算结果。确认重算、套餐归属或子代理开关改变后可利用用量缓存刷新视图，日志改变后才重新读取。缓存有容量限制，只保存计费字段，不保存对话正文、工具参数、返回内容或凭据。
 

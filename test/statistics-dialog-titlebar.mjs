@@ -130,12 +130,6 @@ ${[['dsh', 1280, 800, 1], ['dsh', 900, 600, 1], ['dsh', 520, 600, 1],
   // (margin:auto 与 margin:16px 在顶满时同值,断言照样全绿)。
   ['dsh', 1280, 800, 0], ['dsh', 900, 600, 0], ['dsh', 520, 600, 0],
   ['fullscreen', 1280, 800, 1], ['fullscreen', 1280, 800, 0], ['web', 1280, 800, 1], ['web', 1280, 800, 0],
-  // 旧宿主(DSH ≤0.1.7):没有 --dsh-frame-chrome-top,Windows 下也没有 top-clearance
-  // (它只为 darwin 定义,见下面 frameVars),回退链落到 preload 注入的 40px。
-  // 不覆盖这一档,修复会在 CI 矩阵覆盖的旧宿主上静默失效而测试仍全绿。
-  ['legacy', 1280, 800, 1], ['legacy', 900, 600, 1], ['legacy', 1280, 800, 0],
-  // 旧宿主 + 全屏:回退链只能命中不随全屏变化的 40px,必须由样式表 [data-fullscreen] 归零。
-  ['legacy-fullscreen', 1280, 800, 1], ['legacy-fullscreen', 1280, 800, 0],
   // macOS:不设 data-windows-titlebar,红绿灯区由 --dsh-frame-top-clearance: 48px 表达。
   ['darwin', 1280, 800, 1], ['darwin', 900, 600, 1], ['darwin', 1280, 800, 0]]
   .map(([env, w, h, tall]) => `<iframe title="${env}|${w}x${h}|t${tall}" width="${w}" height="${h}" src="/case?env=${env}&tall=${tall}"></iframe>`).join('')}
@@ -156,8 +150,7 @@ const report=tag=>{try{fetch('/report',{method:'POST',headers:{'content-type':'a
   try{
     for(const frame of frames){
       currentCase=frame.title;
-      // 标题形如 <env>|<w>x<h>|t<0|1>;env 本身含 '-' (legacy-fullscreen),
-      // 所以用 '|' 分隔,不能按 '-' 拆。
+      // 标题形如 <env>|<w>x<h>|t<0|1>;按 '|' 拆,不要按 '-' 拆(环境名可能含 '-')。
       const parts=frame.title.split('|'), env=parts[0], tall=parts[2]==='t1';
       // 所有断言统一带上档位前缀:省掉 24 处手工拼接,漏拼也不会定位不到档位。
       const check=(ok,msg)=>record(ok,frame.title+' '+msg);
@@ -207,6 +200,18 @@ const report=tag=>{try{fetch('/report',{method:'POST',headers:{'content-type':'a
       // 弹窗会被内容撑到视口外且无法滚动)。max-height:none 即为失效。
       const cs=getComputedStyle(dialog);
       check(cs.maxHeight!=='none','dialog keeps a height cap (max-height='+cs.maxHeight+')');
+      // 皮肤插件把 alias 调成半透明时,弹窗必须保留皮肤 RGB 并去除背景 alpha,
+      // 否则弹窗会透出后方页面内容(弹窗内左右两栏互相透出的真实回归)。
+      root.style.setProperty('--dsw-alias-bg-base','rgba(18,16,26,.18)')
+      root.style.setProperty('--dsw-alias-bg-layer-2','rgba(238,232,246,.92)')
+      const skinned=getComputedStyle(dialog)
+      const canvas=win.document.createElement('canvas');canvas.width=canvas.height=1
+      const paint=canvas.getContext('2d');paint.fillStyle=skinned.backgroundColor;paint.fillRect(0,0,1,1)
+      const pixel=paint.getImageData(0,0,1,1).data
+      check(pixel[3]===255,'translucent skins retain an opaque dialog background')
+      check(pixel[0]===238&&pixel[1]===232&&pixel[2]===246,'skin RGB channels are preserved')
+      root.style.removeProperty('--dsw-alias-bg-base')
+      root.style.removeProperty('--dsw-alias-bg-layer-2')
       check(r.bottom<=win.innerHeight+0.5,'dialog must not overflow the viewport bottom (bottom='+r.bottom.toFixed(1)+' vh='+win.innerHeight+')');
       // 内容超高时必须真的可滚动:断言「确实溢出且滚动范围 > 0」,而不是断言
       // overflow==='auto' —— 裸 <dialog> 的 UA 默认值就是 auto,那条断言恒真(空断言)。
@@ -232,14 +237,6 @@ const report=tag=>{try{fetch('/report',{method:'POST',headers:{'content-type':'a
         check(!cssVar('--dsh-frame-chrome-top'),'plain web has no chrome-top');
         check(!cssVar('--dsh-frame-top-clearance'),'plain web has no top-clearance');
         check(!cssVar('--dsh-windows-titlebar-height'),'plain web has no preload titlebar height');
-      }
-      // 旧宿主没有 chrome-top、也没有 Windows 版 top-clearance:必须靠
-      // --dsh-windows-titlebar-height 兜住,否则修复静默失效(这正是本档位要守的回归)。
-      // legacy 与 legacy-fullscreen 共用前两条(后者是前者的子集),只有 top-clearance 那条是 legacy 独有。
-      if(env.indexOf('legacy')===0){
-        check(!cssVar('--dsh-frame-chrome-top'),'legacy host has no chrome-top');
-        check(cssVar('--dsh-windows-titlebar-height')==='40px','legacy host exposes titlebar height');
-        if(env==='legacy') check(!cssVar('--dsh-frame-top-clearance'),'legacy host has no windows top-clearance');
       }
       if(env==='darwin') check(cssVar('--dsh-frame-top-clearance')==='48px','darwin exposes 48px top clearance');
       // 关闭走 React 状态更新,慢机器上固定 sleep 会假失败:这里保留条件轮询
@@ -284,31 +281,25 @@ const server = createServer((request, response) => {
   const requestedEnv = new URL(request.url, 'http://127.0.0.1').searchParams.get('env') ?? 'dsh'
   // Select a constant scenario. Never interpolate the request parameter into HTML
   // or JavaScript: JSON.stringify alone does not escape a closing script tag.
-  const environments = { dsh: 'dsh', fullscreen: 'fullscreen', web: 'web', legacy: 'legacy', 'legacy-fullscreen': 'legacy-fullscreen', darwin: 'darwin' }
-  const env = Object.hasOwn(environments, requestedEnv) ? environments[requestedEnv] : null
+  const environments = ['dsh', 'fullscreen', 'web', 'darwin']
+  const env = environments.includes(requestedEnv) ? requestedEnv : null
   if (env === null) {
     response.statusCode = 400
     response.setHeader('content-type', 'text/plain; charset=utf-8')
     response.end('Unknown test environment')
     return
   }
-  const isLegacy = env.indexOf('legacy') === 0
-  const isFullscreenEnv = env === 'fullscreen' || env === 'legacy-fullscreen'
+  const isFullscreenEnv = env === 'fullscreen'
   // [真实] 逐字复刻 app.asar /lib/preload-app.cjs 的标记注入与 dsh-client-ui-layout 的变量定义。
   // darwin 不设 data-windows-titlebar(macOS 用 hiddenInset,红绿灯由系统画)。
-  // legacy(DSH ≤0.1.7)**没有** chrome-top,且 top-clearance 只为 darwin 定义 ——
-  // Windows 下唯一的高度信号是 preload 注入的 --dsh-windows-titlebar-height
-  // (实测 0.1.7-rc.2 的 client.js:top-clearance 仅出现于 html[data-platform=darwin])。
   const preload = env === 'web' || env === 'darwin' ? '' : `
     root.dataset.windowsTitlebar='';
     root.style.setProperty('--dsh-windows-titlebar-height','40px');
     ${isFullscreenEnv ? "root.dataset.fullscreen='true';" : ''}`
   const isDarwin = env === 'darwin'
-  // 旧宿主(≤0.1.7)与 macOS 都只有 darwin 那条 top-clearance(旧宿主在 Windows 下没有它,
-  // 于是回退链落到 preload 的 40px —— 这正是旧宿主档要守的回归)。
-  const frameVars = isLegacy || isDarwin
+  // DSH ≥0.2.0:Windows 定义 chrome-top(全屏归 0);darwin 只有 top-clearance 那条。
+  const frameVars = isDarwin
     ? 'html[data-platform=darwin]{--dsh-frame-top-clearance:48px}'
-    // DSH ≥0.2.0:Windows 定义 chrome-top(全屏归 0);darwin 仍只有 top-clearance
     : `html[data-windows-titlebar]{--dsh-frame-top-clearance:var(--dsh-windows-titlebar-height);--dsh-frame-chrome-top:var(--dsh-windows-titlebar-height)}
 html[data-windows-titlebar][data-fullscreen]{--dsh-frame-chrome-top:0px}`
   // 标题栏覆盖层:darwin 用 48px 红绿灯区,其余用 preload 注入的高度。
@@ -319,7 +310,7 @@ html[data-windows-titlebar][data-fullscreen]{--dsh-frame-chrome-top:0px}`
   const caption = env === 'web' || isFullscreenEnv ? '' : `<div id="caption" aria-hidden="true"><i>–</i><i>□</i><i>×</i></div>`
   // 纯 Web 环境**没有** preload,因此 --dsh-windows-titlebar-height 必须不存在
   // (真实 DSH 里它只由 Windows preload 注入)。若在 :root 里无条件定义它,
-  // 四级回退的最后一档就会被误命中,测出的行为与真实纯 Web 不符。
+  // 两级回退的最后一档就会被误命中,测出的行为与真实纯 Web 不符。
   const titlebarHeightVar = env === 'web' ? '' : '--dsh-windows-titlebar-height:40px;'
   response.end(`<!doctype html><meta charset="utf-8"><style>
 :root{${titlebarHeightVar}

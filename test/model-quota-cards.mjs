@@ -257,14 +257,15 @@ assert.equal(keys()[0], 'gw-gw-1', '勾选后自动置顶')
 gateway.render(cards()[0].props)
 assert.equal(gateway.tree.props.open, true, '启用排序后保留自身展开状态')
 assert.equal(writes, beforeExpand + 1, '展开不写配置，只有启用动作保存')
-const onlyGemini = nodes(gateway.tree.props.configNode).find(n => n.type === 'input' && n.props.type === 'checkbox')
+const geminiInput = () => nodes(gateway.tree.props.configNode).find(n => n.type === 'label' && textOf(n).trim() === t('gatewayOnlyGemini')).children[0]
+const onlyGemini = geminiInput()
 assert.ok(onlyGemini)
 onlyGemini.props.onChange({ target: { checked: true } })
 draft = plain(e.ui.parseConfig(applyConfigPatch(quotaState.config, { gatewayQuotas: draft.gatewayQuotas }).config, 'config'))
 assert.equal(draft.gatewayQuotas.sources[1].antigravityOnlyGemini, true, 'Gemini 开关通过组件回调、服务端和客户端回读')
 quota.render(quotaProps())
 gateway.render(cards()[0].props)
-assert.equal(nodes(gateway.tree.props.configNode).find(n => n.type === 'input' && n.props.type === 'checkbox').props.checked, true)
+assert.equal(geminiInput().props.checked, true)
 const refreshInput = nodes(gateway.tree.props.configNode).find(n => n.type === 'input' && n.props.type === 'number')
 assert.ok(refreshInput, '网关来源卡片存在刷新间隔数字输入框')
 refreshInput.props.onChange({ target: { value: '30' } })
@@ -307,7 +308,7 @@ for (const locale of ['zh', 'en']) {
   for (const [enabled, saved, busy, disabled] of [[false, { enabled: false }, false, true],
     [true, { enabled: false }, false, true], [true, { enabled: true, display: 'off' }, false, true],
     [true, { enabled: true, display: 'settings' }, false, false], [true, { enabled: true }, true, true]]) {
-    const tree = e.ui.QuotaCard({ name: 'Gateway', enabled, saved, busy, onRemove() {}, t: tx })
+    const tree = e.mount(e.ui.QuotaCard, { name: 'Gateway', enabled, saved, busy, onRemove() {}, t: tx }).tree
     assert.ok(input(tree, tx('enable') + ': Gateway'))
     const buttons = nodes(tree).filter(n => n.type === 'button')
     assert.equal(textOf(buttons.at(-1)), tx(busy ? 'refreshing' : 'refresh'), '刷新按钮位于最右')
@@ -344,7 +345,7 @@ let live = { ...state, config: { ...base, sidebarModels: { ...base.sidebarModels
 const remote = new Proxy({ getState: async () => { getCalls++; return { ok: true, value: live } } }, {
   get: (obj, key) => obj[key] ?? (async (...args) => { remoteArgs = [key, ...args]; return remoteResult }) })
 remote.getLocalState = remote.getState
-const stop = await activation.apply({ remote: { $mount: async () => () => {} }, get: key => key === 'remote.costMeter' ? remote : {
+const stop = await activation.apply({ remote: { $mount: async () => () => {} }, inject() {}, get: key => key === 'remote.costMeter' ? remote : {
   inject: (_, fn) => { const cleanup = fn(); if (cleanup) cleanups.push(cleanup) },
   register: (options, component) => { const key = options.name + ':' + options.id; registered.set(key, { options, component }); return () => registered.delete(key) },
 }, effect: fn => { const cleanup = fn(); if (cleanup) cleanups.push(cleanup) }, on: () => () => {} })
@@ -373,6 +374,21 @@ assert.equal(injected.hooks.cost.getSnapshot().state.config.sidebarModels.enable
 assert.equal(registered.has('sidebar.footer.action:cost-meter'), false)
 assert.equal(registered.has('conversation.composer.dock:cost-meter-corner'), false)
 activation.setNow(30000); await activation.tick(1000); assert.equal(getCalls, 4, '关闭后恢复默认 60 秒轮询')
+for (const [name, patch] of [
+  ['peak', { peakEnabled: true, peakNotice: true }],
+  ['plan', { codingPlans: { minimax: { enabled: true, display: 'sidebar' } } }],
+  ['custom balance', { customBalances: [{ enabled: true, display: 'sidebar', label: 'Test', request: { url: 'https://example.com/balance' }, extract: { remaining: 'balance' } }] }],
+  ['gateway', { gatewayQuotas: { sources: [{ id: 'solo', enabled: true, display: 'sidebar', type: 'cliproxyapi', baseURL: 'https://example.com' }] } }],
+  ['budget', { budget: { enabled: true } }], ['today', { sidebar: true, hideTodayCost: false }],
+  ['Go', { goQuota: { enabled: true, display: 'sidebar' } }],
+]) {
+  live = { ...state, config: sanitizeConfig({ ...base, ...patch }) }
+  await api.reload()
+  assert.equal(registered.has('sidebar.footer.action:cost-meter'), true, name + ' alone registers the real sidebar slot')
+  live = { ...state, config: base }
+  await api.reload()
+  assert.equal(registered.has('sidebar.footer.action:cost-meter'), false, 'all disabled removes the sidebar slot')
+}
 stop(); for (const cleanup of cleanups.reverse()) cleanup()
 assert.equal(activation.timers.size, 0, '卸载清理轮询')
 // #154: first RPC can race hot installation. Real client apply/store + fake clock.
@@ -385,7 +401,7 @@ const startupRemote = { getState: async () => {
   return available ? { ok: true, value: startupState } : { ok: false, error: { message: 'gateway/invocation-unavailable' } }
 } }
 startupRemote.getLocalState = startupRemote.getState
-const stopStartup = await startup.apply({ remote: { $mount: async () => () => {} },
+const stopStartup = await startup.apply({ remote: { $mount: async () => () => {} }, inject() {},
   get: key => key === 'remote.costMeter' ? startupRemote : {
     inject: (_, fn) => { const cleanup = fn(); if (cleanup) startupCleanups.push(cleanup) },
     register: (options, component) => { startupSlots.set(options.id, { options, component }); return () => {} },

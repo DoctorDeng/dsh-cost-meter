@@ -82,6 +82,35 @@ for (const locale of ['zh', 'en']) {
 }
 verifyCreditsUI()
 
+// #310: the one-click preset is editable, uses the management token and keeps credits distinct.
+for (const locale of ['zh', 'en']) {
+  slots = []
+  const config = sanitizeConfig({ locale })
+  let draft = structuredClone(config)
+  const t = ui.makeT(locale), state = { config, customBalances: [], customVarStatus: {} }
+  let tree = render(ui.QuotasSection, { state, draft, setDraft: value => { draft = value }, api: {}, t })
+  button(tree, t('workBuddyBalanceAdd')).props.onClick()
+  const saved = applyConfigPatch(config, draft)
+  assert.deepEqual(saved.errors, [])
+  const entry = ui.parseConfig(saved.config, 'config').customBalances[0]
+  assert.equal(entry.unit, 'CREDITS')
+  assert.equal(entry.enabled, false)
+  assert.equal(entry.request.url, 'http://127.0.0.1:8790/api/credits/expiry?package_limit=1')
+  assert.equal(entry.request.headers['X-Admin-Token'], '{{WORKBUDDY2API_ADMIN_TOKEN}}')
+  assert.equal(entry.extract.remaining, 'summary.available_remaining')
+  slots = []
+  let patch
+  const props = { state: { ...state, config: saved.config }, entry, index: 0, onPatch: value => { patch = value }, api: {}, t }
+  let card = render(ui.CustomBalanceEntryPanel, props)
+  nodes(card).find(node => node.props.className === 'cm-collapse-h').props.onClick()
+  card = render(ui.CustomBalanceEntryPanel, props)
+  assert.ok(nodes(card).some(node => node.props.target === 'customVar:WORKBUDDY2API_ADMIN_TOKEN'))
+  const httpLabel = nodes(card).find(node => node.type === 'label' && textOf(node).includes(t('customBalanceHttp')))
+  httpLabel.children.find(node => node.type === 'input').props.onChange({ target: { checked: true } })
+  assert.equal(patch.allowInsecureHttp, true)
+  assert.equal(ui.parseConfig(sanitizeConfig({ customBalances: [{ ...entry, ...patch }] }), 'config').customBalances[0].allowInsecureHttp, true)
+}
+
 // #290：专用入口生成可保存配置，Cookie 走凭据 RPC，固定接口不显示 HTTP 编辑项。
 for (const locale of ['zh', 'en']) {
   slots = []

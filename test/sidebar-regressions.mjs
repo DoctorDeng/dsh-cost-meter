@@ -52,10 +52,11 @@ for (const peakStyle of ['compact', 'classic', 'dot']) for (const go of [false, 
     assert.ok(hasClass(strips[0], phase), '圆点的时段状态与容器一致')
   }
   const summaries = nodes(tree).filter(n => hasClass(n, 'cm-simple-summary'))
-  assert.equal(summaries.length, sidebarSimple && wide && !hideTodayCost ? 1 : 0)
-  if (sidebarSimple && wide && budget && !hideTodayCost) {
-    assert.match(text(summaries[0]), /今日 \/ 本月预算.*¥1 \/ ¥10/)
-    assert.ok(hasClass(summaries[0], 'warn'), '按本月已用 80% 预警，不能按今日 10% 降级')
+  assert.equal(summaries.length, sidebarSimple && wide ? Number(!hideTodayCost) + Number(budget) : 0)
+  if (sidebarSimple && wide && budget) {
+    const summary = summaries.find(n => n.props['data-cm-display'] === 'budget')
+    assert.match(text(summary), /预算\(本月\).*¥8 \/ ¥10/)
+    assert.ok(hasClass(summary, 'warn'), '预算摘要按本月已用 80% 预警')
     assert.ok(nodes(tree).some(n => n.type === 'tooltip' && String(n.props.label).includes('80.0%')))
   }
   combinations++
@@ -65,8 +66,22 @@ for (const [period, label, used] of [['day', '今日', 1], ['month', '本月', 8
   state.config = sanitizeConfig({ locale: 'zh', sidebarSimple: true, budget: { enabled: true, amount: 10, period, customStart: '2026-09-01', customEnd: '2026-09-10' } })
   state.budgetUsed = used / 7.2
   const tree = render(ui.BudgetBoxContent({ state, wide: true, summary: true }))
-  assert.match(text(tree), new RegExp(`今日 / ${label}预算`))
+  assert.ok(text(tree).includes(`预算(${label})`))
   assert.match(String(tree.props.label), new RegExp(`已用 ¥${used} / ¥10`))
+}
+for (const sidebarSimple of [false, true]) for (const sidebarStyle of ['standard', 'compact']) for (const wide of [false, true])
+for (const budget of [false, true]) for (const today of [false, true]) for (const peak of [false, true]) for (const detail of [false, true]) {
+  state.config = sanitizeConfig({ locale: 'zh', sidebarSimple, sidebarStyle, sidebar: today, hideTodayCost: !today,
+    hideOfficialBalance: true, balance: { display: 'off' }, goQuota: { enabled: false }, sidebarModels: { enabled: false },
+    budget: { enabled: true, amount: 10, detail }, hideBudget: !budget, peakEnabled: true, peakNotice: peak })
+  const tree = render(ui.SidebarFooter({ wide, useCost: pick => pick({ state }) }))
+  const marked = key => nodes(tree).filter(n => n.props['data-cm-display'] === key)
+  assert.equal(marked('budget').length, Number(budget), 'budget visibility is independent of today and peak')
+  assert.equal(marked('today').length, Number(today), 'today remains visible with a hidden budget or collapsed budget details')
+  assert.equal(nodes(tree).filter(n => ['cm-peak-strip','cm-peak-rail'].some(cls => hasClass(n, cls))).length, Number(peak), 'peak works as the only visible component')
+  for (const card of marked('budget')) assert.equal(nodes(card).filter(n => ['today','peak'].includes(n.props['data-cm-display'])).length, 0, 'budget does not own sibling display targets')
+  assert.equal(tree === null, !budget && !today && !peak, 'all hidden leaves no empty footer')
+  combinations++
 }
 let stopped = 0
 const box = render(ui.BalanceBox({ state, wide: true }))

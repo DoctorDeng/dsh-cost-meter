@@ -21,14 +21,16 @@ window.__ModuleLoader__.load({
       const config = draft ?? props.state.config
       const en = locale === 'en', text = (zh, english) => en ? english : zh
       const [region, setRegion] = useState('sidebar'), [expanded, setExpanded] = useState(false)
-      const [selected, select] = useState(null)
+      const [selected, setSelected] = useState(null), [selectedPlan, selectPlan] = useState('minimax')
+      const select = (key, planId) => { setSelected(key); if (planId) selectPlan(planId) }
       const [examples, setExamples] = useState(() => {
         try { return localStorage.getItem('dsh-cost-meter:display-examples') !== 'false' } catch { return true }
       })
-      const previewData = React.useMemo(() => displayPreviewData(props.state, config, examples, selected), [props.state, config, examples, selected])
+      const previewData = React.useMemo(() => displayPreviewData(props.state, config, examples, selected, selectedPlan), [props.state, config, examples, selected, selectedPlan])
       const renderPreviewSidebar = React.useCallback(preview => renderSidebar(preview, previewData.state), [renderSidebar, previewData.state])
       const appearance = useDisplayAppearance()
       const labels = { balance: text('官方余额', 'Official balance'), budget: text('侧栏预算', 'Sidebar budget'), today: text('今日用量', 'Today’s usage'), peak: text('峰谷时段', 'Peak / off-peak'), models: text('模型花费', 'Model costs'), go: text('Go 额度', 'Go quota'), plan: text('套餐进度条', 'Plan bars'), customBalance: text('自定义余额', 'Custom balance'), codex: text('Codex 额度', 'Codex quota'), badge: text('会话费用摘要', 'Session cost summary'), 'session-header': text('顶部费用明细', 'Header cost details'), 'session-dock': text('输入框下方费用明细', 'Composer cost details'), turn: text('每轮费用', 'Per-turn cost'), corner: text('右下角额度', 'Corner quota'), 'strip-budget': text('预算进度条', 'Budget strip'), 'strip-go': text('Go 进度条', 'Go strip'), 'strip-plans': text('套餐进度条', 'Plan strip') }
+      labels['strip-codex'] = text('Codex 额度', 'Codex quota')
       const registry = {}
       const id = React.useId(), dialogRef = React.useRef(null), expandButton = React.useRef(null)
       React.useEffect(() => {
@@ -65,8 +67,23 @@ window.__ModuleLoader__.load({
       registry.balance = { on: balanceOn, patch: balancePatch }
       registry.budget = { on: config.hideBudget !== true, patch: { hideBudget: config.hideBudget !== true } }
       registry.peak = { on: config.peakNotice !== false, patch: { peakNotice: config.peakNotice === false } }
+      const todayOn = config.sidebar !== false && config.hideTodayCost !== true
+      registry.today = { on: todayOn, patch: todayOn ? { sidebar: false } : { sidebar: true, hideTodayCost: false } }
+      registry.models = { on: config.sidebarModels?.enabled === true, patch: { sidebarModels: { ...config.sidebarModels, enabled: config.sidebarModels?.enabled !== true } } }
       registry.go = { on: ['both', 'sidebar'].includes(config.goQuota?.display ?? 'both'), patch: { goQuota: { ...config.goQuota, display: ['both', 'sidebar'].includes(config.goQuota?.display ?? 'both') ? 'settings' : 'both' } } }
+      const planConfig = config.codingPlans?.[selectedPlan] ?? {}
+      const planOn = ['both', 'sidebar'].includes(planConfig.display ?? (selectedPlan === 'minimax' ? 'both' : 'settings'))
+      registry.plan = { on: planOn, patch: { codingPlans: { ...config.codingPlans, [selectedPlan]: { ...planConfig, display: planOn ? 'settings' : 'both' } } } }
       const strip = config.quotaStrip ?? {}
+      const codex = previewData.state.displayPreviewCodex
+      const codexPercentages = codex?.status === 'ok' ? Object.entries(codex.windows ?? {}).map(([key, win]) => ({ key, pct: Number.isFinite(win?.percent) ? Math.max(0, Math.min(100, 100 - win.percent)) : null })) : []
+      const codexStrip = item('strip-codex', text('输入框上方 · Codex 额度', 'Above composer · Codex quota'),
+        strip.enabled === true && config.codexQuotaEnabled === true && config.codexQuotaStrip !== false,
+        { codexQuotaStrip: config.codexQuotaStrip === false },
+        el('span', { className: 'cm-qchip' }, el('span', { className: 'cm-qlabel' }, 'Codex'),
+          ...(codexPercentages.length ? codexPercentages : [{ pct: null }]).map(({ key, pct }, index) => el('span', { key: index, className: 'cm-qseg' },
+            el('span', { className: 'cm-qbar' }, el('span', { className: 'cm-qfill', style: { width: (pct ?? 0) + '%' } })),
+            el('span', { className: 'cm-qtext' }, pct === null ? '—' : (codexPercentages.length > 1 ? (key === 'five' ? '5h' : t('goShortWeekly')) + ' ' : '') + t('quotaRemaining', { pct }))))))
       const stripItem = (key, label, value, kind) => {
         const on = strip.enabled === true && strip[key] !== false
         // Enabling one item from a disabled strip must not show its siblings unexpectedly.
@@ -90,13 +107,13 @@ window.__ModuleLoader__.load({
         el('span', { className: 'cm-corner-chip' }, t('budget') + ' ' + percentLabel(budgetPercent)))
       const regions = [['sidebar', text('侧栏', 'Sidebar')], ['composer', text('输入区', 'Composer')], ['conversation', text('会话内容', 'Conversation')]]
       const scene = region === 'sidebar' ?
-        el(SidebarPreview, { renderSidebar: renderPreviewSidebar, config: previewData.config, selected, select, labels,
-          visibility: examples ? { balance: balanceOn, budget: config.hideBudget !== true, today: config.sidebar !== false && config.hideTodayCost !== true,
-            go: registry.go.on, peak: registry.peak.on, models: config.sidebarModels?.enabled === true } : null,
+        el(SidebarPreview, { renderSidebar: renderPreviewSidebar, config: previewData.config, selected, selectedPlan, select, labels,
+          visibility: examples ? { balance: balanceOn, budget: registry.budget.on, today: todayOn,
+            go: registry.go.on, peak: registry.peak.on, models: registry.models.on, plan: planOn } : null,
           appearance: { ...appearance.sidebar, ...(appearance.sidebarFooterWidth ? { maxWidth: appearance.sidebarFooterWidth + 28 } : {}) }, text, icon }) : region === 'composer' ?
         el('div', { className: 'cm-preview-composer' },
           el('div', { className: 'cm-preview-region-head' }, el('span', null, icon('IconPlusOutlineRegular'), text('输入区域', 'Composer area'))),
-          el('div', { className: 'cm-preview-strip' }, stripItem('budget', t('budget'), budgetPercent, 'budget'), stripItem('go', 'Go', goPercent, 'go'), stripItem('plans', 'Plan', planPercent, 'plan')),
+          el('div', { className: 'cm-preview-strip' }, stripItem('budget', t('budget'), budgetPercent, 'budget'), stripItem('go', 'Go', goPercent, 'go'), stripItem('plans', 'Plan', planPercent, 'plan'), codexStrip),
           el('div', { className: 'cm-native-input-card', style: appearance.composer, 'aria-hidden': true },
             native('input-placeholder', text('发消息或创建任务，/ 调用指令，@ 文件或对话', 'Send a message, / commands, @ files or conversations')),
             native('input-row', native('input-tools', native('input-add', icon('IconPlusOutlineRegular', 20)), native('permission', icon('PermissionIconFullAccessRegular'), text('完全权限', 'Full access'))),
@@ -129,9 +146,14 @@ window.__ModuleLoader__.load({
               const next = event.key === 'Home' ? 0 : event.key === 'End' ? regions.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + regions.length) % regions.length
               setRegion(regions[next][0]); select(null); event.currentTarget.parentElement.children[next].focus()
             } }, label))),
+        region === 'sidebar' ? el('div', { className: 'cm-display-toggles', role: 'group', 'aria-label': text('侧栏显示', 'Sidebar visibility') },
+          ...['budget', 'today', 'peak', 'models'].map(key => el('label', { key, className: 'cm-check' },
+            el('input', { type: 'checkbox', 'data-display-toggle': key, checked: registry[key].on, onChange: () => set(registry[key].patch) }),
+            el('span', null, key === 'budget' ? t('budget') : labels[key])))) : null,
         el('div', { className: 'cm-preview cm-region-preview', role: 'tabpanel', id: id + '-panel', 'aria-labelledby': id + region, 'data-region': region },
           el('div', { className: 'cm-preview-workspace' }, el('div', { className: 'cm-preview-scene' }, scene),
-            el(DisplayInspector, { props, config, set, selected, select, labels, registry, text, region, examples, previewData }))))
+            el(DisplayInspector, { props, config, set, selected, selectedPlan, selectPlan, select, labels, registry, text, region, examples, previewData,
+              openQuota: () => { setExpanded(false); props.onNavigate('quotas', selectedPlan) } }))))
       return el('section', { className: 'cm-display', 'aria-label': text('交互式显示设置', 'Interactive display settings') },
         el('div', { className: 'cm-display-heading' }, el('div', null,
           el('h3', null, text('设置你看到的界面', 'Make the screen yours')),
@@ -141,7 +163,6 @@ window.__ModuleLoader__.load({
           onCancel: event => { event.preventDefault(); event.stopPropagation(); setExpanded(false) }, onKeyDown: event => { if(event.key==='Escape')event.stopPropagation() } },
           el('div', { className: 'cm-display-dialog-head' }, text('显示设置', 'Display settings'),
             el('button', { type: 'button', className: 'cm-display-dialog-close', 'aria-label': text('关闭预览', 'Close preview'), autoFocus: true, onClick: () => setExpanded(false) }, icon('IconCloseOutlineRegular'))), preview) : preview,
-        el('div', { className: 'cm-display-toolbar' }, el('span', { className: 'cm-display-feedback' }, text('显示设置自动保存；数据来源开关仅影响预览。', 'Display settings save automatically; the data source only affects this preview.'))),
         el(DisplayInspector, { props, config, set, selected: 'general', text, general: true }))
     }
 
@@ -164,7 +185,7 @@ window.__ModuleLoader__.load({
         el('summary', null, locale === 'en' ? 'More options · layout, currency and refresh intervals' : '详细设置 · 布局、金额格式与刷新频率'),
         el('div', { className: 'cm-grid' },
             el('div', { className: 'cm-grid-group' }, t('groupGeneral')),
-            ...['includeSubagentCost', 'codexQuotaEnabled', 'codexQuotaSidebar'].map(key => el('label', { key, className: 'cm-check' },
+            ...['includeSubagentCost', 'codexQuotaEnabled', 'codexQuotaSidebar', 'codexQuotaStrip'].map(key => el('label', { key, className: 'cm-check' },
               el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
               el('span', null, t(key)))),
             USAGE_POSITION_SWITCHABLE

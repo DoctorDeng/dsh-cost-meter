@@ -20,8 +20,8 @@ const source = fragments.map(n => baseline
   .replace('exports.apply = apply', 'exports.preview = { SidebarFooter }; exports.apply = apply')
 const config = sanitizeConfig({ locale: 'zh', hideOfficialBalance: true, goQuota: { enabled: false },
   peakEnabled: true, peakNotice: true, sidebarModels: { enabled: true } })
-// Footer geometry copied from DSH dsh-v0.1.7-rc.2 SidebarRoot.module.css and
-// bowenliang123/dsh-context src/client/styles/overview.css (2026-09-28).
+// Footer geometry copied from DSH's SidebarRoot.module.css and
+// bowenliang123/dsh-context src/client/styles/overview.css (2026-09-28 snapshot).
 // IMPORTANT: SlotOutlet in ui-renderer/src/client/scoped-slots.tsx also adds
 // <div data-slot="sidebar.footer.action" style={{display:'contents'}}>.
 // The wrapper has no layout box, but changes DOM ancestry for :has(>...)!
@@ -55,7 +55,7 @@ function Scenario({width=280,simple=false,compact=false,enabled=true,hidden=fals
  {enabled&&<SidebarFooter key="cost" wide={wide} useCost={pick=>pick({state:snapshot})}/>}
  {extra&&<button key="extra" className="extra" aria-label="Remote control">↗</button>}
  </>;
- return <section data-case={index}><h2>{width}px · {simple?'简化':compact?'紧凑':'标准'} · {locale} · {wrapped?'DSH 0.1.7':'旧宿主'}</h2><div className={'host'+(wide?'':' collapsed')} style={{width}}><div className="footArea"><div className="footerActions">
+ return <section data-case={index}><h2>{width}px · {simple?'简化':compact?'紧凑':'标准'} · {locale} · {wrapped?'有 SlotOutlet 包裹':'无包裹'}</h2><div className={'host'+(wide?'':' collapsed')} style={{width}}><div className="footArea"><div className="footerActions">
  {wrapped?<div data-slot="sidebar.footer.action" style={{display:'contents'}}>{entries}</div>:entries}
  </div><div className="settingsArea">{wide?'⚙ 设置':'⚙'}</div></div></div></section>
 }

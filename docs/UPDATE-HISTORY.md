@@ -1,13 +1,52 @@
 # dsh-cost-meter 版本更新历史
 
+## v1.9.6(2026-10-18)—— 余额恢复显示、CLIProxyAPI 局域网设置与额度条背景
+
+- 官方余额重新开启后立即恢复；CLIProxyAPI 每个来源提供准确主机白名单与非回环 HTTP 开关；输入区额度组件背景跟随页面。[更新说明](update-notes-1.9.6.md)
+
+## v1.9.5(2026-10-18)—— Codex 额度恢复显示与兼容插件监控
+
+- Codex 查询失败保留提示和点击重试入口，登录后自动恢复，关闭后停止查询；GitHub 每日检查三个兼容插件的发布版本与接口变化。[更新说明](update-notes-1.9.5.md)
+
+## v1.9.4(2026-10-18)—— 定价列表、模型统计、独立显示与 OpenDesign 修复
+
+- 定价列表保持模型顺序，自定义编辑只定位一次；各模型可独立计入今日、月度累计和预算。显示设置统一组件开关与套餐账户选择，峰谷新增时间进度条。修复 OpenDesign 凭据保存、别名状态与部分失败反馈，加入 Codex 双窗口和来源切换保护。[更新说明](update-notes-1.9.4.md)
+
+## v1.9.3(2026-10-18)—— Codex 兼容交互与费用设置布局修复
+
+- 兼容弹窗可立即关闭，修复热更新后的归类接口 404 和 Codex 标签页空白；概览卡片及统计页面减少留白，兼容设置默认收起。[更新说明](update-notes-1.9.3.md)
+
+## v1.9.2(2026-10-18)—— 额度查询、自定义余额、皮肤与性能修复
+
+OpenDesign 改为直接读取 Control Key preflight；自定义余额支持相对路径和显式配置的局域网 HTTP；新增 WorkBuddy2API 积分预设；修复皮肤透明度透出，并减少自动语言模式的设置读取开销。见[配置说明](custom-balance-sources.md)与[性能、透明度测量](performance-2026-10-18.md)。
+
 > 本文是面向使用者的版本更新总览；逐条开发记录见 [CHANGELOG.md](../CHANGELOG.md),完整提交历史见
 > [Commits](https://github.com/Han-1413141/dsh-cost-meter/commits/master)。
+
+v1.9.1 未单独发布到 npm，下列记账、落盘与渲染优化随 v1.9.2 一并发布。见[本版更新说明](update-notes-1.9.2.md)。
+
+## v1.9.1(2026-10-18)—— 皮肤半透明透出修复与性能优化
+
+- 修复皮肤插件把主题别名调成半透明后，插件浮层与弹窗（统计明细弹窗、额度引导、峰谷提醒、费用明细、组合浮层等）透出后方页面内容的问题：改为「本地不透明基底 + 皮肤色渐变叠层」合成，保留皮肤色调，默认主题视觉不变。[更新说明](update-notes-1.9.1.md)
+- 性能优化：记账不再每笔重建价格历史快照（1000 笔 1308ms → 93ms）、落盘合并去掉冗余深拷贝（flush 约 40ms → 30ms）、统计渲染缓存键改用 `pricesRev`（2.55ms → 0.015ms）、设置页差异比较引用短路；账本内容与历史金额口径不变，无需迁移。[验证与影响](release-notes/v1.9.1.md)
+
+## v1.9.0(2026-10-18)—— 订阅插件与 SQLite 会话存储兼容、手机端适配与 OpenDesign preflight 回退
+
+- Codex / ChatGPT 订阅插件兼容：订阅用量自动归为 Plan，首次检测弹出一次性可关闭提示，设置页「Codex 订阅兼容」可随时重新操作；历史归类需用户确认且幂等。[更新说明](update-notes-1.9.0.md)
+- better-session SQLite 会话存储兼容：会话后端自动探测，RDB 下回填/导入/历史重定价/逐会话统计继续可用；JSONL 行为不变，并修复 RDB 空扫描误消费一次性迁移标记。[兼容说明](better-session.md)
+- 全部费用 UI 适配 dsh-pocket 手机端（≤1023px 与移动布局）；OpenDesign 增加 `/billing/preflight` Control Key 回退与窗口/钱包独立降级（#274，感谢 [@playgithub](https://github.com/Han-1413141/dsh-cost-meter/issues/274#issuecomment-6215322540)、[@codeforker654](https://github.com/Han-1413141/dsh-cost-meter/issues/274#issuecomment-6236228870)、[@yunjuanhuakai](https://github.com/Han-1413141/dsh-cost-meter/issues/274#issuecomment-6236591566)）。[验证与影响](release-notes/v1.9.0.md)
+
+## v1.8.36(2026-10-17)—— 旧会话金额修复、赠送余额对账与 DSH 0.2.1-rc.2
+
+- 修复 [#300](https://github.com/Han-1413141/dsh-cost-meter/issues/300)：升级后老会话费用显示 ¥0；冻结汇率金额随首次落盘持久化，跨进程合并不丢失不重复，客户端增加 USD 回退。USD 账本与历史金额不变。
+- 修复 [#302](https://github.com/Han-1413141/dsh-cost-meter/issues/302)：赠送余额部分到期/回收不再误报消费偏差，改为重置基准并给出一次性说明；真实 drift 仍提示。
+- DSH 最低要求 0.2.0，适配目标 npm `next` 0.2.1-rc.2；补充宿主内置 pnpm 供应链策略导致的安装/卸载失败排障。[验证与影响](release-notes/v1.8.36.md)
 
 ## v1.8.35(2026-10-16)—— DSH alpha.5 适配
 
 - 新增官方 Search／Fetch API 次数费：有结果的成功请求 ¥0.005／次，保留历史汇率；网页抓取独立分类，不将本地抓取套成付费接口。[计费说明](web-request-fees.md)
 - 完成真实 alpha.5 安装、启动、计费、搜索、RPC 和上下文界面验证，日常计费逻辑保持不变。
-- 适配旧会话离线修复命令的新宿主加载方式，保留独占锁、原样备份和旧版本支持；更新兼容性声明及自动回归。[验证与影响](dsh-alpha5-compatibility.md#中文)
+- 适配旧会话离线修复命令的新宿主加载方式，保留独占锁、原样备份和旧版本支持；更新兼容性声明及自动回归。[验证与影响](release-notes/v1.8.35.md)
 
 ## v1.8.34(2026-10-16)—— 压缩后的上下文费用校准
 

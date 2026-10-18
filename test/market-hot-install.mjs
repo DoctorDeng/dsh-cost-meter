@@ -2,7 +2,7 @@
 // Exercise real Cordis, typert-loader/registry and gateway, plus the actual plugin.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, rmSync, utimesSync, existsSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, rmSync, rmdirSync, unlinkSync, lstatSync, utimesSync, existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -114,5 +114,13 @@ try {
   if (oldHome === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = oldHome
   assert.equal(dirname(work), tmpdir())
-  rmSync(work, { recursive: true, force: true })
+  // Electron's patched recursive rm can follow a Windows junction into the repo.
+  // Remove the link itself first; never recurse if its identity is unexpected.
+  const link = join(work, 'node_modules/dsh-cost-meter')
+  if (existsSync(link)) {
+    assert.ok(lstatSync(link).isSymbolicLink(), 'cleanup target must remain the fixture junction')
+    if (process.platform === 'win32') rmdirSync(link)
+    else unlinkSync(link)
+  }
+  rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }

@@ -71,7 +71,7 @@ await page.route('**/*', route => {
 })
 const luminance = color => {
   const channels = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => {
-    const v = value / 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4
+    const v = color.startsWith('color(srgb ') ? value : value / 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4
   })
   return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722
 }
@@ -81,7 +81,8 @@ try {
   await page.getByRole('tab', { name: '价格', exact: true }).click()
   await page.locator('.cm-match-row').first().waitFor()
   assert.equal(await page.locator('.cm-match-row').count(), 2)
-  assert.equal(await page.locator('.cm-match-row select,.cm-match-row input').count(), 0, 'model summaries start without mounted price editors')
+  assert.equal(await page.locator('.cm-match-row .cm-model-editor').count(), 0, 'model summaries start without mounted price editors')
+  assert.equal(await page.locator('.cm-match-row .cm-model-statistics input[type=checkbox]').count(), 6, 'each model keeps its three independent statistics controls')
   const unknown = page.locator('.cm-match-row').filter({ has: page.locator('.cm-model-identity', { hasText: 'unknown' }) })
   await unknown.getByRole('button', { name: 'fixture:unknown · 设置价格', exact: true }).click()
   await unknown.getByRole('button', { name: '价格表', exact: true }).click()
@@ -244,7 +245,8 @@ try {
   await page.getByRole('tab', { name: '价格', exact: true }).click()
   await page.locator('.cm-match-row').first().waitFor()
   assert.equal(await page.locator('.cm-match-row').count(), 24, 'large model lists render only their first page')
-  await page.getByRole('button', { name: '显示更多 · 还有 476 个', exact: true }).click()
+  assert.equal(await page.locator('.cm-model-toolbar [role=status]').textContent(), '502 个模型', 'all-time models remain available beside the 500 recent fixture models')
+  await page.getByRole('button', { name: '显示更多 · 还有 478 个', exact: true }).click()
   assert.equal(await page.locator('.cm-match-row').count(), 48)
   const beforeFilter = await page.evaluate(() => window.priceResolutions)
   await page.getByRole('searchbox', { name: '查找已用模型' }).fill('channel model-499')

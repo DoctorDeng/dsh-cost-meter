@@ -40,24 +40,20 @@
     /**
      * 费用明细弹窗的定位与尺寸。
      *
-     * 样式写在 01 片段的 .cm-stat-dialog 规则里,**不用内联样式**。三个理由:
+     * 样式写在 01 片段的 .cm-stat-dialog 规则里,**不用内联样式**。两个理由:
      *
      * 1. 内联样式会盖掉皮肤对 [role=dialog] 的定位规则。v1.8.6 补 role="dialog" 的
      *    本意就是让皮肤能接管这个弹窗的样式(issue #219),内联 inset/margin 会让
      *    皮肤把弹窗钉到底部一类的规则失效。
-     * 2. 顶部避让量要走四级回退链,并注册成 <length>(@property --cm-dialog-top):
+     * 2. 顶部避让量要走回退链,并注册成 <length>(@property --cm-dialog-top):
      *    宿主变量「存在但为空值/非法值」时,var() 不会走 fallback,calc()/inset 会在
      *    计算值阶段整条失效(IACVT)——弹窗失去高度上限、被内容撑到视口外且无法滚动,
      *    比修复前更差。注册后非法值整体退回 initial-value 0px,仍是一份可用的兜底。
-     * 3. 旧宿主(≤0.1.7)没有 --dsh-frame-chrome-top,全屏时回退链会命中不随全屏变化的
-     *    --dsh-windows-titlebar-height(40px),白留一条 40px 空隙;样式表里补一条
-     *    html[data-fullscreen] 归零规则。新宿主本就由 chrome-top 归 0,这条是旧宿主兜底。
      *
-     * 四级回退的取值来源(顺序不能换:全屏时 chrome-top 为 0,后两级仍是 40/48px,
-     * 排前面会让全屏白留空隙):
-     *   --dsh-frame-chrome-top      DSH ≥0.2.0:Windows 标题栏高,全屏由宿主置 0;darwin 未定义
-     *   --dsh-frame-top-clearance   darwin 红绿灯区 48px;DSH ≥0.2.0 的 Windows 由它派生
-     *   --dsh-windows-titlebar-height  Electron preload 注入的 40px(旧宿主唯一保证存在的一级)
+     * 回退链的取值来源(顺序不能换:全屏时 chrome-top 为 0,后一级仍是 48px,
+     * 排前面会让全屏白留空隙),两级都是 DSH ≥0.2.0 的现行机制:
+     *   --dsh-frame-chrome-top      Windows 标题栏高,全屏由宿主置 0;darwin 未定义
+     *   --dsh-frame-top-clearance   darwin 红绿灯区 48px
      *   0px                         纯 Web / 未标记环境:与修复前一致
      */
     const STAT_DIALOG_CLASS = 'cm-stat-dialog'
@@ -456,9 +452,10 @@
             el('label', null, t('peakStyleLabel')),
             el('select', {
               className: 'cm-input',
-              value: draft?.peakStyle === 'classic' || draft?.peakStyle === 'dot' ? draft.peakStyle : 'compact',
+              value: draft?.peakStyle ?? 'compact',
               onChange: event => setField('peakStyle', event.target.value),
             },
+              el('option', { value: 'progress' }, resolveLocale(draft) === 'en' ? 'Time progress' : '时间进度条'),
               el('option', { value: 'compact' }, t('peakStyleCompact')),
               el('option', { value: 'classic' }, t('peakStyleClassic')),
               el('option', { value: 'dot' }, t('peakStyleDot'))))),
@@ -754,7 +751,7 @@
             blended: tokens > 0 && b.cost > 0 ? b.cost / tokens * 1e6 : null,
             perUsd: b.cost > 0 ? tokens / b.cost : null,
           }
-        }).filter(r => r.tokens > 0 || r.cost > 0)
+        }).filter(r => (r.tokens > 0 || r.cost > 0) && config.modelStatistics?.[r.key]?.[source === 'today' ? 'today' : 'summary'] !== false)
       }
       return aggregate(source).sort((a, b) => b.cost - a.cost || b.tokens - a.tokens)
     }
@@ -1144,11 +1141,13 @@
 
     /** 统一卡片外壳。入参见下方各 XxxQuotaCard 的调用。 */
     function QuotaCard(props) {
+      const card = useRef(null)
+      useEffect(() => { if (props.targeted) { card.current?.scrollIntoView({ block: 'start' }); card.current?.focus({ preventScroll: true }) } }, [props.targeted])
       const { name, enabled, saved, busy, open, statusNode, configNode, errorMsg, onToggle, onRefresh, onLogin, loginRequired, onRemove, onToggleOpen, t } = props
       const expandable = configNode != null
       const buttonAction = loginRequired ? onLogin : onRefresh
       const buttonText = busy === true ? t(loginRequired ? 'loggingIn' : 'refreshing') : loginRequired ? t('loginCodingPlan') : t('refresh')
-      return el('div', { className: 'cm-budget cm-quota-card' },
+      return el('div', { ref: card, 'data-quota-plan': props.planId, tabIndex: props.targeted ? -1 : undefined, className: 'cm-budget cm-quota-card' },
         el('div', { className: 'cm-budget-head' },
           el('label', { className: 'cm-check' },
             el('input', { type: 'checkbox', 'aria-label': t('enable') + ': ' + name, checked: enabled === true, onChange: event => onToggle(event.target.checked) })),
@@ -1348,9 +1347,9 @@
               el('input', {
                 className: 'cm-input',
                 value: entry.request?.url ?? '',
-                placeholder: 'https://example.com/key/info',
+                placeholder: '/plugins/dsh-workbuddy-connect/status',
                 onChange: event => setRequest('url', event.target.value),
-              })),
+              }), el('span', { className: 'cm-hint' }, t('customBalanceUrlHint'))),
             jsonField('headers', 'customBalanceHeaders', 5, 'customBalanceHeadersVarNote'),
             !['GET', 'HEAD'].includes((entry.request?.method ?? 'GET').toUpperCase()) && jsonField('body', 'customBalanceBody', 5, 'customBalanceBodyNote'),
             // 凭据输入(v1.7.6,issue #86):请求头里每个 {{VAR}} 占位符一行 write-only 输入,
@@ -1381,6 +1380,9 @@
                 onChange: event => applyAllowedHostsText(event.target.value),
               }),
               el('span', { className: 'cm-hint' }, t('customBalanceAllowedHostsHint'))),
+            !fixedAdapter && el('label', { className: 'cm-check', style: { gridColumn: '1 / -1' } },
+              el('input', { type: 'checkbox', checked: entry.allowInsecureHttp === true, onChange: event => setField('allowInsecureHttp', event.target.checked) }),
+              t('customBalanceHttp')),
             jsonField('extract', 'customBalanceExtract', 8)))
       return el(QuotaCard, {
         name: `#${index + 1} · ` + (resolveCustomBalanceLabel(entry, resolveLocale(config)) || t('customBalanceTitle')),
@@ -1467,7 +1469,7 @@
         setDraft({ ...draft, gatewayQuotas: { ...(draft.gatewayQuotas ?? config.gatewayQuotas ?? {}), sources: next } })
       }
       const patch = value => write(sources.map((x, i) => i === index ? { ...x, ...value } : x))
-      const field = (label, value, onChange) => el('div', { className: 'cm-field' }, el('label', null, label), el('input', { className: 'cm-input', value: value ?? '', onChange }))
+      const field = (label, value, onChange) => el('div', { className: 'cm-field' }, el('label', null, label), el('input', { className: 'cm-input', 'aria-label': label, value: value ?? '', onChange }))
       const windowRow = (window, i) => {
         const view = miniMaxRow(window?.label || window?.id || t('gatewaySourceUnknown'), window, barDirectionOf(config, 'plan'), t)
         return el(Fragment, { key: window?.id || i }, view.row, window?.resetsAt ? el('div', { className: 'cm-note' }, miniMaxResetText(window, t)) : null)
@@ -1486,6 +1488,9 @@
             el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceDisplay')), el('select', { className: 'cm-input', value: s.display ?? 'both', onChange: e => patch({ display: e.target.value }) }, ...displayOptions(t))),
             el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceRefreshInterval')), numInput({ value: s.refreshMinutes ?? 15 }, v => patch({ refreshMinutes: Math.min(1440, Math.max(1, Math.floor(v))) }))),
             field(t('gatewaySourceAllowlist'), (s.allowedHosts ?? []).join(', '), e => patch({ allowedHosts: e.target.value.split(/[\s,;]+/).filter(Boolean) })),
+            el('label', { className: 'cm-check' },
+              el('input', { type: 'checkbox', checked: s.allowInsecureHttp === true, onChange: e => patch({ allowInsecureHttp: e.target.checked }) }),
+              el('span', null, t('customBalanceHttp'))),
           el('label', { className: 'cm-check' },
             el('input', { type: 'checkbox', checked: s.antigravityOnlyGemini === true, onChange: e => patch({ antigravityOnlyGemini: e.target.checked }) }),
             el('span', null, t('gatewayOnlyGemini')))),
@@ -1524,7 +1529,7 @@
       const cfgEntry = draft?.codingPlans?.[planId] ?? config.codingPlans?.[planId] ?? {}
       const live = plansState[planId] ?? { status: 'off', message: '', fetchedAt: 0, windows: {} }
       const enabled = cfgEntry.enabled === true
-      const [open, setOpen] = useState(false)
+      const [open, setOpen] = useState(props.targeted === true)
       const loginRequired = planId === 'qwen' && config.codingPlans?.qwen?.quotaSource === 'bailian'
         && cfgEntry.quotaSource === 'bailian' && live.quotaSource === 'bailian' && live.loginRequired === true
       const [busy, msg, doRefresh] = useQuotaRefresh(t, () => loginRequired ? api.loginCodingPlan(planId) : api.refreshCodingPlan(planId))
@@ -1570,6 +1575,7 @@
         ? el('p', { className: 'cm-note' }, t('codingPlanDisabledNote'))
         : live.status === 'ok'
           ? el('div', { className: 'cm-go-list' },
+            live.message ? el('p', { className: 'cm-note' }, live.message) : null,
             Object.keys(windows).length > 0
               ? (planId === 'minimax' && (miniMaxWindowsOf(windows).five != null || miniMaxWindowsOf(windows).seven != null)
                 ? el(MiniMaxPlanCard, {
@@ -1721,6 +1727,7 @@
                 placeholder: planId === 'mimo' ? 'api-platform_serviceToken=…; userId=…' : planId === 'factory' ? 'FACTORY_API_KEY' : planId === 'opendesign' ? 'OPENDESIGN_CONTROL_KEY' : 'sk-…',
               })))
       return el(QuotaCard, {
+        planId, targeted: props.targeted,
         name: t(labelKey), enabled, saved: config.codingPlans?.[planId], busy, open, errorMsg: msg,
         statusNode, configNode,
         onToggle: value => setPlan('enabled', value),
@@ -1754,6 +1761,12 @@
       const setEntry = (index, patch) => setEntries(entries.map((e, i) => i === index ? { ...e, ...patch } : e))
       const addEntry = (adapter = 'custom') => {
         if (entries.length >= 8) return
+        if (adapter === 'workbuddy2api') {
+          setEntries([...entries, { enabled: false, label: 'WorkBuddy2API 积分', labelEn: 'WorkBuddy2API credits', display: 'both', unit: 'CREDITS', refreshMinutes: 15,
+            request: { url: 'http://127.0.0.1:8790/api/credits/expiry?package_limit=1', method: 'GET', headers: { 'X-Admin-Token': '{{WORKBUDDY2API_ADMIN_TOKEN}}' } },
+            extract: { remaining: 'summary.available_remaining' }, allowedHosts: ['127.0.0.1:8790'], allowInsecureHttp: false }])
+          return
+        }
         setEntries([...entries, {
           ...(adapter !== 'custom' ? { adapter } : {}),
           enabled: false,
@@ -1785,7 +1798,7 @@
         ...entries.map((entry, index) => ({ kind: 'custom', key: 'cb-' + identities.keys[index], index, enabled: entry.enabled === true })),
       ]
       const cardOf = item => {
-        if (item.kind === 'plan') return el(PlanQuotaCard, { key: item.key, planId: item.planId, labelKey: item.labelKey, state, api, t, draft, setDraft })
+        if (item.kind === 'plan') return el(PlanQuotaCard, { key: item.key, planId: item.planId, labelKey: item.labelKey, targeted: item.planId === props.targetPlan, state, api, t, draft, setDraft })
         if (item.kind === 'go') return el(GoQuotaCard, { key: item.key, state, api, t, draft, setDraft })
         if (item.kind === 'gateway') return el(GatewayQuotaCard, { key: item.key, index: item.index, state, api, t, draft, setDraft })
         return el(CustomBalanceEntryPanel, {
@@ -1801,7 +1814,9 @@
           el('button', { className: 'cm-btn small', onClick: addGateway, disabled: sources.length >= 4 }, t('gatewaySourceAdd')),
           el('button', { className: 'cm-btn small', onClick: () => addEntry(), disabled: entries.length >= 8 }, t('customBalanceAdd')),
           el('button', { className: 'cm-btn small', onClick: () => addEntry('aliyun'), disabled: entries.length >= 8 }, t('aliyunBalanceAdd')),
-          el('button', { className: 'cm-btn small', onClick: () => addEntry('tokenrhythm'), disabled: entries.length >= 8 }, t('tokenRhythmBalanceAdd'))))
+          el('button', { className: 'cm-btn small', onClick: () => addEntry('tokenrhythm'), disabled: entries.length >= 8 }, t('tokenRhythmBalanceAdd')),
+          el('button', { className: 'cm-btn small', onClick: () => addEntry('workbuddy2api'), disabled: entries.length >= 8 }, t('workBuddyBalanceAdd')),
+          el('p', { className: 'cm-note' }, t('workBuddyBalanceNote'))))
     }
 
     // ── Token 用量统计(历史总量 + 每日格子热图;显示位置可配) ────────────────
@@ -1889,6 +1904,20 @@
           monthLabels.map((m, i) => el('span', { key: 'm' + String(i), className: 'cm-ug-monthc' }, m))))
     }
 
+    // ── Codex 订阅兼容(契约 E) ────────────────────────────────────────────────
+    // 一次性提示与设置页 Codex 分区体积较大,整体搬到按需 chunk client.codex.js;
+    // 主包只留懒加载骨架:宿主未检出 Codex(installed/promptDue 非 true)时不加载 chunk。
+    function CodexLazy(props) {
+      return props.ready ? el(BillingStatistics, { ...props, load: props.api.loadCodex, quiet: props.view === 'prompt' }) : null
+    }
+
+    // 常驻 sidebar.footer.action 的挂载点:仅 promptDue 为 true 时挂 CodexCompatPrompt。
+    function CodexCompatPromptSlot(props) {
+      const snapshot = props.useCost?.(s => s)
+      const state = snapshot?.state
+      return el(CodexLazy, { ...props, state, view: 'prompt', ready: state?.codexCompat?.enabled === true && state?.codexCompat?.promptDue, locale: snapshot?.locale })
+    }
+
     function CostSection(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
       const api = props.api
@@ -1902,7 +1931,11 @@
       // 只渲染当前价格分区；模型定价为首屏，价格表和同步操作按需挂载。
       const [pricingView, setPricingView] = useState('models')
       // 设置页当前标签(issue #29):概览/额度/用量/价格/显示;仅切可见分区,不拆配置与保存逻辑。
-      const [tab, setTab] = useState('overview')
+      const [activeTab, setTab] = useState('overview')
+      const codexInstalled = state?.codexCompat?.installed === true && state?.codexCompat?.enabled === true
+      const tab = activeTab === 'codex' && !codexInstalled ? 'overview' : activeTab
+      useEffect(() => { if (!codexInstalled) setTab(current => current === 'codex' ? 'overview' : current) }, [codexInstalled])
+      const [quotaTarget, setQuotaTarget] = useState(null)
       // 自动保存状态:idle(无改动) | saving | saved | error。
       const [saveState, setSaveState] = useState({ status: 'idle', at: 0, error: null })
       const savedRef = React.useRef(null)
@@ -1957,7 +1990,7 @@
           const base = draftBaseRef.current ?? baselineRef.current
           if (base !== null && typeof base === 'object') {
             for (const key of Object.keys(draft)) {
-              if (key === 'activeLocale') continue
+              if (key === 'activeLocale' || draft[key] === base[key]) continue
               if (JSON.stringify(draft[key]) !== JSON.stringify(base[key])) patch[key] = draft[key]
             }
           }
@@ -2057,8 +2090,11 @@
         ['quotas', t('tabQuotas')],
         ['usage', t('tabUsage')],
         ['pricing', t('tabPricing')],
+        // Codex 订阅兼容只在宿主确认插件已安装且启用时显示。
+        ...(codexInstalled ? [['codex', 'Codex']] : []),
         ['display', t('tabDisplay')],
       ]
+      const warmTab = id => warmPage(({ statistics: api.loadStatistics, pricing: api.loadOpenRouter, codex: api.loadCodex })[id], { state })
       // 自动保存状态常驻标签栏右侧:在任意标签页改动配置都能看到保存反馈。
       const saveBadge = saveState.status === 'saving'
         ? el('span', { className: 'cm-hint' }, t('saving'))
@@ -2072,8 +2108,8 @@
             tabItems.map(([id, label]) => el('button', {
               key: id, type: 'button', role: 'tab', 'aria-selected': String(tab === id),
               className: 'cm-tab' + (tab === id ? ' active' : ''),
-              onMouseEnter: () => { if (id === 'statistics' || id === 'pricing') warmPage(id === 'statistics' ? api.loadStatistics : api.loadOpenRouter, { state }) },
-              onFocus: () => { if (id === 'statistics' || id === 'pricing') warmPage(id === 'statistics' ? api.loadStatistics : api.loadOpenRouter, { state }) },
+              onMouseEnter: () => warmTab(id),
+              onFocus: () => warmTab(id),
               onClick: () => setTab(id),
             }, label))),
           saveBadge),
@@ -2149,7 +2185,7 @@
           : null)
         : null,
         // ── 额度:订阅 / OpenCode Go / 网关 / 自定义余额统一成一串卡片 ──
-        tab === 'quotas' ? el(QuotasSection, { key: 'quotas', state, api, t, draft, setDraft })
+        tab === 'quotas' ? el(QuotasSection, { key: 'quotas', state, api, t, draft, setDraft, targetPlan: quotaTarget })
         : null,
         // ── 用量:热图、按模型统计、历史、按会话统计、历史数据操作 ──
         tab === 'usage' ? el(Fragment, { key: 'usage' },
@@ -2183,6 +2219,9 @@
               : el('button', { className: 'cm-btn danger', onClick: () => setConfirmReset(true), disabled: busy }, t('clearAllHistory'))),
           el('p', { className: 'cm-note' }, t('legacyImportNote'))))
         : null,
+        // ── Codex:订阅兼容检出与历史用量并入(契约 E,组件在按需 chunk client.codex.js) ──
+        tab === 'codex' ? el(CodexLazy, { key: 'codex', state, api, t, locale, view: 'panel', ready: codexInstalled })
+        : null,
         // ── 显示:界面语言、徽章/侧边栏位置、图框开关等 ──
         tab === 'display' ? el(Fragment, { key: 'display' },
         // 存量明文密钥未迁出提示(v1.6.8):仅在确有密钥无法自动导入凭据库时出现。
@@ -2190,8 +2229,10 @@
           ? el(SecretMigrationNotice, { pending: state.secretMigration.pending, t })
           : null,
         // 显示设置：独立加载的交互预览，共用草稿与自动保存。
-        el(BillingStatistics, { state, api, load: api.loadDisplay, draft, setDraft, t, locale,
-          numInput, displayOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, formatMoneyUsd, onNavigate: setTab,
+        el(BillingStatistics, { state: { ...state, displayPreviewCodex: codexQuotaCache.source === (state.config.codexQuotaSource ?? 'auto') ? codexQuotaSnapshot() : { status: 'idle', windows: {} } }, api, load: api.loadDisplay, draft, setDraft, t, locale,
+          numInput, displayOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, formatMoneyUsd,
+          planOptions: CODING_PLAN_ROWS.map(row => [row.id, t(row.labelKey)]),
+          onNavigate: (page, plan) => { setQuotaTarget(plan); setTab(page) },
           renderSidebar: (preview, data = state) => renderSidebarFooter({ ...data, config: preview }, true, undefined, true),
           renderStyleSample: (preview, data = state, examples = true) => {
             if (!examples) return renderSidebarFooter({ ...data, config: preview }, true, undefined, true)
@@ -2204,7 +2245,7 @@
               el(BudgetBoxContent, { state: sampleState, wide: true, summary: simple }),
               el(MiniMaxPlanCard, { five: windows.five ?? { percent: 24 }, seven: windows.seven ?? { percent: 18 }, fetchedAt: 0, t, wide: true, direction: barDirectionOf(preview, 'plan') }))
           },
-          renderModelsSettings: () => el(ModelSidebarSettings, { draft, setDraft, t }) }))
+          renderModelsSettings: options => el(ModelSidebarSettings, { draft, setDraft, t, ...options }) }))
         : null,
         // ── 价格:峰谷计价、价格表、模型名匹配、官方价格同步、OpenRouter 公开报价 ──
         tab === 'pricing' ? el('div', { key: 'pricing', className: 'cm-pricing-page' },
@@ -2277,6 +2318,11 @@
       ctx.effect(() => () => { unmount() }, 'cost-meter: remote contribution')
       const costMeter = ctx.get('remote.costMeter')
       if (costMeter === undefined) return
+      ctx.inject(['connection'], connectionCtx => connectionCtx.effect(() => {
+        const rpc = connectionCtx.get('connection')?.rpc
+        resetCodexQuota(rpc)
+        return () => { if (codexQuotaCache.rpc === rpc) resetCodexQuota(null) }
+      }, 'cost-meter: Codex quota transport'))
       const readLocale = () => {
         try { return supportedLocale(ctx.get('locale')?.getSnapshot?.().active) }
         catch { return null }
@@ -2296,6 +2342,8 @@
         }
         return result.value
       }
+      // 宿主 RPC 返回完整 state 的统一落点(ready + 清错误)。
+      const refreshState = state => { store.set({ status: 'ready', error: null, state }); return state }
       let lastPoll = Date.now()
       let reloading = false
       let active = true, retrySeconds = 1
@@ -2374,9 +2422,7 @@
       }
       const pages = {}
       const loadPage = name => {
-        if (!pages[name]) pages[name] = (typeof require.async === 'function'
-          ? require.async('./client.' + name + '.js').then(module => module.mount(ctx, store, resolveLocale))
-          : Promise.reject(new Error(rpcT()('statisticsUpgrade')))).catch(error => { delete pages[name]; throw error })
+        if (!pages[name]) pages[name] = require.async('./client.' + name + '.js').then(module => module.mount(ctx, store, resolveLocale)).catch(error => { delete pages[name]; throw error })
         return pages[name]
       }
       const api = {
@@ -2385,6 +2431,7 @@
         loadCommunity: () => loadPage('community'),
         loadPricing: () => loadPage('pricing'),
         loadDisplay: () => loadPage('display'),
+        loadCodex: () => loadPage('codex'),
         reload,
         updateConfig: async patch => {
           const { activeLocale: _local, ...savedPatch } = patch
@@ -2409,6 +2456,9 @@
           store.set({ status: 'ready', error: null, state })
           return state
         },
+        // Codex 订阅兼容(契约 D/E):并入/忽略 Codex 历史用量,宿主返回完整 state。
+        applyCodexCompatHistory: async () => refreshState(await call('applyCodexCompatHistory')),
+        dismissCodexCompat: async () => refreshState(await call('dismissCodexCompat')),
         // 导入安装前历史(issue #27):返回 { ok, message, state? },成功时刷新本地快照。
         importLegacyHistory: async () => {
           const result = await costMeter.importLegacyHistory()
@@ -2499,6 +2549,8 @@
         { name: 'sidebar.footer.action', id: 'cost-meter-simple-guide', order: 1, inject: injected }, SidebarSimpleGuide))
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: 'cost-meter-billion-compatibility', order: 2, inject: injected }, BillionCompatibilityGuide))
+      slots.inject('sidebar.footer.action', () => slots.register(
+        { name: 'sidebar.footer.action', id: 'cost-meter-peak-progress-guide', order: 1, inject: injected }, PeakProgressGuide))
       // 首次更新引导:常驻 sidebar.footer.action 挂载,组件内部按 promptSeen 门控。
       slots.inject('sidebar.footer.action', () => {
         const dispose = slots.register(
@@ -2515,6 +2567,10 @@
         )
         return dispose
       })
+      // Codex 订阅兼容一次性提示(契约 E):常驻 sidebar.footer.action,组件内部按
+      // state.codexCompat.promptDue 门控;旧宿主无该键,组件始终渲染空,也不加载 chunk。
+      slots.inject('sidebar.footer.action', () => slots.register(
+        { name: 'sidebar.footer.action', id: 'cost-meter-codex-compat', order: 1, inject: injected }, CodexCompatPromptSlot))
 
       // 峰/谷切换前弹窗提醒:全局 fixed 浮层(fixed 定位与宿主位置无关),挂在常驻的
       // sidebar.footer.action 插槽——conversation.composer.dock 仅在有活跃会话的页面渲染,
@@ -2562,9 +2618,14 @@
         const showToday = state?.config?.sidebar !== false && state?.config?.hideTodayCost !== true
         const balanceDisplay = state?.config?.balance?.display ?? 'both'
         const showBalance = (balanceDisplay === 'sidebar' || balanceDisplay === 'both') && state?.config?.hideOfficialBalance !== true
+        const side = entry => entry?.enabled === true && ['sidebar', 'both'].includes(entry.display)
         const footer = showToday || showBalance || state?.config?.codexQuotaEnabled === true || state?.config?.sidebarModels?.enabled === true
           || (state?.config?.budget?.enabled === true && state?.config?.hideBudget !== true)
           || (state?.config?.goQuota?.enabled === true && ['sidebar', 'both'].includes(state.config.goQuota.display))
+          || (state?.config?.peakEnabled === true && state.config.peakNotice !== false)
+          || Object.values(state?.config?.codingPlans ?? {}).some(side)
+          || (state?.config?.gatewayQuotas?.sources ?? []).some(side)
+          || visibleCustomEntries(state, state?.config).length > 0
         const cornerEnabled = state?.config?.corner?.enabled === true || state?.config?.sidebarModels?.dock === true
         const sectionLocale = resolveLocale(state?.config || { activeLocale: store.getSnapshot().locale })
         const usagePosition = state?.config?.usage?.position ?? 'cost'

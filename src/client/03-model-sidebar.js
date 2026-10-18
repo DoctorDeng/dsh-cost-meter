@@ -46,13 +46,13 @@
             cfg.shares ? el('div', { className: 'cm-bbox-bar', title: (total > 0 ? r.cost / total * 100 : 0).toFixed(1) + '%' }, el('div', { className: 'cm-bbox-fill', style: { width: (total > 0 ? r.cost / total * 100 : 0) + '%' } })) : null,
             cfg.tokens ? el('div', { className: 'cm-mstats-note' }, t('modelStatsInput') + ' ' + formatTokens(r.input) + ' · ' + t('modelStatsCache') + ' ' + formatTokens(r.cacheRead + r.cacheWrite) + ' · ' + t('modelStatsOutput') + ' ' + formatTokens(r.output)) : null)) : el('span', { className: 'cm-note' }, t('modelStatsEmpty'))) : null)
     }
-    function ModelSidebarSettings({ draft, setDraft, t }) {
+    function ModelSidebarSettings({ draft, setDraft, t, visibilityControl = true }) {
       const cfg = { ...MODEL_SIDEBAR_DEFAULTS, ...draft?.sidebarModels }
       const set = (key, value) => { if (draft) setDraft({ ...draft, sidebarModels: { ...cfg, [key]: value } }) }
       const select = (key, choices) => el('div', { className: 'cm-field', key }, el('label', null, t('models_' + key)), el('select', { className: 'cm-input', value: cfg[key], onChange: e => set(key, e.target.value) }, choices.map(([value, label]) => el('option', { key: value, value }, t(label)))))
       return el('div', { className: 'cm-grid' },
-        el('div', { className: 'cm-grid-group' }, t('modelsTitle')),
-        ['enabled', 'defaultOpen', 'remember', 'tokens', 'shares', 'dock'].map(key => el('label', { key, className: 'cm-check' }, el('input', { type: 'checkbox', checked: cfg[key], onChange: e => set(key, e.target.checked) }), t('models_' + key))),
+        visibilityControl ? el('div', { className: 'cm-grid-group' }, t('modelsTitle')) : null,
+        ['enabled', 'defaultOpen', 'remember', 'tokens', 'shares', 'dock'].filter(key => visibilityControl || key !== 'enabled').map(key => el('label', { key, className: 'cm-check' }, el('input', { type: 'checkbox', checked: cfg[key], onChange: e => set(key, e.target.checked) }), t('models_' + key))),
         select('period', [['today', 'modelStatsToday'], ['history', 'modelStatsHistory']]),
         select('summary', [['total', 'modelsTotal'], ['top', 'modelsTop']]),
         select('position', [['first', 'modelsFirst'], ['afterBalance', 'modelsAfter'], ['last', 'modelsLast']]),

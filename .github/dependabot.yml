@@ -23,11 +23,15 @@ updates:
           - "minor"
           - "patch"
     ignore:
-      # @deepseek-ai 官方辅助包目前处于 0.1.0-rc 阶段,semver 大版本跳跃
+      # @deepseek-ai 官方辅助包与宿主同版本演进（当前 0.2.x）,semver 大版本跳跃
       # 可能伴随宿主协议变化,忽略自动升级,改由发版时人工对齐宿主版本。
       - dependency-name: "@deepseek-ai/*"
         update-types:
           - "version-update:semver-major"
+      # acorn 会被打包进 lib/bootstrap.js，升级必须重新生成 lib/ 构建产物；
+      # zod 为精确锁版（宿主供应链策略与 wire 契约相关）。二者改由发版时人工评估。
+      - dependency-name: "acorn"
+      - dependency-name: "zod"
 
   # GitHub Actions 工作流
   - package-ecosystem: "github-actions"

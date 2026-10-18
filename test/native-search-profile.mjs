@@ -10,7 +10,12 @@ assert.ok(process.env.DSH_TEST_NODE_MODULES && process.argv[2])
 const repo = fileURLToPath(new URL('../', import.meta.url))
 const req = createRequire(join(resolve(process.env.DSH_TEST_NODE_MODULES), '__search.cjs'))
 const host = req.resolve('@deepseek-ai/dsh/package.json')
-assert.equal(req('@deepseek-ai/dsh/package.json').version, '0.2.0-rc.2')
+// The installing CI job pins the host version (install-smoke.yml); assert the running host is
+// one the manifest still supports instead of repeating that pin here.
+const hostVersion = req('@deepseek-ai/dsh/package.json').version
+const floor = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).engines?.dsh
+assert.equal(typeof floor, 'string', 'package.json must declare engines.dsh as the dsh compatibility floor')
+assert.ok(req('semver').satisfies(hostVersion, floor, { includePrerelease: true }), `running host ${hostVersion} is outside the supported range ${floor}`)
 const cli = join(dirname(host), 'lib/bin.js')
 const work = mkdtempSync(join(repo, '.tmp-native-profile-'))
 const home = join(work, 'home')

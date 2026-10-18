@@ -90,11 +90,12 @@ assert.match(simple.props.className, /simple/)
 assert.doesNotMatch(simple.props.className, /compact/)
 assert.equal(simple.props.tabIndex, 0, '可用键盘进入并滚动')
 // fork 定制:宽栏标准态用合并信息卡 TodayBalanceCard(今日费用/余额/峰谷)替代上游的
-// 余额图框 + 今日费用行,故不能沿用上游「简化态卡片数 = 标准态 + 1」的计数口径;
+// 余额图框 + 今日费用行,故不能沿用上游「简化态卡片数 = 标准态 + 1」的计数口径,
 // 改为比较 footer 直属子节点实际承载的组件。
 const childCards = tree => tree.children.filter(n => n && typeof n.type === 'function').map(n => n.type.name)
 const quotaCards = names => names.filter(n => n !== 'TodayBalanceCard' && !n.startsWith('PeakStrip')).sort()
 assert.equal(nodes(simple).filter(n => n.props.summary === true).length, 1, '预算与今日合并为一个摘要')
+assert.equal(nodes(simple).filter(n => n.props['data-cm-display'] === 'today').length, 1, '今日用量单独显示')
 assert.match(footer(false).props.className, /rail.*simple/)
 state.config = { ...config, sidebarSimple: false }
 const standard = footer(true)

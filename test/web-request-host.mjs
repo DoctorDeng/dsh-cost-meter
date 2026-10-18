@@ -1,4 +1,4 @@
-/** Actual alpha.5 tool registry + HTTP transport; synthetic replies stay on loopback. */
+/** Actual DSH tool registry + HTTP transport from the pinned host; synthetic replies stay on loopback. */
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:http'

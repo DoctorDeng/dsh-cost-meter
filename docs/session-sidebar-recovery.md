@@ -56,7 +56,8 @@ interaction, but it does not justify blaming the theme for an empty search resul
   with deterministic VM hooks. It restores 18 synthetic workspaces and checks
   original message files, workspace preferences and a 78,000-call ledger remain
   unchanged. Slow, failed, aborted and late replies, intentional searches and
-  remount recovery are covered on DSH 0.1.7-rc.2 and 0.2.0-rc.2
+  remount recovery are covered on DSH 0.2.0-rc.2; the 0.1.7-rc.2 leg was
+  dropped together with the 0.2.0 floor
 - `test/credential-editor-dom.mjs --baseline v1.8.6` uses real React and jsdom.
   An explicitly modeled saved-login pairing reproduces the old unowned-input
   mechanism; the fixed mount and scoped editor avoid that model. Edit, focus,

@@ -270,41 +270,26 @@ window.__ModuleLoader__.load({
     function Matching({ state, draft, setDraft, t, locale, resolveClientPrice, prettyProviderKey, setField, priceEditor }) {
       const [query, setQuery] = useState(''), [limit, setLimit] = useState(24)
       const [expanded, setExpanded] = useState(null), [sourceModes, setSourceModes] = useState({})
+      const rowNodes = useRef(new Map()), customTarget = useRef(null)
       const en = locale === 'en'
       const config = state.config
           const overrides = draft?.priceOverrides ?? config.priceOverrides ?? {}
           const dismissed = draft?.priceMatchDismissed ?? config.priceMatchDismissed ?? []
           const pricesNow = draft?.prices ?? config.prices
-          const byProvider = state.today.byProviderModel ?? {}
-          // 今日出现但未命中价格条目的 provider:model 键:判定走 resolveClientPrice 完整
-          // 解析链(精确/归一化/宽泛/跨厂商兑底,按当前匹配模式),与计费口径一致——
-          // 路由 provider 前缀(go:/opencode: 等)下实际已正确计价的模型不再误报,
-          // 仅 DeepSeek 默认价兜底与完全未命中者需要人工指定。
-          const matchMode = draft?.priceMatch ?? config.priceMatch
-          const matchPrices = useMemo(() => ({ prices: pricesNow, priceMatch: matchMode }), [pricesNow, matchMode])
-          const unmatchedKeys = useMemo(() => Object.keys(byProvider).filter(key => {
-            if (isRequestKey(key)) return false
-            if (dismissed.includes(key)) return false
-            if (overrides[key] !== undefined) return false // 已手动指定的键由下方 rows 展示
-            const sep = key.indexOf(':')
-            const provider = (sep > 0 ? key.slice(0, sep) : 'deepseek').toLowerCase()
-            const modelId = sep > 0 ? key.slice(sep + 1) : key
-            return resolveClientPrice(provider, modelId, matchPrices).matched !== true
-          }), [byProvider, dismissed, overrides, matchPrices, resolveClientPrice])
-          const rows = [...new Set([...unmatchedKeys, ...Object.keys(overrides)])].filter(key => !dismissed.includes(key) && !isRequestKey(key))
-          // 本月已命中价格且未手动指定的 provider:model 键(v1.6.11):同样允许
-          // 改挂其它条目或标记为本地模型(零消耗)。数据取 state.month.byProviderModel
-          // (比今日覆盖面广);override 写入后该键转入上方 rows(手动指定区)展示。
-          const monthByProvider = state.month?.byProviderModel ?? {}
-          const matchedKeys = useMemo(() => Object.keys(monthByProvider).filter(key => {
-            if (isRequestKey(key)) return false
-            if (dismissed.includes(key)) return false
-            if (overrides[key] !== undefined) return false
-            const sep = key.indexOf(':')
-            const provider = (sep > 0 ? key.slice(0, sep) : 'deepseek').toLowerCase()
-            const modelId = sep > 0 ? key.slice(sep + 1) : key
-            return resolveClientPrice(provider, modelId, matchPrices).matched === true
-          }).sort(), [monthByProvider, dismissed, overrides, matchPrices, resolveClientPrice])
+          const statistics = draft?.modelStatistics ?? config.modelStatistics ?? {}
+          const statisticScopes = [['today', '今日费用', 'Today'], ['summary', '月度与累计', 'Monthly / all-time'], ['budget', '预算', 'Budget']]
+          const byProvider = useMemo(() => ({ ...state.total?.byProviderModel, ...state.month?.byProviderModel, ...state.today?.byProviderModel,
+            ...Object.fromEntries(Object.keys(statistics).map(key => [key, null])) }), [state.total?.byProviderModel, state.month?.byProviderModel, state.today?.byProviderModel, statistics])
+          // Price-source changes never move a model between parent sections or remount its editor.
+          const rows = useMemo(() => [...new Set([...Object.keys(byProvider), ...Object.keys(overrides)])]
+            .filter(key => !dismissed.includes(key) && !isRequestKey(key)).sort(), [byProvider, overrides, dismissed])
+          useLayoutEffect(() => {
+            const editor = rowNodes.current.get(customTarget.current)?.querySelector('.cm-custom-price')
+            if (!editor) return
+            customTarget.current = null
+            editor.scrollIntoView({ block: 'start', inline: 'nearest' })
+            editor.querySelector('input')?.focus({ preventScroll: true })
+          }, [pricesNow, sourceModes])
   const targetOptions = useMemo(() => [
     { value: 'deepseek:__default__', label: t('overrideTargetDefault') },
     // DeepSeek 目标必须带 'deepseek:' 前缀存储(issue #56):裸名会被按
@@ -334,24 +319,39 @@ window.__ModuleLoader__.load({
           }
           const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
           const filter = keys => keys.filter(key => words.every(word => prettyProviderKey(key).toLowerCase().includes(word)))
-          const pending = filter(rows), matched = filter(matchedKeys), total = pending.length + matched.length
-          const visiblePending = pending.slice(0, limit), visibleMatched = matched.slice(0, Math.max(0, limit - visiblePending.length))
-          const row = (key, automatic) => {
+          const matched = filter(rows), total = matched.length
+          const visible = matched.slice(0, limit)
+          const row = key => {
             const label = prettyProviderKey(key), split = label.indexOf(':'), source = overrides[key]
             const open = expanded === key, mode = sourceModes[key] ?? (source === '__custom__' ? 'custom' : source === '__local__' ? 'local' : source ? 'catalog' : 'auto')
             const sep = key.indexOf(':'), resolved = resolveClientPrice(sep > 0 ? key.slice(0, sep) : 'deepseek', sep > 0 ? key.slice(sep + 1) : key, { ...config, ...draft })
+            const automatic = !source && resolved.matched === true
             const choose = next => {
+              if (next === 'custom') customTarget.current = key
               setSourceModes({ ...sourceModes, [key]: next })
               if (next !== 'catalog') setOverride(key, next === 'custom' ? '__custom__' : next === 'local' ? '__local__' : '')
             }
+            const included = statisticScopes.filter(([scope]) => statistics[key]?.[scope] !== false)
+            const setStatistics = (scope, checked) => {
+              if (!draft) return
+              const next = { ...statistics, [key]: { today: true, summary: true, budget: true, ...statistics[key], [scope]: checked } }
+              if (Object.values(next[key]).every(Boolean)) delete next[key]
+              setDraft({ ...draft, modelStatistics: next })
+            }
             const badge = automatic ? (en ? 'Automatic' : '自动匹配') : source === '__custom__' ? (en ? 'Custom price' : '自定义价格') : source === '__local__' ? (en ? 'Local · free' : '本地 · 零费用') : source ? (en ? 'Price table' : '指定价格表') : (en ? 'Needs a price' : '待设置价格')
-            return el('div', { key, className: 'cm-match-row' },
+            return el('div', { key, className: 'cm-match-row', 'data-model-key': key, 'data-open': open,
+              ref: node => { if (node) rowNodes.current.set(key, node); else rowNodes.current.delete(key) } },
               el('div', { className: 'cm-model-head' },
-                el('div', { className: 'cm-model-identity', title: label }, el('span', { className: 'cm-model-provider' }, split > 0 ? label.slice(0, split) : 'DeepSeek'), el('strong', null, split > 0 ? label.slice(split + 1) : label)),
-                el('span', { className: 'cm-model-badge' + (!automatic && !source ? ' needs-price' : '') }, badge),
+                el('div', { className: 'cm-model-identity', title: label }, el('strong', null, split > 0 ? label.slice(split + 1) : label),
+                  el('span', { className: 'cm-model-meta' }, el('span', { className: 'cm-model-provider' }, split > 0 ? label.slice(0, split) : 'DeepSeek'),
+                    el('span', { className: 'cm-model-badge' + (!automatic && !source ? ' needs-price' : '') }, badge))),
+                el('div', { className: 'cm-model-current', title: en ? 'Effective rates per 1M tokens, including multipliers' : '每百万 Token 实际单价，已含倍率' },
+                  el(RateSummary, { entry: resolved.entry, currency: resolved.currency, priceEditor, locale, local: source === '__local__' })),
                 el('button', { type: 'button', className: 'cm-btn small cm-model-edit', 'aria-expanded': open, 'aria-label': label + (en ? ' · Set price' : ' · 设置价格'), onClick: () => setExpanded(open ? null : key) }, open ? (en ? 'Collapse' : '收起') : (en ? 'Set price' : '设置价格'))),
-              el('div', { className: 'cm-model-current' }, el('span', { className: 'cm-note' }, (en ? 'Base reference rates · ' : '基础参考单价 · ') + (resolved.currency ?? 'USD') + (en ? ' / 1M tokens · multipliers included' : ' / 百万 Token · 已含倍率')),
-                el(RateSummary, { entry: resolved.entry, currency: resolved.currency, priceEditor, locale, local: source === '__local__' })),
+              el('details', { className: 'cm-model-statistics', 'data-model-statistics': key },
+                el('summary', null, en ? 'Include in statistics' : '计入统计', included.length === 3 ? null : el('span', { className: 'cm-note' }, included.map(([, zh, english]) => en ? english : zh).join(' · ') || (en ? 'None' : '均不计入'))),
+                el('div', { className: 'cm-model-statistics-options' }, ...statisticScopes.map(([scope, zh, english]) => el('label', { key: scope, className: 'cm-check' },
+                  el('input', { type: 'checkbox', checked: statistics[key]?.[scope] !== false, 'aria-label': label + ' · ' + (en ? english : zh), onChange: event => setStatistics(scope, event.target.checked) }), en ? english : zh)))),
               open ? el('div', { className: 'cm-model-editor' },
                 el('div', { className: 'cm-source-choices', role: 'group', 'aria-label': en ? 'Price source' : '价格来源' },
                   ...[['auto', '自动匹配', 'Automatic'], ['catalog', '价格表', 'Price table'], ['custom', '自定义', 'Custom'], ['local', '本地', 'Local']].map(([id, zh, english]) => el('button', { key: id, type: 'button', className: 'cm-source-choice' + (mode === id ? ' active' : ''), 'aria-pressed': mode === id, onClick: () => choose(id) }, en ? english : zh))),
@@ -366,14 +366,14 @@ window.__ModuleLoader__.load({
                 automatic ? null : el('button', { type: 'button', className: 'cm-model-dismiss', title: t('removePriceMatchHint'), onClick: () => dismissMatch(key) }, t('overrideRemove'))) : null)
           }
           return el('div', { className: 'cm-model-matching' },
-            el('div', { className: 'cm-pricing-intro' },
-              el('h3', { className: 'cm-h' }, en ? 'Set prices by channel and model' : '按渠道和模型设置价格'),
-              el('p', { className: 'cm-note' }, en ? 'Review current rates. Open a model to change its price source or enter a custom quote.' : '先看当前单价，点“设置价格”后选择来源或填写这个渠道的价格。')),
             el('div', { className: 'cm-model-toolbar' },
               el('input', { type: 'search', className: 'cm-input', value: query, placeholder: en ? 'Find a model or channel…' : '查找模型或渠道…', 'aria-label': en ? 'Find configured models' : '查找已用模型', onChange: event => { setQuery(event.target.value); setLimit(24) }, onKeyDown: event => { if (event.key === 'Escape') { setQuery(''); setLimit(24); event.stopPropagation() } } }),
               el('span', { className: 'cm-note', role: 'status' }, en ? `${total} models` : `${total} 个模型`)),
-            visiblePending.length ? el('section', { className: 'cm-model-group' }, el('h4', { className: 'cm-pricing-group-title' }, t('unmatchedTitle'), el('span', null, pending.length)), ...visiblePending.map(key => row(key, false))) : null,
-            visibleMatched.length ? el('section', { className: 'cm-model-group' }, el('h4', { className: 'cm-pricing-group-title' }, t('matchedTitle'), el('span', null, matched.length)), ...visibleMatched.map(key => row(key, true))) : null,
+            visible.length ? el('div', { className: 'cm-model-list' },
+              el('div', { className: 'cm-model-columns', 'aria-hidden': true }, el('span', null, en ? 'Model / channel' : '模型 / 渠道'),
+                el('span', { className: 'cm-rate-summary' }, ...[en ? 'Input' : '输入', en ? 'Cached input' : '缓存读取', en ? 'Output' : '输出'].map(label => el('span', { key: label }, label))),
+                el('span', { title: en ? 'Per 1M tokens' : '每百万 Token' }, '/ 1M tok')),
+              ...visible.map(row)) : null,
             total === 0 ? el('p', { className: 'cm-pricing-empty' }, query ? (en ? 'No models found. Try another keyword.' : '没有找到模型，试试其他关键词。') : (en ? 'Models appear here after their first call.' : '调用过的模型会显示在这里，之后可按渠道设置价格。')) : null,
             total > limit ? el('button', { type: 'button', className: 'cm-btn', onClick: () => setLimit(n => n + 24) }, en ? `Show more · ${total - limit} remaining` : `显示更多 · 还有 ${total - limit} 个`) : null,
             dismissed.length > 0 ? el('button', { type: 'button', className: 'cm-btn small', onClick: () => setField('priceMatchDismissed', []) }, t('restorePriceMatches', { count: dismissed.length })) : null,
@@ -502,25 +502,28 @@ window.__ModuleLoader__.load({
       style.textContent += '.cm-custom-price{grid-column:1/-1;display:grid;gap:14px;margin:4px 0 12px;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);min-width:0}.cm-custom-price legend{padding:0 6px;font-weight:500;font-size:13px}.cm-custom-price label{display:grid;gap:7px;font-size:12px;min-width:0;color:var(--dsw-alias-label-secondary)}.cm-custom-price .cm-input{width:100%;min-width:0}.cm-custom-head{display:flex;justify-content:space-between;align-items:center;gap:12px;color:var(--dsw-alias-label-secondary);font-size:12px}.cm-custom-head label{display:flex;align-items:center;gap:8px}.cm-custom-head select{width:auto!important}.cm-custom-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.cm-custom-amount{position:relative;display:block}.cm-custom-amount>span{position:absolute;inset-inline-start:11px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--dsw-alias-label-tertiary)}.cm-custom-amount input{padding-inline-start:28px}.cm-custom-more summary{cursor:pointer;font-size:12px;color:var(--dsw-alias-label-secondary)}.cm-custom-more .cm-custom-grid{grid-template-columns:repeat(2,minmax(0,1fr));margin:12px 0 8px}.cm-custom-price p{margin:0;line-height:1.6}@media(max-width:700px){.cm-custom-grid{grid-template-columns:1fr}.cm-custom-head{flex-wrap:wrap}}'
       document.head.appendChild(style)
       style.textContent += `
-        .cm-model-matching{display:grid;gap:20px;min-width:0}
+        .cm-model-matching{display:grid;gap:12px;min-width:0;container:cm-models / inline-size;overflow-anchor:none}
         .cm-pricing-intro{display:grid;gap:6px}.cm-pricing-intro p{line-height:1.65}
         .cm-model-toolbar{display:flex;align-items:center;gap:12px}.cm-model-toolbar>.cm-input{flex:1;width:100%;min-width:0;box-sizing:border-box}.cm-model-toolbar>.cm-note{white-space:nowrap}
         .cm-model-group{display:grid;gap:12px;min-width:0}.cm-pricing-group-title{margin:0;display:flex;align-items:center;gap:8px;font-weight:500;font-size:12px;color:var(--dsw-alias-label-secondary)}.cm-pricing-group-title>span{font-size:11px;color:var(--dsw-alias-label-tertiary)}
-        .cm-model-matching .cm-match-row{display:grid;gap:14px;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);min-width:0}
-        .cm-model-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.cm-model-identity{flex:1 1 180px;display:grid;gap:3px;min-width:0}.cm-model-identity strong{font-size:14px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}.cm-model-provider{font-size:11px;color:var(--dsw-alias-label-tertiary)}
-        .cm-model-badge{font-size:11px;color:var(--dsw-alias-label-secondary);padding:3px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;white-space:nowrap}.cm-model-badge.needs-price{color:var(--dsw-alias-state-business-primary)}.cm-model-head>.cm-btn{font-size:12px;padding:4px 8px}
+        .cm-model-list{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;min-width:0}.cm-model-matching .cm-match-row{display:grid;gap:3px;padding:8px 12px;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);border-radius:0;background:transparent;min-width:0}.cm-model-list .cm-match-row:last-child{border-bottom:0}.cm-model-list .cm-match-row[data-open=true]{background:var(--dsw-alias-bg-layer-1)}
+        .cm-model-statistics{font-size:11px;min-width:0;color:var(--dsw-alias-label-secondary)}.cm-model-statistics>summary{cursor:pointer;line-height:1.6;width:fit-content}.cm-model-statistics>summary>span{margin-left:8px}.cm-model-statistics-options{display:flex;flex-wrap:wrap;gap:8px 16px;padding:8px 0 3px}.cm-model-statistics-options .cm-check{display:flex;align-items:center;gap:6px;margin:0}.cm-model-statistics-options input{accent-color:var(--dsw-alias-state-business-primary)}
+        .cm-model-head,.cm-model-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,1fr) 72px;align-items:center;gap:12px;min-width:0}.cm-model-columns{padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-tertiary)}.cm-model-columns>span:last-child{text-align:right;white-space:nowrap}.cm-model-identity{display:grid;gap:2px;min-width:0}.cm-model-identity strong{font-size:13px;font-weight:500;line-height:1.45;overflow-wrap:anywhere}.cm-model-meta{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}.cm-model-provider{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+        .cm-model-badge{font-size:10px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.cm-model-badge.needs-price{color:var(--dsw-alias-state-business-primary)}.cm-model-head>.cm-btn{font-size:12px;padding:4px 8px;justify-self:end}
         .cm-model-source{display:grid;gap:7px;min-width:0}.cm-model-source>span{font-size:12px;color:var(--dsw-alias-label-secondary)}.cm-model-source .cm-price-search{grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:8px}.cm-model-source .cm-price-search>small{grid-column:1/-1}.cm-model-source .cm-input{box-sizing:border-box;padding:8px 10px}
         .cm-pricing-rules{padding:14px 0 0;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:12px}.cm-pricing-rules summary{cursor:pointer}.cm-pricing-rules .cm-field{margin:12px 0;max-width:360px}.cm-pricing-rules .cm-note{line-height:1.65}
         .cm-pricing-empty{margin:0;padding:32px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);border:1px dashed var(--dsw-alias-border-l1);border-radius:12px;font-size:13px}
-        .cm-model-matching .cm-custom-price{margin:0;padding:14px;background:var(--dsw-alias-bg-base);gap:16px}.cm-custom-head{flex-wrap:wrap}.cm-custom-head>span{flex:1;min-width:160px}.cm-custom-grid{grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))}.cm-custom-price .cm-input{max-width:none;box-sizing:border-box;padding-top:8px;padding-bottom:8px}.cm-custom-price .cm-custom-amount input{padding-inline-start:28px}.cm-custom-price .cm-price-multiplier{align-items:center;gap:8px}.cm-custom-price .cm-price-multiplier label{display:inline-flex;align-items:center;gap:6px}.cm-custom-price .cm-price-multiplier input{width:auto;min-width:0}.cm-custom-price .cm-hint{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+        .cm-model-matching .cm-custom-price{margin:0;padding:14px;background:var(--dsw-alias-bg-base);gap:12px;scroll-margin-block-start:12px}.cm-custom-head{flex-wrap:wrap}.cm-custom-head>span{flex:1;min-width:160px}.cm-custom-grid{grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))}.cm-custom-price .cm-input{max-width:none;box-sizing:border-box;padding-top:8px;padding-bottom:8px}.cm-custom-price .cm-custom-amount input{padding-inline-start:28px}.cm-custom-price .cm-price-multiplier{align-items:center;gap:8px}.cm-custom-price .cm-price-multiplier label{display:inline-flex;align-items:center;gap:6px}.cm-custom-price .cm-price-multiplier input{width:auto;min-width:0}.cm-custom-price .cm-hint{font-size:11px;color:var(--dsw-alias-label-tertiary)}
         .cm-custom-effective{display:grid;gap:12px;padding:12px;background:var(--dsw-alias-bg-layer-1);border-radius:8px;font-size:12px;font-variant-numeric:tabular-nums}.cm-effective-heading{display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}.cm-effective-heading>span{font-weight:500}.cm-effective-heading small,.cm-effective-grid span{color:var(--dsw-alias-label-tertiary);font-size:11px}.cm-effective-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.cm-effective-grid>div{display:grid;gap:5px;min-width:0}.cm-effective-grid strong{font-size:14px;font-weight:600;overflow-wrap:anywhere}
         .cm-pricing-page .cm-price-card{min-width:0;container:cm-price-editor / inline-size}.cm-pricing-page .cm-price-row{min-width:0}.cm-pricing-page .cm-price-row input{max-width:none;font-variant-numeric:tabular-nums}.cm-pricing-catalog .cm-catalog-vendor{margin-top:8px}
-        @media(max-width:480px){.cm-model-matching .cm-match-row{padding:12px}.cm-model-matching .cm-custom-price{padding:10px}.cm-custom-more .cm-custom-grid{grid-template-columns:1fr}.cm-effective-grid{gap:8px}.cm-model-identity{flex-basis:100%}}
+        @media(max-width:480px){.cm-model-matching .cm-match-row{padding:8px 10px}.cm-model-matching .cm-custom-price{padding:10px}.cm-custom-more .cm-custom-grid{grid-template-columns:1fr}.cm-effective-grid{gap:8px}.cm-model-identity{flex-basis:100%}}
       `
       style.textContent += `
-        .cm-model-current{display:grid;gap:10px}.cm-model-current>.cm-note{font-size:11px;line-height:1.6}
+        .cm-model-current{min-width:0}
         .cm-rate-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-width:0;font-variant-numeric:tabular-nums}.cm-rate-item{display:grid;gap:4px;min-width:0}.cm-rate-item>span{font-size:11px;color:var(--dsw-alias-label-tertiary)}.cm-rate-item>strong{font-size:14px;font-weight:500;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere}
-        .cm-model-editor{display:grid;gap:14px;padding-top:14px;border-top:1px solid var(--dsw-alias-border-l1);min-width:0}.cm-source-choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.cm-source-choice{font:inherit;font-size:12px;padding:9px 4px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer}.cm-source-choice.active{color:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);font-weight:600}.cm-source-choice:focus-visible,.cm-model-edit:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.cm-source-explanation{font-size:12px;line-height:1.7;margin:0;color:var(--dsw-alias-label-secondary)}.cm-model-dismiss{justify-self:start;font:inherit;font-size:11px;border:0;padding:0;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer}.cm-model-dismiss:hover{color:var(--dsw-alias-state-danger-primary,#cf4e4e)}
+        .cm-model-list .cm-rate-summary{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.cm-model-list .cm-rate-item{gap:0}.cm-model-list .cm-rate-item>span{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}.cm-model-list .cm-rate-item>strong{font-size:13px}
+        @container cm-models (max-width:640px){.cm-model-columns{display:none}.cm-model-head{grid-template-columns:minmax(0,1fr) 72px;gap:7px 12px}.cm-model-head>.cm-btn{grid-column:2;grid-row:1}.cm-model-current{grid-column:1/-1;grid-row:2}.cm-model-list .cm-rate-item{gap:1px}.cm-model-list .cm-rate-item>span{position:static;width:auto;height:auto;clip-path:none;overflow:visible;font-size:10px}.cm-model-list .cm-rate-item>strong{font-size:12px}}
+        .cm-model-editor{display:grid;gap:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1);min-width:0}.cm-source-choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.cm-source-choice{font:inherit;font-size:12px;padding:9px 4px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer}.cm-source-choice.active{color:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);font-weight:600}.cm-source-choice:focus-visible,.cm-model-edit:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.cm-source-explanation{font-size:12px;line-height:1.7;margin:0;color:var(--dsw-alias-label-secondary)}.cm-model-dismiss{justify-self:start;font:inherit;font-size:11px;border:0;padding:0;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer}.cm-model-dismiss:hover{color:var(--dsw-alias-state-danger-primary,#cf4e4e)}
         .cm-reference-prices{display:grid;gap:16px;min-width:0}.cm-reference-prices>.cm-note{line-height:1.7}.cm-catalog-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.cm-catalog-toolbar>.cm-input{min-width:0;box-sizing:border-box;padding:8px 10px}.cm-catalog-toolbar>input{flex:1 1 220px}.cm-catalog-toolbar>select{flex:0 1 180px;max-width:100%}.cm-catalog-toolbar>.cm-note{white-space:nowrap;margin-inline-start:auto}
         .cm-catalog-group{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;overflow:hidden;min-width:0;container:cm-price-list / inline-size}.cm-reference-prices .cm-catalog-vendor{width:100%;margin:0;border:0;border-radius:0;padding:13px 16px;font:inherit;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);box-sizing:border-box;text-align:start}.cm-catalog-vendor>span:first-child{display:flex;align-items:center;gap:9px;min-width:0}.cm-catalog-vendor small{font-size:11px;color:var(--dsw-alias-label-tertiary);font-weight:400}.cm-pricing-chevron{display:block;flex:none;color:var(--dsw-alias-label-tertiary);transition:transform .15s ease}.cm-pricing-chevron.is-open{transform:rotate(90deg)}@media(prefers-reduced-motion:reduce){.cm-pricing-chevron{transition:none}}.cm-catalog-unit{font-size:11px;font-weight:400;color:var(--dsw-alias-label-tertiary);white-space:nowrap}.cm-catalog-list{border-top:1px solid var(--dsw-alias-border-l1)}
         .cm-catalog-columns,.cm-catalog-model{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,minmax(74px,.35fr)) 14px;gap:14px;align-items:center;padding:12px 16px;box-sizing:border-box;min-width:0}.cm-catalog-columns{font-size:11px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-base)}.cm-catalog-model{position:relative;width:100%;font:inherit;text-align:start;border:0;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}.cm-catalog-entry{border-top:1px solid var(--dsw-alias-border-l1)}.cm-catalog-model:hover{background:var(--dsw-alias-bg-hover,var(--dsw-alias-bg-layer-1))}.cm-catalog-model:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.cm-catalog-entry.editing{background:var(--dsw-alias-bg-layer-1)}.cm-catalog-model-name{display:grid;gap:4px;min-width:0}.cm-catalog-model-name>strong{font-size:13px;font-weight:500;line-height:1.6;overflow-wrap:anywhere}.cm-catalog-model-name>small{font-size:11px;color:var(--dsw-alias-label-tertiary)}.cm-catalog-model .cm-rate-summary{display:contents}.cm-catalog-model .cm-rate-item>span{display:none}.cm-catalog-model .cm-rate-item>strong{font-size:13px}.cm-catalog-editor{padding:0 14px 14px}.cm-catalog-more{font:inherit;font-size:12px;color:var(--dsw-alias-state-business-primary);cursor:pointer;width:100%;padding:12px;border:0;border-top:1px solid var(--dsw-alias-border-l1);background:none}
@@ -542,7 +545,7 @@ window.__ModuleLoader__.load({
         '.cm-combo-caret{right:6px;font-size:10px}',
         // 浮层固定定位挂到 body:设置面板是宿主 overlay 里 role=dialog 的 div,它带 overflow
         // 与自己的层叠上下文;底色沿用宿主浮层令牌(bg-layer-2),靠 elevation 的描边+阴影分层。
-        '.cm-combo-panel{position:fixed;z-index:10000;display:flex;flex-direction:column;gap:2px;box-sizing:border-box;padding:4px;border-radius:12px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base));box-shadow:var(--dsw-elevation-panel,0 3px 8px rgba(0,0,0,.06),0 0 16px rgba(0,0,0,.04))}',
+        '.cm-combo-panel{position:fixed;z-index:10000;display:flex;flex-direction:column;gap:2px;box-sizing:border-box;padding:4px;border-radius:12px;background:var(--cm-opaque-base,#fff);background:rgb(from var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff)) r g b / 1);box-shadow:var(--dsw-elevation-panel,0 3px 8px rgba(0,0,0,.06),0 0 16px rgba(0,0,0,.04))}',
         '.cm-combo-list{display:flex;flex-direction:column;gap:2px;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}',
         // flex:none 不可省:面板限高后,列内子项默认可收缩,会把每行压扁成一条、文字被裁掉。
         '.cm-combo-option{flex:none;font:inherit;font-size:12px;line-height:1.5;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -551,6 +554,8 @@ window.__ModuleLoader__.load({
         '.cm-combo-note{margin:0;padding:4px 8px;font-size:10px;color:var(--dsw-alias-label-tertiary)}',
         '.cm-match-row .cm-combo{flex:1;min-width:160px}',
         '.cm-repricing-warning{padding:12px;border:1px solid var(--dsw-alias-state-warn-primary,#c58a25);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}.cm-repricing-warning p{margin:8px 0 12px;line-height:1.6}.cm-repricing-history{margin-top:12px}.cm-repricing-history table{width:100%;text-align:left;font-variant-numeric:tabular-nums}.cm-repricing-history td,.cm-repricing-history th{padding:8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+        // dsh-pocket 手机端适配(task-10):触发单列/换行/表格横向滚动;桌面端规则不变。
+        '@media (max-width:1023px){.cm-custom-grid,.cm-effective-grid,.cm-rate-summary{grid-template-columns:1fr}.cm-model-toolbar,.cm-custom-head,.cm-catalog-toolbar{flex-wrap:wrap}.cm-repricing-history table{min-width:480px}.cm-model-matching .cm-match-row{padding:8px 10px}}body[data-dsh-pocket-layout="mobile"] .cm-custom-grid{grid-template-columns:1fr}body[data-dsh-pocket-layout="mobile"] .cm-rate-summary{grid-template-columns:1fr}',
       ].join('')
       ctx.effect(() => () => style.remove(), 'cost-meter: pricing settings styles')
       return props => props.mode === 'matching' ? el(Matching, props) : el(props.mode === 'catalog' ? Catalog : props.mode === 'restore' ? RestorePrices : History, { ...props, rpc })

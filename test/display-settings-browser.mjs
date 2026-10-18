@@ -23,8 +23,11 @@ const state = { config: saved, today: day, month: day, total: day, history: [], 
 const code = `
 import React from ${literal(req.resolve('react'))};import{createRoot}from ${literal(req.resolve('react-dom/client'))};
 const h=React.createElement;
-window.__ModuleLoader__={load:mod=>window.mainUI=mod.factory(name=>name==='react'?React:{Tooltip:({children})=>children})};
+const mainRequire=name=>name==='react'?React:{Tooltip:({children})=>children};mainRequire.async=async()=>window.peakUI;
+window.__ModuleLoader__={load:mod=>window.mainUI=mod.factory(mainRequire)};
 ${client}
+window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(()=>React)};
+${readFileSync('lib/client.peak.js', 'utf8')}
 window.__ModuleLoader__={load:mod=>window.displayUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.display.js', 'utf8')}
 const Display=window.displayUI.mount({effect:()=>{}}),{CostSection,parseConfig,SidebarFooter}=window.mainUI.preview;
@@ -92,7 +95,7 @@ try {
   const item=key=>page.locator('.cm-preview [data-display="'+key+'"]')
   const selectStyle=async label=>page.getByRole('button',{name:label,exact:true}).click()
   const customize=async key=>{await item(key).first().click({position:{x:8,y:8}});await page.locator('[data-inspector="'+key+'"]').waitFor()}
-  const toggle=async key=>{await customize(key);await page.getByRole('checkbox',{name:'显示此组件',exact:true}).click()}
+  const toggle=async key=>{const direct=page.locator('[data-display-toggle="'+key+'"]');if(await direct.count())await direct.click();else{await customize(key);const placement=page.getByLabel('显示位置',{exact:true});if(await placement.count()){const current=await placement.getAttribute('value')??await placement.evaluate(n=>n.value);await placement.selectOption(['sidebar','both'].includes(current)?key==='balance'?'off':'settings':'both')}else await page.getByRole('checkbox',{name:'显示此组件',exact:true}).click()}}
   const examples=page.getByRole('checkbox',{name:'使用示例数据',exact:true})
   assert.equal(await examples.isChecked(),true,'examples are on by default')
   assert.equal(await page.locator('.cm-display-model-options,.cm-display-details').count(),0,'options live in the inspector instead of folded forms')
@@ -136,13 +139,16 @@ try {
   await toggle('balance');await page.waitForFunction(()=>window.current().hideOfficialBalance===false)
   await toggle('budget');await page.waitForFunction(()=>window.current().hideBudget===true);assert.equal(saved.budget.enabled,true)
   await toggle('budget');await page.waitForFunction(()=>window.current().hideBudget===false)
-  await customize('budget');await page.getByRole('checkbox',{name:'显示今日用量',exact:true}).uncheck();await page.waitForFunction(()=>window.current().hideTodayCost===true)
-  await page.getByRole('checkbox',{name:'显示今日用量',exact:true}).check();await page.waitForFunction(()=>window.current().hideTodayCost===false)
+  await page.locator('[data-display-toggle=today]').uncheck();await page.waitForFunction(()=>window.current().sidebar===false)
+  await page.locator('[data-display-toggle=today]').check();await page.waitForFunction(()=>window.current().sidebar===true)
   await customize('models');await page.getByRole('checkbox',{name:'默认展开',exact:true}).check();await page.waitForFunction(()=>window.current().sidebarModels.defaultOpen)
   assert.equal(await page.locator('.cm-sidebar-live .cm-collapse-h').getAttribute('aria-expanded'),'true')
   await page.locator('.cm-display').screenshot({path:join(output,'models-inspector.png')})
   await page.getByRole('checkbox',{name:'默认展开',exact:true}).uncheck();await page.waitForFunction(()=>!window.current().sidebarModels.defaultOpen)
-  await customize('peak');await selectStyle('分段');await page.waitForFunction(()=>window.current().peakStyle==='classic')
+  await customize('peak');await selectStyle('进度条');await page.waitForFunction(()=>window.current().peakStyle==='progress')
+  await page.locator('.cm-sidebar-live .cm-peak-progress').waitFor()
+  await page.getByLabel('显示时间',{exact:true}).selectOption('switch');await page.waitForFunction(()=>window.current().peakTimeDisplay==='switch')
+  await selectStyle('分段');await page.waitForFunction(()=>window.current().peakStyle==='classic')
   await toggle('peak');await page.waitForFunction(()=>window.current().peakNotice===false);assert.equal(saved.peakEnabled,true)
   await region('输入区');await toggle('strip-go');await page.waitForFunction(()=>window.current().quotaStrip.go===true);assert.equal(saved.goQuota.enabled,false)
   await page.waitForFunction(()=>document.querySelector('.cm-native-input-card').style.borderRadius==='31px')
@@ -158,6 +164,18 @@ try {
   await page.getByLabel('调整组件',{exact:true}).selectOption('codex')
   await page.locator('.cm-sidebar-live [data-cm-display=codex]').waitFor()
   assert.equal(await page.evaluate(()=>window.current().codexQuotaEnabled),false,'Codex example uses a supplied snapshot without enabling discovery')
+  await region('输入区')
+  await page.getByLabel('调整组件',{exact:true}).selectOption('strip-codex')
+  assert.equal(await page.getByRole('checkbox',{name:'显示此组件',exact:true}).count(),0,'Codex has independent explicit switches instead of a duplicate generic toggle')
+  await page.locator('[data-display=strip-codex]').waitFor()
+  await page.getByRole('checkbox',{name:'在输入区显示 Codex 额度',exact:true}).uncheck()
+  await page.waitForFunction(()=>window.current().codexQuotaStrip===false)
+  assert.equal(await page.evaluate(()=>window.current().codexQuotaSidebar),true,'composer visibility keeps the sidebar preference')
+  assert.equal(await page.evaluate(()=>window.current().codexQuotaEnabled),false,'display controls never enable discovery')
+  await page.locator('.cm-display').screenshot({path:join(output,'codex-composer-inspector.png')})
+  await page.getByRole('checkbox',{name:'在输入区显示 Codex 额度',exact:true}).check()
+  await page.waitForFunction(()=>window.current().codexQuotaStrip===true)
+  await region('侧栏')
   await page.getByLabel('调整组件',{exact:true}).selectOption('customBalance')
   await page.locator('.cm-sidebar-live [data-cm-display=customBalance]').waitFor()
   assert.equal(await page.evaluate(()=>window.current().customBalance.enabled),false)
@@ -203,7 +221,7 @@ try {
   assert.ok(p95<1000,'opening stays responsive under 4x CPU throttle: '+p95)
   await region('会话内容');assert.equal(await item('turn').getAttribute('data-visible'),'false','saved toggles survive repeated reopening')
   await page.getByLabel('界面语言',{exact:true}).selectOption('en');await page.waitForFunction(()=>window.current().locale==='en')
-  await region('Sidebar');await page.evaluate(()=>window.failSave=true);await customize('balance');await page.getByRole('checkbox',{name:'Show this component',exact:true}).click();await page.getByText(/synthetic save failure/).waitFor()
+  await region('Sidebar');await page.evaluate(()=>window.failSave=true);await customize('balance');const placement=page.getByLabel('Placement',{exact:true});await placement.selectOption(await placement.inputValue()==='off'?'both':'off');await page.getByText(/synthetic save failure/).waitFor()
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.deepEqual(previewQueries,[],'preview never starts account or Codex discovery requests')
   const result={themes:2,widths:[1100,720,390],regions:3,normalFontSize:true,skinSurfaces:true,autosave:true,keyboard:true,reopenCount:25,hostConversationNodes:20000,cpuThrottle:4,openMedianMs:Math.round(sorted[Math.floor(sorted.length/2)]),openP95Ms:Math.round(p95),...metrics,externalRequests:external.length,browserErrors:errors.length}
   writeFileSync(join(output,'result.json'),JSON.stringify(result,null,2));console.log('[ok] '+JSON.stringify(result))

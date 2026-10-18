@@ -127,6 +127,30 @@ await check('网关首次并发读取共享在途请求', async () => {
 
 const row = (label, path = label) => ({ enabled: true, label, display: 'both', refreshMinutes: 15,
   request: { url: 'http://127.0.0.1/' + path, headers: {} }, extract: { remaining: 'balance' } })
+await check('官方余额关闭后立即重新显示，无需重启或等待刷新间隔', async () => {
+  let calls = 0
+  const config = { balance: { display: 'both', refreshMinutes: 60, reconcile: false } }
+  await fixture(config, async () => {
+    calls++
+    return Response.json({ balance_infos: [{ currency: 'CNY', total_balance: '82.5593', granted_balance: '2', topped_up_balance: '80.5593' }] })
+  }, async api => {
+    const initial = await api.getState()
+    assert.equal(initial.balance.status, 'ok')
+    assert.equal(calls, 1)
+    await api.updateConfig({ balance: { ...initial.config.balance, display: 'off' }, hideOfficialBalance: true })
+    const disabled = await api.getState()
+    assert.equal(disabled.balance.status, 'off')
+    assert.equal(calls, 1, '关闭不查询余额')
+    const restored = await api.updateConfig({ balance: { ...disabled.config.balance, display: 'both' }, hideOfficialBalance: false })
+    assert.equal(restored.balance.status, 'ok', '恢复显示的保存结果必须带回真实余额，不能保留刚写入的 off 缓存')
+    assert.equal(restored.balance.totalBalance, 82.5593)
+    assert.equal(calls, 2)
+    await api.updateConfig({ balance: { ...restored.config.balance, display: 'sidebar' } })
+    await api.getState()
+    assert.equal(calls, 2, '只改变可见位置沿用有效缓存')
+    stateSchema.parse(restored)
+  })
+})
 await check('自定义余额首次硬失败可重试，恢复后遵守缓存间隔', () => {
   let calls = 0
   return fixture({ customBalances: [row('a')] }, async () => {

@@ -11,7 +11,7 @@
 
 自动回归更新到 alpha.5，覆盖真实安装与 Web 启动、合成计费、RPC 热加载与卸载、原生搜索、上下文校准及发布版 dsh-context 联动。凭据测试分别验证新旧宿主优先级。
 
-[完整验证范围与影响](dsh-alpha5-compatibility.md#中文)。升级后完全退出并重新打开 DSH。
+[完整验证范围与影响](https://github.com/Han-1413141/dsh-cost-meter/blob/v1.8.35/docs/dsh-alpha5-compatibility.md#中文)。升级后完全退出并重新打开 DSH。
 
 ## English
 
@@ -19,4 +19,4 @@ Verifies DSH 0.2.1-alpha.5 compatibility. Daily billing and UI already work in v
 
 Adapts the offline repair CLI to the new persistence plugin entry. The official backend is mounted in an empty temporary root only to obtain its exclusive lease, keeping user-log scanning and migration out of initialization. Existing backups, active-owner refusal and older-host support remain intact.
 
-Automation covers real installation/startup, synthetic billing, hot RPC loading, native search and published context UI integration. See [verification scope](dsh-alpha5-compatibility.md#english). Fully restart DSH after upgrading.
+Automation covers real installation/startup, synthetic billing, hot RPC loading, native search and published context UI integration. See [verification scope](https://github.com/Han-1413141/dsh-cost-meter/blob/v1.8.35/docs/dsh-alpha5-compatibility.md#english). Fully restart DSH after upgrading.

@@ -24,7 +24,7 @@ node test/market-hot-install.mjs
 node test/model-quota-cards.mjs
 ```
 
-CI 单独安装报告的 DSH 0.1.5-rc.1，并将 typert-loader、registry、api-gateway 同样固定到 0.1.5-rc.1，避免 caret 依赖升级掩盖兼容问题。既有 Windows/Linux 安装流程继续验证当前宿主。
+CI 单独安装 DSH 0.2.0-rc.2 宿主（夹具见 `test/fixtures/install-host/package.json`）；该版本的 `@deepseek-ai/dsh-*` 依赖全部精确锁版，无需额外 overrides 即可避免 caret 依赖升级掩盖兼容问题。既有 Windows/Linux 安装流程继续验证当前宿主。
 
 ## English
 

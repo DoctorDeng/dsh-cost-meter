@@ -9,6 +9,13 @@ import { conversationOwners, conversationRows, aggregateSessionCost } from '../l
 import { mergeLedger } from '../lib/ledger-persistence.js'
 
 const keys = ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost', 'apiCost']
+const frozenKeys = ['costCny', 'apiCostCny', 'costEur', 'apiCostEur']
+// Frozen daily FX amounts are derived and additive; structural expectations below
+// describe the USD/usage shape, so strip them before comparing (issue #300).
+const withoutFrozen = value => Array.isArray(value) ? value.map(withoutFrozen)
+  : value !== null && typeof value === 'object'
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => !frozenKeys.includes(key)).map(([key, v]) => [key, withoutFrozen(v)]))
+    : value
 const row = (id, cost, apiCost = cost) => ({ id, title: id, input: 10, output: 2, cacheRead: 3, cacheWrite: 0, reasoning: 1, calls: 1, cost, apiCost,
   byProviderModel: { 'test:model': { input: 10, output: 2, cacheRead: 3, cacheWrite: 0, reasoning: 1, calls: 1, cost, apiCost } } })
 const day = rows => ({ date: '2026-10-03', ...Object.fromEntries(keys.map(key => [key, rows.reduce((n, row) => n + row[key], 0)])),
@@ -71,8 +78,14 @@ try {
   ledger.close()
   const saved = JSON.parse(readFileSync(path, 'utf8'))
   assert.equal(saved.days['2026-10-03'].cost, 33)
-  assert.deepEqual(saved.days['2026-10-03'].sessions, days['2026-10-03'].sessions)
-  assert.deepEqual(mergeLedger(saved, saved, { ...saved, days: damaged, balanceRef: persisted.balanceRef }, []).days, days, 'shared refresh also restores aggregate consistency')
+  const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 1e-9, `${message ?? 'amount'}: ${actual} != ${expected}`)
+  // The load-time backfill is now persisted by the first flush instead of being
+  // dropped while adopting the legacy disk copy (issue #300).
+  near(saved.days['2026-10-03'].costCny, 33 * config.fxRates.CNY)
+  assert.deepEqual(withoutFrozen(saved.days['2026-10-03'].sessions), days['2026-10-03'].sessions)
+  const merged = mergeLedger(saved, saved, { ...saved, days: damaged, balanceRef: persisted.balanceRef }, [])
+  assert.deepEqual(withoutFrozen(merged.days), days, 'shared refresh also restores aggregate consistency')
+  near(merged.days['2026-10-03'].costCny, 33 * config.fxRates.CNY, 'frozen daily FX survives the merge and is repaired with its row')
   const writer = Ledger.load(path)
   for (let i = 0; i < 205; i++) writer.account({ input: 10, output: 2 }, 'deepseek-v4-flash', 'new-' + i, Date.now(), 'deepseek')
   writer.close()

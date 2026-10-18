@@ -199,6 +199,11 @@ window.__ModuleLoader__.load({
       const getLocale = typeof source === 'function' ? source : () => source && resolveLocale ? resolveLocale(source.getSnapshot().state?.config ?? { activeLocale: source.getSnapshot().locale }) : ctx.get('locale')?.getSnapshot?.().active ?? 'en'
       const unmount = await ctx.get('remote').$mount(CONTRIBUTION)
       ctx.effect(() => () => unmount(), 'cost-meter: OpenRouter catalog contribution')
+      // dsh-pocket 手机端适配(task-10):价格列表/表头窄屏换行、表格横向滚动;桌面端规则不变。
+      const responsiveStyle = document.createElement('style')
+      responsiveStyle.textContent = '@media (max-width:1023px){.cm-price-head{flex-wrap:wrap;gap:6px}.cm-scroll>.cm-table{min-width:520px}.cm-price-card{padding:10px 12px}}body[data-dsh-pocket-layout="mobile"] .cm-price-head{flex-wrap:wrap}'
+      document.head.appendChild(responsiveStyle)
+      ctx.effect(() => () => responsiveStyle.remove(), 'cost-meter: OpenRouter responsive styles')
       const remote = ctx.get('remote.costMeter')
       const api = { getOpenRouterCatalog: async () => {
         const result = await remote.getOpenRouterCatalog()

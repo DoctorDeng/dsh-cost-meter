@@ -344,7 +344,7 @@ function harness(overrides = {}) {
   const warnings = []
   const originalWarn = console.warn
   try {
-    // 0.1.5-rc.1 的编译形态：Session.append 只从 opts[0] 读 surfaceOp / sourceEventSeqs。
+    // 宿主当前编译形态：Session.append 只从 opts[0] 读 surfaceOp / sourceEventSeqs。
     const oldHostSession = {
       id: 'old-host',
       rows: [],
