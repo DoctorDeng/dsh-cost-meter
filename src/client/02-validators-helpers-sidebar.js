@@ -3236,12 +3236,29 @@
       const [pending, setPending] = useState(false)
       const [failed, setFailed] = useState(false)
       const [dismissed, setDismissed] = useState(false)
+      const cardRef = useRef(null)
       const config = store?.state?.config
-      if (!config || dismissed || simpleGuideSeen(config)) return null
+      const visible = !!config && !dismissed && !simpleGuideSeen(config)
+      // The browser top layer escapes transformed/clipped sidebar containers from
+      // skins and layout plugins, without blocking the rest of the page.
+      useEffect(() => {
+        const card = cardRef.current
+        if (!visible || !card) return
+        if (typeof card.showPopover !== 'function') { card.removeAttribute('popover'); return }
+        try { card.showPopover() } catch (_) { card.removeAttribute('popover') }
+        return () => { try { card.hidePopover() } catch (_) {} }
+      }, [visible])
+      useEffect(() => {
+        const hide = () => setDismissed(true)
+        window.addEventListener?.(SIMPLE_GUIDE_KEY, hide)
+        return () => window.removeEventListener?.(SIMPLE_GUIDE_KEY, hide)
+      }, [])
+      if (!visible) return null
       const t = makeT(resolveLocale(config))
       const dismiss = () => {
         setDismissed(true)
         try { window.localStorage.setItem(SIMPLE_GUIDE_KEY, '1') } catch (_) { /* 本次页面仍可关闭 */ }
+        window.dispatchEvent?.(new Event(SIMPLE_GUIDE_KEY))
       }
       const choose = async enabled => {
         if (busyRef.current) return
@@ -3254,7 +3271,7 @@
         } catch (_) { setFailed(true) }
         finally { busyRef.current = false; setPending(false) }
       }
-      return el('div', { className: 'cm-qguide', role: 'dialog', 'aria-label': t('sidebarSimpleTitle'), 'aria-busy': pending, onKeyDown: event => { if (event.key === 'Escape') { event.stopPropagation(); dismiss() } } },
+      return el('div', { ref: cardRef, popover: 'manual', className: 'cm-qguide', role: 'dialog', 'aria-label': t('sidebarSimpleTitle'), 'aria-busy': pending, onKeyDown: event => { if (event.key === 'Escape') { event.stopPropagation(); dismiss() } } },
         el('div', { className: 'cm-bbox-head' }, el('h4', null, t('sidebarSimpleTitle')),
           el('button', { type: 'button', className: 'cm-btn small', 'aria-label': t('closeGuide'), onClick: dismiss }, '×')),
         el('p', null, t('sidebarSimpleBody')),

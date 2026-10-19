@@ -10,20 +10,20 @@
 
 本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;周末与中国法定假日全天按谷价,分别标注) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 170+ 模型 ID 价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 / 千问 / 小米 MiMo 十一家,含 Volcano Ark AK/SK 签名与 MiMo 控制台 Cookie 查询) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 订阅插件兼容(Codex / ChatGPT 订阅) · 手机端适配(dsh-pocket) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
 
-[![version](https://img.shields.io/badge/version-1.9.6-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.9.7-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
 **最低支持宿主：DSH 0.2.0。** 插件把下限声明在 `engines.dsh`（宿主准入插件的闸门），不再支持任何 DSH 0.1.x 版本；本轮适配目标为 npm `next` 标签的 **0.2.1-rc.2**。具体范围与宿主的读取方式见[兼容声明](docs/dsh-0.2.1-compatibility.md#中文)。
 
 新增 [DeepSeek Search／Fetch API 次数费](docs/web-request-fees.md#中文)，只计有结果的成功请求，并将网页抓取独立分类。
 
-**v1.9.6** 修复官方余额关闭显示后无法立即恢复的问题；补齐 CLIProxyAPI 每个来源的局域网 HTTP 权限设置；输入区额度条背景与页面保持一致。
+**v1.9.7** 修复“试试更轻巧的侧栏”提示无法关闭的问题，避开桌面端标题栏，适配皮肤和插件容器；重复挂载、设置保存失败或等待时也能关闭。
 
 配置与验证：[OpenDesign 查询说明](docs/opendesign-billing.md)、[随机端口 / 局域网 / WorkBuddy2API 配置](docs/custom-balance-sources.md)、[透明度修复与性能测量](docs/performance-2026-10-18.md)。
 
 
 桌面端用户请按 [Desktop 安装说明](docs/install-troubleshooting.md#desktop-安装与更新)，使用应用自带的 CLI 和 `desktop` Profile。
 
-更新说明：[v1.9.6](docs/update-notes-1.9.6.md#中文)。更新后完全重启 DSH。
+更新说明：[v1.9.7](docs/update-notes-1.9.7.md#中文)。更新后完全重启 DSH。
 
 声明范围内的宿主记录与此前的 0.1.x 历史见[兼容记录](docs/host-compatibility.md)；逐版本清单在 `package.json` 的 `dsh.compatibility.dshReleases`。
 
@@ -341,22 +341,22 @@ Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安�
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.9.6`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.9.7`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.6/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.7/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.6
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.7
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.6.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.7.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):
@@ -421,7 +421,7 @@ DSH **0.2.1-rc.1 / 0.2.1-rc.2** 宿主自带 pnpm **11.28.5**，默认启用内�
 
    ```yaml
    minimumReleaseAgeExclude:
-     - dsh-cost-meter@1.9.6
+     - dsh-cost-meter@1.9.7
    ```
 
 3. 仅本次操作用 CLI 透传 pnpm 参数：`dsh plugin --profile desktop remove dsh-cost-meter --config.minimum-release-age=0`；若只是 lockfile 校验阶段失败，可改用 `--trust-lockfile`。这两个参数已在本机 pnpm 11.28.5 临时 Profile 上实测可用。
