@@ -137,11 +137,13 @@
         // showSessionId 曾遗漏于本白名单:checkbox 能保存但读侧恒 undefined,
         // 会话列表附显 ID 自上线以来实际从未生效(v1.5.38 起一并修复)。
         showSessionId: v.showSessionId === true,
+        sessionListCosts: v.sessionListCosts === true,
+        sessionListCostPeriod: v.sessionListCostPeriod === 'today' ? 'today' : 'total',
         hideOfficialBalance: v.hideOfficialBalance === true,
         hideBudget: v.hideBudget === true,
         hideTodayCost: v.hideTodayCost === true,
         modelStatistics: v.modelStatistics ?? {},
-        ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost'], value => value === true),
+        ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'followSkinTransparency'], value => value === true),
         sessionCostCompact: v.sessionCostCompact === true,
         contextCostsEnabled: v.contextCostsEnabled === true,
         contextCostsPromptSeen: v.contextCostsPromptSeen === true,
@@ -154,7 +156,7 @@
         codexQuotaEnabled: v.codexQuotaEnabled === true,
         codexQuotaSidebar: v.codexQuotaSidebar !== false,
         codexQuotaStrip: v.codexQuotaStrip !== false,
-        codexQuotaSource: ['connect', 'subscription'].includes(v.codexQuotaSource) ? v.codexQuotaSource : 'auto',
+        codexQuotaSource: ['connect', 'subscription', 'chatgpt'].includes(v.codexQuotaSource) ? v.codexQuotaSource : 'auto',
         // Codex 订阅兼容(契约 B-5):用户已关闭一次性提示 / 已应用历史归类的时点。
         // 直通白名单缺失会导致关闭后重开页面又弹提示,或应用后状态行回落「未应用」。
         codexCompatPromptDismissed: v.codexCompatPromptDismissed === true,
@@ -487,6 +489,7 @@
         // 价格表版本号:宿主在版本未变时会省略 config.prices(占载荷 56%),
         // 客户端据此沿用上一份,并按同一版本号回传以避免重复下发。
         pricesRev: typeof v.pricesRev === 'string' ? v.pricesRev : undefined,
+        modelLabels: Object.fromEntries(Object.entries(v.modelLabels ?? {}).filter(([, label]) => typeof label === 'string')),
         reconcile: v.reconcile === null || v.reconcile === undefined ? undefined : { ok: v.reconcile.ok === true, message: typeof v.reconcile.message === 'string' ? v.reconcile.message : '' },
         // 手改过价格的 OpenRouter 模型 id(缺失/畸形回落空表:不显示任何锁定标记)。
         priceLockIds: Array.isArray(v.priceLockIds) ? v.priceLockIds.filter(id => typeof id === 'string') : [],
@@ -767,13 +770,17 @@
     }
     /** 峰谷时代分界(与 lib/pricing.js LEGACY_BASE_BOUNDARY 同步):此前按当时基础价计费。 */
     const LEGACY_BASE_BOUNDARY_MS = Date.parse('2026-08-16T16:00:00Z')
+    /** Ollama Cloud 峰谷日历生效时刻 2026-08-31T00:00:00Z(与 lib/pricing.js OLLAMA_CLOUD_PEAK_EFFECTIVE_AT 同步)。 */
+    const OLLAMA_CLOUD_PEAK_EFFECTIVE_MS = 1788134400000
     function tierFor(entry, atMs, peak) {
       const base = priceAt(entry, atMs) ?? { cacheHit: 0, cacheMiss: 0, output: 0 }
       const asTier = (price, path = 'base') => ({ reasoning: 0, ...multipliedTier(price, base, path) })
-      if (base.billingMode === 'utc-peak') {
-        if (peak?.enabled !== true || !Number.isFinite(atMs)) return asTier(base)
+      // Go 与 Ollama Cloud 按 UTC 工作日计峰谷(与 lib/pricing.js tierFor 同分支)。
+      const ollama = base.peakSchedule === 'ollama'
+      if (ollama || base.billingMode === 'utc-peak') {
+        if (peak?.enabled !== true || !Number.isFinite(atMs) || (ollama && atMs < OLLAMA_CLOUD_PEAK_EFFECTIVE_MS)) return asTier(base)
         const date = new Date(atMs), day = date.getUTCDay(), hour = date.getUTCHours()
-        const high = day > 0 && day < 6 && ((hour >= 1 && hour < 4) || (hour >= 6 && hour < 10))
+        const high = day > 0 && day < 6 && (ollama ? hour >= 12 && hour < 18 : (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10))
         return asTier((high ? base.peak : base.offPeak) ?? base, (high ? base.peak : base.offPeak) ? (high ? 'peak' : 'offPeak') : 'base')
       }
       // 峰谷时代之前按当时的基础价计费(历史正确;与 lib/pricing.js tierFor 同分支,
@@ -1140,6 +1147,7 @@
       minimax: ['minimax', 'minimax-code'],
       kimi: ['kimi', 'kimi-code'],
       commandcode: ['commandcode', 'command-code'],
+      clinepass: ['clinepass', 'cline-pass'],
       workbuddy: ['workbuddy', 'workbuddy-subscription'],
       antigravity: ['antigravity'],
       stepfun: ['stepfun', 'step-code'],
@@ -1153,14 +1161,14 @@
       mimo: ['mimo', 'xiaomimimo', 'mimo-token-plan', 'xiaomi-token-plan', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-ams'],
       factory: ['factory', 'droid', 'factory-a', 'factory-g', 'factory-o'],
     }
-    const PLAN_PROVIDER_IDS_LOCAL = ['opendesign', 'anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go', 'codex', 'volcengine-agent', 'tencent-coding', 'tencent-token', 'baidu-coding', 'workbuddy', 'antigravity', 'stepfun']
+    const PLAN_PROVIDER_IDS_LOCAL = ['opendesign', 'anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'clinepass', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go', 'codex', 'volcengine-agent', 'tencent-coding', 'tencent-token', 'baidu-coding', 'workbuddy', 'antigravity', 'stepfun']
     const PLAN_NAME_HINTS_LOCAL = {
       opendesign: 'opendesign|open[._-]?design',
       codex: 'codex|chatgpt', 'baidu-coding': 'baidu|qianfan|百度|千帆',
       'tencent-coding': 'tencent|tokenhub|腾讯',
       anthropic: 'anthropic|claude', zai: 'z[._-]?ai|zhipu|glm|智谱', minimax: 'minimax|海螺',
       kimi: 'kimi|moonshot|moonshotai|月之暗面', openrouter: 'openrouter', siliconflow: 'siliconflow|硅基',
-      commandcode: 'commandcode', scnet: 'scnet|sugon|超算',
+      commandcode: 'commandcode', clinepass: 'cline[._-]?pass|clinepass', scnet: 'scnet|sugon|超算',
       volcengine: 'volcengine|volcano|volc|ark|火山|方舟', qwen: 'qwen|qianwen|千问|通义',
       mimo: 'mimo|xiaomi|小米', factory: 'factory|droid', go: 'opencode(?:[-_\\s]?go)?|zen|go',
     }
@@ -1263,7 +1271,12 @@
         const modelId = separator > 0 ? providerKey.slice(separator + 1) : providerKey
         const resolved = resolveClientPrice(provider, modelId, config)
         if (resolved.priced) {
-          const c = costOfBuckets(byModel[providerKey], tierFor(normalizeClientPrice(resolved.entry), now, { ...peak, enabled: ['deepseek-peak', 'utc-peak'].includes(resolved.billingMode) && peak.enabled }))
+          const entry = normalizeClientPrice(resolved.entry)
+          // Ollama Cloud 的 DeepSeek 模型使用自有峰谷日历;provider/model 归一化与 lib/pricing.js
+          // providerPriceEntryFor 的 peakSchedule 标记同口径(trim、小写、剥离 llm- 前缀)。
+          if (entry && resolved.billingMode === 'deepseek-peak'
+            && /^\s*(llm-)?ollama-cloud\s*:\s*deepseek-v4(\.1-flash|-pro)\s*$/.test(providerKey.toLowerCase())) entry.peakSchedule = 'ollama'
+          const c = costOfBuckets(byModel[providerKey], tierFor(entry, now, { ...peak, enabled: ['deepseek-peak', 'utc-peak'].includes(resolved.billingMode) && peak.enabled }))
           const billed = usdFromCostLocal(c, resolved.currency, cnyRate)
           total += billed
           if (billingClassOfLocal(provider, modelId, config) === 'api') api += billed
@@ -1595,7 +1608,7 @@
 
     function modelCostDetail(usage, config) {
       return Object.entries(usage?.byProviderModel ?? {}).filter(([, row]) => row.input || row.output || row.cacheRead || row.cacheWrite || row.reasoning)
-        .map(([id, row]) => id + ' ' + formatMoneyUsd(displayCostOf(row, { ...config, showTotalWithPlan: true }), config)).join('; ')
+        .map(([id, row]) => prettyProviderKey(id) + ' ' + formatMoneyUsd(displayCostOf(row, { ...config, showTotalWithPlan: true }), config)).join('; ')
     }
 
     function TurnCost(props) {
@@ -1618,7 +1631,7 @@
       const money = n => formatMoneyUsd(n, { ...config, decimals: Math.max(8, config.decimals ?? 2) })
       const kinds = en ? { model: 'Model call', compaction: 'Context compaction', search: 'Native search', fetch: 'Web fetch' } : { model: '模型调用', compaction: '上下文压缩', search: '原生搜索', fetch: '网页抓取' }
       const rowView = (row, i) => el('div', { key: i, style: { marginBottom: 4, overflowWrap: 'anywhere' } },
-        row.provider + ':' + row.model + ' · ' + (names[row.bucket] || (row.bucket === 'fetchRequests' ? (en ? 'Fetch requests' : '抓取请求') : (en ? 'Search requests' : '搜索请求'))) + (row.plan ? ' (Plan)' : '') + ': ' + (row.requests ? row.requests + (en ? ' requests' : ' 次') : row.tokens.toLocaleString()) + ' × ' + (row.priced ? money(row.rate) : '?') + (row.requests ? ' ≈ ' : ' / 1,000,000 ≈ ') + (row.priced ? money(row.cost) : '?'),
+        prettyProviderKey(row.provider + ':' + row.model) + ' · ' + (names[row.bucket] || (row.bucket === 'fetchRequests' ? (en ? 'Fetch requests' : '抓取请求') : (en ? 'Search requests' : '搜索请求'))) + (row.plan ? ' (Plan)' : '') + ': ' + (row.requests ? row.requests + (en ? ' requests' : ' 次') : row.tokens.toLocaleString()) + ' × ' + (row.priced ? money(row.rate) : '?') + (row.requests ? ' ≈ ' : ' / 1,000,000 ≈ ') + (row.priced ? money(row.cost) : '?'),
         !row.priced ? (en ? ' (price unavailable)' : '（未配置价格）') : row.bucket === 'reasoning' && row.rate === 0 ? (en ? ' (no separate charge)' : '（不单独收费）') : '')
       return el('details', { className: 'cm-note', style: { fontSize: 12, marginTop: 6 } },
         el('summary', { style: { cursor: 'pointer' }, title: en ? 'Log estimate at configured prices; session cost uses recorded ledger amounts.' : '本轮按日志和配置价格估算，本会话按账本已入账金额汇总。' }, en ? 'Turn cost' : '本轮费用', value?.found ? ' ≈ ' + money(displayCostOf(value, config)) + (value.rows.some(r => !r.priced) ? (en ? ' + unpriced usage' : ' + 未定价用量') : '') : value?.inherited ? (en ? ' · inherited history' : ' · 继承历史') : error ? ' ⚠' : ''),
@@ -1628,7 +1641,7 @@
             value.rows.map(rowView),
             el('details', null, el('summary', { style: { cursor: 'pointer' } }, (en ? 'Individual calls' : '逐次调用明细') + ' (' + value.calls.length + ')'),
               value.calls.map((call, i) => el('details', { key: i, style: { margin: '6px 0' } },
-                el('summary', { style: { cursor: 'pointer', overflowWrap: 'anywhere' } }, '#' + (i + 1) + ' ' + kinds[call.kind] + ' · ' + call.provider + ':' + call.model + ' · ' + new Date(call.atMs).toLocaleTimeString() + ' · ' + (call.plan ? 'Plan ' : 'API ') + (call.priced ? '≈ ' + money(call.cost) : (en ? 'price unavailable' : '未配置价格')) + (call.longContext ? (en ? ' · long context' : ' · 长上下文价格') : '')),
+                el('summary', { title: call.provider + ':' + call.model, style: { cursor: 'pointer', overflowWrap: 'anywhere' } }, '#' + (i + 1) + ' ' + kinds[call.kind] + ' · ' + prettyProviderKey(call.provider + ':' + call.model) + ' · ' + new Date(call.atMs).toLocaleTimeString() + ' · ' + (call.plan ? 'Plan ' : 'API ') + (call.priced ? '≈ ' + money(call.cost) : (en ? 'price unavailable' : '未配置价格')) + (call.longContext ? (en ? ' · long context' : ' · 长上下文价格') : '')),
                 call.metering ? el('p', null, 'billion-context · ' + call.metering.upstream + (call.metering.attempt > 1 ? (en ? ' · Retry ' : ' · 重试 ') + call.metering.attempt : '') + (!call.metering.complete ? (en ? ' · partial usage' : ' · 用量回执不完整') : '')) : null,
                 call.rows.map(rowView))))))
     }
@@ -2217,6 +2230,46 @@
         : t('countdownMinute', { m: minutes })
     }
 
+    // Native top-layer placement escapes skin stacking/clipping. Only events inside
+    // this card are handled before document capture listeners used by floating pets.
+    function FloatingCard(props) {
+      const cardRef = useRef(null), actionsRef = useRef(props.actions)
+      actionsRef.current = props.actions
+      useEffect(() => {
+        const card = cardRef.current
+        if (!card) return
+        try {
+          if (typeof card.showPopover === 'function') card.showPopover()
+          else card.removeAttribute('popover')
+        } catch (_) { card.removeAttribute('popover') }
+        let ownsPointer = false
+        const down = event => {
+          if (!card.contains(event.target)) return
+          ownsPointer = true
+          event.stopPropagation()
+        }
+        const up = event => {
+          if (!ownsPointer) return
+          ownsPointer = false
+          event.stopPropagation()
+        }
+        const click = event => {
+          if (!card.contains(event.target)) return
+          event.stopPropagation()
+          const button = event.target.closest?.('[data-cm-action]')
+          if (button && !button.disabled) actionsRef.current[button.dataset.cmAction]?.()
+        }
+        const listeners = [['pointerdown', down], ['pointerup', up], ['pointercancel', up], ['touchstart', down], ['click', click]]
+        for (const [type, handler] of listeners) window.addEventListener?.(type, handler, { capture: true, passive: true })
+        return () => {
+          for (const [type, handler] of listeners) window.removeEventListener?.(type, handler, true)
+          try { card.hidePopover() } catch (_) {}
+        }
+      }, [])
+      const { actions, children, ...attributes } = props
+      return el('div', { ...attributes, ref: cardRef, popover: 'manual' }, children)
+    }
+
     // 预览通道事件名:设置页按钮/控制台经 window.cmPeakAlertPreview(kind) 触发真实组件。
     const PEAK_ALERT_PREVIEW_EVENT = 'cm-peak-alert-preview'
 
@@ -2317,7 +2370,7 @@
       } else return null
       const t = makeT(resolveLocale(config))
       const position = config.peakAlertPosition === 'center' ? 'cm-peak-alert-center' : 'cm-peak-alert-corner'
-      return el('div', { className: 'cm-peak-alert ' + position + ' ' + (intoPeak ? 'cm-peak-alert-peak' : 'cm-peak-alert-offpeak'), role: 'alert' },
+      return el(FloatingCard, { actions: { dismiss }, className: 'cm-peak-alert ' + position + ' ' + (intoPeak ? 'cm-peak-alert-peak' : 'cm-peak-alert-offpeak'), role: 'alert' },
         el('div', { className: 'cm-peak-alert-badge' }, t(intoPeak ? 'peakAlertBadgePeak' : 'peakAlertBadgeOffPeak')),
         el('div', { className: 'cm-peak-alert-title' }, t(intoPeak ? 'peakAlertTitlePeak' : 'peakAlertTitleOffPeak')),
         el('div', { className: 'cm-peak-alert-body' }, t('peakAlertBody', {
@@ -2325,7 +2378,7 @@
           phase: t(intoPeak ? 'peakAlertPhasePeak' : 'peakAlertPhaseOffPeak'),
         })),
         el('div', { className: 'cm-peak-alert-actions' },
-          el('button', { className: 'cm-btn', onClick: dismiss }, t('peakAlertBtn'))))
+          el('button', { type: 'button', className: 'cm-btn', 'data-cm-action': 'dismiss', onClick: dismiss }, t('peakAlertBtn'))))
     }
 
     /** 展开态简洁样式:单行紧凑时段条——细轨道(左橙右蓝,非当前段淡化)+ 标记线 + 右侧倒计时文本。 */
@@ -2633,17 +2686,17 @@
      * 「余量」填充,与通用卡片/额度横条的「已用」方向相反,同屏并列时引起误读
      * (issue #57);现统一为已用口径,告警阈值也与 CodingPlanBox 一致(≥80 warn / ≥100 over)。
      */
-    function miniMaxRow(label, win, direction, t) {
+    function miniMaxRow(label, win, direction, t, explicit) {
       const pct = planWindowUsedPct(win)
       const level = pct === null ? 'ok' : pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'
       const barView = simpleBarByDirection(pct, direction)
-      const text = win?.unlimited ? '∞' : barView.label === null ? '—' : barView.label + '%'
+      const text = win?.unlimited ? '∞' : explicit ? quotaValueText(barView.label, direction, t) : barView.label === null ? '—' : barView.label + '%'
       return {
         level,
         pct,
         text,
         label: barView.label,
-        row: el('div', { className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level) },
+        row: el('div', { key: label, className: 'cm-mm-row' + (level === 'ok' ? '' : ' ' + level) },
           el('span', { className: 'cm-bbox-label' }, label),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
@@ -2700,8 +2753,8 @@
     }
 
     // ── ChatGPT PLUS(Codex)额度(issue #59 / dsh-codex-subscription)──────────
-    // 数据源二选一:dsh-codex-connect 的只读状态路由,或 dsh-codex-subscription 的
-    // 宿主 Connection RPC。两条均只读,启用后查询失败保留提示与重试入口。
+    // 数据源:dsh-codex-subscription RPC、dsh-chatgpt-subscription HTTP、connect 状态。
+    // 只查询额度,启用后查询失败保留提示与重试入口。
 
     const CODEX_STATUS_PATH = '/plugins/dsh-openai-codex/auth/status'
     const CODEX_WINDOWS = { 18000: 'five', 604800: 'weekly' }
@@ -2752,7 +2805,7 @@
     const notifyCodexQuota = () => { for (const fn of codexQuotaCache.listeners) { try { fn() } catch { /* 订阅方异常不扩散 */ } } }
 
     /**
-     * 探测 Codex 额度。auto 优先 subscription,失败回退 connect;非 force 且同一数据源
+     * 探测 Codex 额度。auto 按 subscription → chatgpt → connect 顺序回退;
      * 成功缓存 5 分钟,失败 1 分钟后可重试。
      */
     async function fetchCodexQuota(force = false, enabled = false, source = 'auto') {
@@ -2766,8 +2819,11 @@
       const task = Promise.resolve().then(async () => {
         let windows = {}
         try {
-          if (source !== 'connect') windows = await fetchCodexSubscription(force) ?? {}
-          if (Object.keys(windows).length === 0 && source !== 'subscription') {
+          if (source === 'auto' || source === 'subscription') windows = await fetchCodexSubscription(force) ?? {}
+          if (Object.keys(windows).length === 0 && (source === 'auto' || source === 'chatgpt')) {
+            try { windows = await (await require.async('./client.codex.js')).readChatgptQuota(force) ?? {} } catch {}
+          }
+          if (Object.keys(windows).length === 0 && (source === 'auto' || source === 'connect')) {
             const resp = await fetch(CODEX_STATUS_PATH, { credentials: 'same-origin', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) })
             if (resp.ok) windows = parseCodexStatus(await resp.json().catch(() => null)) ?? {}
           }
@@ -2802,7 +2858,7 @@
       return snap.source === source ? snap : { status: 'idle', windows: {}, fetchedAt: 0 }
     }
 
-    /** Codex 额度侧边栏卡片:明确显示剩余额度和本机时区的重置时间。 */
+    /** Codex uses the same progress rows as MiniMax, explicitly labelled as remaining. */
     function CodexPlanBox(props) {
       const hoverProps = useQuotaHoverRefresh()
       const { state, wide } = props
@@ -2818,27 +2874,28 @@
         title: t('codexQuotaUnavailable'), ...clickableRefreshProps(refresh.busy, refresh.run),
       }, el('div', { className: 'cm-mm-title' }, wide === false ? 'Codex' : t('codexQuotaTitle')),
       el('span', { className: 'cm-hint' }, wide === false ? '—' : t(snap.status === 'idle' || refresh.busy ? 'refreshing' : 'codexQuotaUnavailable')))
-      const views = [['five', 'codexQuotaFive'], ['weekly', 'codexQuotaWeek']].flatMap(([key, label]) => {
+      const views = [['five', 'codexQuotaFive', '5h'], ['weekly', 'codexQuotaWeek', '7d']].flatMap(([key, label, short]) => {
         const win = snap.windows[key]
         if (!win) return []
-        const text = quotaValueText(simpleBarByDirection(win.percent, 'remaining').label, 'remaining', t)
+        const view = miniMaxRow(short, win, 'remaining', t, true)
         const date = new Date(typeof win.resetsAt === 'string' ? win.resetsAt : NaN)
         const reset = Number.isFinite(date.getTime()) ? t('codexQuotaReset', { time: date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) }) : ''
-        return [{ key, label: t(label), text, reset, win }]
+        return [{ ...view, key, short, name: t(label), reset, win }]
       })
       if (!views.length) return null
-      const level = views.some(v => v.win.percent >= 100) ? 'over' : views.some(v => v.win.percent >= 80) ? 'warn' : 'ok'
+      const level = views.some(v => v.pct >= 100) ? 'over' : views.some(v => v.pct >= 80) ? 'warn' : 'ok'
       const detail = [
         t('codexQuotaTitle'),
-        ...views.map(view => view.label + ' · ' + view.text + (view.reset ? ' · ' + miniMaxResetText(view.win, t) : '')),
+        ...views.map(view => view.name + ' · ' + view.text + (view.reset ? ' · ' + miniMaxResetText(view.win, t) : '')),
         snap.fetchedAt > 0 ? t('goQuotaFetchedAt', { time: new Date(snap.fetchedAt).toLocaleTimeString() }) : null,
         ...clickRefreshTipLines(t, refresh),
       ].filter(Boolean).join('\n')
       const body = el(Fragment, null,
-        el('div', { className: 'cm-mm-title' }, t('codexQuotaTitle')),
-        ...views.map(view => el('div', { key: view.key, className: 'cm-codex-window' },
-          el('span', null, view.label + ' ·'), el('strong', null, view.text),
-          view.reset ? el('span', { className: 'cm-mm-reset' }, '· ' + view.reset) : null)))
+        el('div', { className: 'cm-bbox-head cm-codex-head' },
+          el('div', { className: 'cm-mm-title' }, t('codexQuotaTitle')),
+          el('div', { className: 'cm-codex-resets' }, ...views.filter(view => view.reset).map(view =>
+            el('span', { key: view.key, className: 'cm-mm-reset' }, (views.length > 1 ? view.short + ' · ' : '') + view.reset)))),
+        ...views.map(view => view.row))
       const rail = el(Fragment, null, ...views.map(view => el('div', { className: 'cm-bbox-rail cm-num' }, view.text)))
       return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
@@ -2877,7 +2934,11 @@
         ? Math.max(0, Math.min(100, Math.round(Number(win.percent) || 0))) : null
       // 条形方向(issue #67):Plan 卡默认已用方向,剩余方向时填充与标签显示剩余%。
       const planDirection = barDirectionOf(state.config, 'plan')
-      const rows = entries.map(([name, win]) => {
+      // 单行余额来源(WorkBuddy):余额提到标题行右端,正文不再重复一行;
+      // 窗口文本只装数值,标题行自己补「余额:」标签。textWindowOf 只产非空文本,真值检查即可。
+      const titleValue = id === 'workbuddy' && windows.balance?.text
+        ? t('codingPlanWindowBalance') + ': ' + windows.balance.text : null
+      const rows = (titleValue ? entries.filter(([name]) => name !== 'balance') : entries).map(([name, win]) => {
         const pct = pctOf(win)
         if (pct === null) {
           return el('div', { key: name, className: 'cm-mm-row wide' },
@@ -2912,7 +2973,10 @@
           wide === false
             ? el('div', { className: 'cm-bbox-rail cm-num' }, railText)
             : el(Fragment, null,
-              el('div', { className: 'cm-mm-title' }, t(rowDef.labelKey)),
+              // WorkBuddy 有余额时标题行复用宽行样式,余额以正文档贴右端。
+              el('div', { className: titleValue ? 'cm-mm-title cm-mm-row wide' : 'cm-mm-title' },
+                t(rowDef.labelKey),
+                titleValue && el('span', { className: 'cm-mm-text' }, titleValue)),
               ...rows)))
     }
 
@@ -3034,6 +3098,7 @@
       openrouter: 'OR',
       siliconflow: 'SF',
       commandcode: 'CC',
+      clinepass: 'CP',
       scnet: 'SCNet',
       volcengine: 'Ark',
       qwen: 'Qwen',
@@ -3236,18 +3301,8 @@
       const [pending, setPending] = useState(false)
       const [failed, setFailed] = useState(false)
       const [dismissed, setDismissed] = useState(false)
-      const cardRef = useRef(null)
       const config = store?.state?.config
       const visible = !!config && !dismissed && !simpleGuideSeen(config)
-      // The browser top layer escapes transformed/clipped sidebar containers from
-      // skins and layout plugins, without blocking the rest of the page.
-      useEffect(() => {
-        const card = cardRef.current
-        if (!visible || !card) return
-        if (typeof card.showPopover !== 'function') { card.removeAttribute('popover'); return }
-        try { card.showPopover() } catch (_) { card.removeAttribute('popover') }
-        return () => { try { card.hidePopover() } catch (_) {} }
-      }, [visible])
       useEffect(() => {
         const hide = () => setDismissed(true)
         window.addEventListener?.(SIMPLE_GUIDE_KEY, hide)
@@ -3271,14 +3326,14 @@
         } catch (_) { setFailed(true) }
         finally { busyRef.current = false; setPending(false) }
       }
-      return el('div', { ref: cardRef, popover: 'manual', className: 'cm-qguide', role: 'dialog', 'aria-label': t('sidebarSimpleTitle'), 'aria-busy': pending, onKeyDown: event => { if (event.key === 'Escape') { event.stopPropagation(); dismiss() } } },
+      return el(FloatingCard, { actions: { close: dismiss, keep: () => choose(false), enable: () => choose(true) }, className: 'cm-qguide', role: 'dialog', 'aria-label': t('sidebarSimpleTitle'), 'aria-busy': pending, onKeyDown: event => { if (event.key === 'Escape') { event.stopPropagation(); dismiss() } } },
         el('div', { className: 'cm-bbox-head' }, el('h4', null, t('sidebarSimpleTitle')),
-          el('button', { type: 'button', className: 'cm-btn small', 'aria-label': t('closeGuide'), onClick: dismiss }, '×')),
+          el('button', { type: 'button', className: 'cm-btn small', 'aria-label': t('closeGuide'), 'data-cm-action': 'close', onClick: dismiss }, '×')),
         el('p', null, t('sidebarSimpleBody')),
         failed ? el('p', { role: 'alert' }, t('sidebarSimpleError')) : null,
         el('div', { className: 'cm-buttons' },
-          el('button', { type: 'button', className: 'cm-btn small', disabled: pending, onClick: () => choose(false) }, t('sidebarSimpleOff')),
-          el('button', { type: 'button', className: 'cm-btn small primary', disabled: pending, onClick: () => choose(true) }, t('sidebarSimpleOn'))))
+          el('button', { type: 'button', className: 'cm-btn small', 'data-cm-action': 'keep', disabled: pending, onClick: () => choose(false) }, t('sidebarSimpleOff')),
+          el('button', { type: 'button', className: 'cm-btn small primary', 'data-cm-action': 'enable', disabled: pending, onClick: () => choose(true) }, t('sidebarSimpleOn'))))
     }
 
     function QuotaStripGuide(props) {
@@ -3416,7 +3471,7 @@
       ].join('; ')
       return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el('div', { 'data-cm-display': 'today', className: 'cm-foot' + (wide ? '' : ' cm-foot-rail') },
-          wide ? el(Fragment, null, t('today'), ' ', el('span', { className: 'cm-num' }, todayValue)) : el(WalletIcon, { size: 16 })))
+          wide ? el(Fragment, null, el('span', null, t('today')), el('span', { className: 'cm-num cm-bal-amt' }, todayValue)) : el(WalletIcon, { size: 16 })))
     }
 
     /**

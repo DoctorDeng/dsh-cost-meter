@@ -1,5 +1,64 @@
 # Changelog
 
+## [1.9.15] - 2026-10-19
+
+- 新增默认关闭的“跟随皮肤透明度”：费用页复用设置窗口背景，统计正文共用弹窗背景；浮层保留至少 90% 不透明度。关闭后恢复现有遮挡效果。感谢 [@MuFeng262](https://github.com/MuFeng262) 在 [issue #345](https://github.com/Han-1413141/dsh-cost-meter/issues/345) 报告液态玻璃色块问题、定位强制 alpha 的原因并提出可选开关。
+- 支持 Cline Pass 5 小时、周、月额度，汇总在一张卡片中；补齐前后端套餐名称识别，拒绝无效额度类型。感谢 [@kongxiangyiren](https://github.com/kongxiangyiren) 在 [PR #343](https://github.com/Han-1413141/dsh-cost-meter/pull/343) 提供实现和回归测试。[更新说明](docs/update-notes-1.9.15.md)
+
+## [1.9.14] - 2026-10-19
+
+- 支持 `@eddyskywalker/dsh-chatgpt-subscription` 的 Codex 额度：读取当前账号的实际 5 小时、周窗口及重置时间，复用侧栏和输入区额度条；点击刷新调用插件的额度刷新接口。
+- 新增 `chatgpt` 数据源，自动检测依次尝试 `dsh-codex-subscription`、ChatGPT 订阅插件、`dsh-codex-connect`；固定来源失败时保留登录与重试提示。查询按需加载、合并并缓存，关闭显示后停止检查。[更新说明](docs/update-notes-1.9.14.md)
+
+## [1.9.13] - 2026-10-19
+
+- 新增 WorkBuddy 官方积分余额，读取本地登录文件，支持个人与企业账号；默认关闭。感谢 [@SternChiri](https://github.com/SternChiri) 在 [PR #341](https://github.com/Han-1413141/dsh-cost-meter/pull/341) 提供实现和测试，凭据与计费适配源自 [@corrinehu 的 dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect)，已保留 MIT 许可。
+- 新增会话列表行末金额，默认关闭，支持累计／今日、显示币种和金额精度，悬停查看 Token；可见行合并查询并缓存，收起侧栏时隐藏。感谢 [@2JumpSinA](https://github.com/2JumpSinA) 在 [#332](https://github.com/Han-1413141/dsh-cost-meter/issues/332) 提出需求与交互建议。
+- CommandCode 根据当前账期用量和余额计算月额度使用率，辅助查询失败时保留余额。感谢 [@YQLiu-git](https://github.com/YQLiu-git) 在 [#334](https://github.com/Han-1413141/dsh-cost-meter/issues/334) 提供接口、样例与计算方法。
+- 统计页和模型花费卡使用宿主模型目录中的可读名称，保留原始统计键。感谢 [@ArseneLupins](https://github.com/ArseneLupins) 在 [#335](https://github.com/Han-1413141/dsh-cost-meter/issues/335) 报告第三方模型名称问题。
+- 修复本轮费用 RPC 丢失显示币种参数的问题。感谢 [@CelicaRTX](https://github.com/CelicaRTX) 在 [#338](https://github.com/Han-1413141/dsh-cost-meter/issues/338) 提供问题定位与修复建议。
+- 合入 [PR #339](https://github.com/Han-1413141/dsh-cost-meter/pull/339) 的 Codex 额度进度条与重置时间显示；修复异步余额测试及 Windows 锁测试的等待方式。复核 [@weimingyu9312](https://github.com/weimingyu9312) 在 [#325](https://github.com/Han-1413141/dsh-cost-meter/issues/325) 报告的 OpenCode Go 401：现有认证处理通过回归，旧失败状态不会阻止更换凭据后重试。
+- 感谢 [@LetterXbox](https://github.com/LetterXbox) 在 [#337](https://github.com/Han-1413141/dsh-cost-meter/issues/337) 提供 Ollama Cloud 问题复现，并在 [PR #336](https://github.com/Han-1413141/dsh-cost-meter/pull/336) 提交日历修复、历史兼容与测试。
+- 修复 Ollama Cloud 的 DeepSeek V4.1 Flash / V4 Pro 套用 DeepSeek 官方峰谷时段与中国法定假日规则的问题：改按 Ollama 自己的日历计费（周一至周五 12:00–18:00 UTC 为峰时，其余时段与 UTC 周末为谷价，无假日规则）。此前 DeepSeek 工作日 01:00–04:00、06:00–10:00 UTC 按双倍入账，工作日 12:00–18:00 UTC 只记一半，其余时段金额正确。
+- 宿主计费、日志重算与会话投影使用同一规则；单价、缓存价、汇率、价格历史及其他渠道不变。历史价格版本保留各自的时段规则：更新前的调用在加载、回放与明细中保持原金额，仅在「历史费用」按渠道模型手动重算时改用新日历（沿用原汇率）。峰谷状态指示与提醒仍只显示 DeepSeek 官方时段。构建时 CSS 词组打包改为按实测节省逐轮选择，样式内容不变。[更新说明](docs/update-notes-1.9.13.md)
+
+## [1.9.12] - 2026-10-19
+
+- 恢复左侧预览、右侧调整，根据设置面板自身宽度适配；缩短显示开关、成组排列相关选项，金额与语言收在右侧折叠区，预览画布内部滚动。
+- 隐藏组件和关闭的内部子项保留淡灰预览，覆盖余额条、预算明细、Go 时段、模型 Token／占比及峰谷时间；点击侧栏子项定位对应设置，不保存示例配置或启动查询。
+- 输入区补齐真实的最高花费模型摘要与独立额度胶囊；侧栏和输入区模型显示开关独立。
+- 放大预览关闭按钮扩大到 40 × 40 像素，小屏为 44 × 44，避开窗口拖动区域并在内容滚动时固定可见；四角、中央和外侧鼠标点击回归通过。[更新说明](docs/update-notes-1.9.12.md)
+
+## [1.9.11] - 2026-10-19
+
+- 显示设置中每个组件统一使用右侧“显示此组件”开关，移除预览上方重复勾选项；组件选项的开关统一靠右，侧栏布局按需展开，窄窗口自动上下排列。
+- 今日费用与模型花费收起摘要的金额、模型数靠右显示，覆盖标准、紧凑和简洁布局；单独开启输入区额度条不再顺带显示其他条。
+- 官方 Flash 别名统一显示为 DeepSeek V4.1 Flash，涵盖本轮、原生搜索、逐次调用和统计图表；保留原始调用 ID、价格匹配及历史金额。
+- 针对 GitHub Actions 机器人报告的 [#329](https://github.com/Han-1413141/dsh-cost-meter/issues/329) 与 [#330](https://github.com/Han-1413141/dsh-cost-meter/issues/330)，使用实际 npm 发布包验证 billion-context 0.1.201 的直连与原生回退，以及 dsh-codex-subscription 3.1.1 的额度解析、RPC 和失败回退；更新监控基线及 CI 覆盖，不需要额外兼容包。[更新说明](docs/update-notes-1.9.11.md)
+
+## [1.9.10] - 2026-10-19
+
+- 费用明细单次计算复用模型查价、计费分类和每次调用的汇率结果；历史价格版本与覆盖配置分别匹配。4,800 次调用、两层嵌套子代理、冷缓存及浏览器 4 倍 CPU 限速下，费用合计首次显示从 4.53 秒降至 835 ms，调用数和金额一致。
+- 修复午夜黑皮肤下模型花费“今日”选中按钮不清晰、显示设置原生下拉菜单白底白字的问题；仅调整费用插件的控件，其他插件的下拉菜单不受影响。感谢 [@transmerger](https://github.com/transmerger) 在 [#258 的最新反馈](https://github.com/Han-1413141/dsh-cost-meter/issues/258#issuecomment-6259570677) 提供两处截图。
+- Windows 无锁竞争时直接记录 Node 启动时间，不再同步启动 PowerShell；仅在竞争旧版原生锁或查询其他进程时读取原生身份，并缓存结果。
+- 毫秒身份改用 v2 锁元数据，旧版保留仍在使用的新版锁，避免把毫秒当作 Windows ticks 导致两个进程同时进入账本写入。
+- 统一毫秒与原生 ticks 的比较，回收 PID 复用后的旧锁；原生身份继续精确比较，未知身份、探测失败与时间误差范围内的锁继续保留。账本文件格式和金额不变。
+- 增加冻结 v1.9.9 读写器、真实 Windows 新旧进程互斥、近期文件时间的 PID 复用、死亡进程及启动零 PowerShell 调用回归。感谢 [@Oct1AtJoe](https://github.com/Oct1AtJoe) 在 [PR #327](https://github.com/Han-1413141/dsh-cost-meter/pull/327) 提供性能定位和原始优化实现。[更新说明](docs/update-notes-1.9.10.md)
+
+## [1.9.9] - 2026-10-19
+
+- 修复 OpenCode Go 登录态自动读取未遵循 `OPENCODE_AUTH_CONTENT`、`XDG_DATA_HOME` 的问题，避免误读旧登录文件；保持费用插件专用 Key 与模型路由凭据的既有优先级。
+- 兼容专用凭据、模型路由和登录态中带 `Bearer` 前缀的 Key，避免重复拼接认证头导致 401；无效的整段请求头不发往接口。
+- HTTP 401 明确显示认证失败，不再判断成无订阅；只有明确的 `EntitlementError` 403 才显示工作区无 Go 权限，其他拒绝单独提示。修正凭据后可立即刷新。
+- 增加单独保存、自动读取、轮换、清除、登录态覆盖、401/403、错误缓存与脱敏回归。感谢 [@weimingyu9312](https://github.com/weimingyu9312) 在 [#325](https://github.com/Han-1413141/dsh-cost-meter/issues/325) 报告刷新额度出现 401。[更新说明](docs/update-notes-1.9.9.md)
+
+## [1.9.8] - 2026-10-19
+
+- 修复峰谷提醒在 Deep Whale 等皮肤中被页面内容压住、继承鼠标禁用或窗口拖动属性而无法点击的问题；提醒使用浏览器最上层浮层，保持不透明主题背景，居中与右下角位置均可关闭。
+- 修复悬浮挂件在 document 捕获阶段按图像坐标拦截鼠标，导致侧栏引导按钮虽在最上层仍点不动的问题；在费用插件自己的引导范围内提前处理关闭及布局选择，不改动第三方插件代码。
+- 保留从引导外部开始的拖动与页面其他操作，避免关闭兼容影响挂件的释放事件；选择按钮只提交一次，触屏关闭继续可用。
+- 使用实际发布的 Wallpaper Engine、鲸鱼挂件、Archive Manager、Mnemon、Free Search 和 dshmarket 前端组合验证，并用不透明角色图重叠按钮复现问题。[验证范围与更新说明](docs/update-notes-1.9.8.md)
+
 ## [1.9.7] - 2026-10-18
 
 - 修复“试试更轻巧的侧栏”提示的关闭按钮进入桌面端标题栏区域的问题；按照 DSH 的浮层位置变量定位，窗口变窄时继续避开标题栏，全屏和网页端按实际空间回退。

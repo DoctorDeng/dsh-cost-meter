@@ -17,7 +17,7 @@ let saved = sanitizeConfig({ locale:'zh',peakEnabled:true,peakNotice:true,peakSt
 const total = {...zeroDay(),cost:1.28,apiCost:1.28,calls:14}
 const state = {config:saved,today:total,month:total,total,history:[],codingPlans:{},balance:{status:'unavailable'},budgetUsed:32}
 const client = readdirSync('src/client').filter(n=>n.endsWith('.js')).sort().map(n=>readFileSync('src/client/'+n,'utf8')).join('')
-  .replace('exports.apply = apply','exports.picker = { renderSidebarFooter, makeT, css, formatMoneyUsd }; exports.apply = apply')
+  .replace('exports.apply = apply','exports.picker = { renderSidebarFooter, CornerChips, makeT, css, formatMoneyUsd }; exports.apply = apply')
 const code = `
 import React from ${literal(req.resolve('react'))};import{createRoot}from ${literal(req.resolve('react-dom/client'))};const h=React.createElement;
 const mainRequire=name=>name==='react'?React:{Tooltip:({children})=>children};mainRequire.async=async()=>window.peakUI;
@@ -27,13 +27,13 @@ window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.peak.js','utf8')}
 window.__ModuleLoader__={load:mod=>window.displayUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.display.js','utf8')}
-const Display=window.displayUI.mount({effect:()=>{}}),{renderSidebarFooter,makeT,css,formatMoneyUsd}=window.mainUI.picker;
+const Display=window.displayUI.mount({effect:()=>{}}),{renderSidebarFooter,CornerChips,makeT,css,formatMoneyUsd}=window.mainUI.picker;
 const base=${literal(state)};window.writes=0;window.current=()=>base.config;
 function App(){const[config,setConfig]=React.useState(base.config);window.current=()=>config;
 React.useEffect(()=>{const select=document.querySelector('select[aria-label="调整组件"]');if(select){select.value='peak';select.dispatchEvent(new Event('change',{bubbles:true}))}},[]);
 const setDraft=next=>{const value=typeof next==='function'?next(config):next;window.writes++;Promise.resolve(window.persist?window.persist(value):value).then(setConfig)};
-const renderSidebar=(preview,data=base)=>renderSidebarFooter({...data,config:preview},true,undefined,true);
-return h(React.Fragment,null,h('style',null,css),h('button',{id:'theme',onClick:()=>document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'},'切换深浅色'),h('p',{className:'preview-label'},'本地预览 · 此页调整不会保存到 DSH'),h(Display,{state:{...base,config},draft:config,setDraft,t:makeT(config.locale),locale:config.locale,formatMoneyUsd,renderSidebar,renderStyleSample:renderSidebar,renderModelsSettings:()=>null,onNavigate:()=>{},numInput:(p,change)=>h('input',{className:'cm-input',value:p.value??'',type:'number',onChange:e=>change(Number(e.target.value))}),CURRENCY_PRESETS:{CNY:{symbol:'¥',exchangeRate:7.2},USD:{symbol:'$',exchangeRate:1},EUR:{symbol:'€',exchangeRate:.9}},displayOptions:()=>['sidebar','settings','both','off'].map(v=>h('option',{key:v,value:v},v)),USAGE_POSITION_SWITCHABLE:false}))}
+const renderSidebar=(preview,data=base)=>renderSidebarFooter({...data,config:preview},true,undefined,true),renderCorner=data=>h(CornerChips,{useCost:()=>({state:data})});
+return h(React.Fragment,null,h('style',null,css),h('button',{id:'theme',onClick:()=>document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'},'切换深浅色'),h('p',{className:'preview-label'},'本地预览 · 此页调整不会保存到 DSH'),h(Display,{state:{...base,config},draft:config,setDraft,t:makeT(config.locale),locale:config.locale,formatMoneyUsd,renderSidebar,renderCorner,renderStyleSample:renderSidebar,renderModelsSettings:()=>null,onNavigate:()=>{},numInput:(p,change)=>h('input',{className:'cm-input',value:p.value??'',type:'number',onChange:e=>change(Number(e.target.value))}),CURRENCY_PRESETS:{CNY:{symbol:'¥',exchangeRate:7.2},USD:{symbol:'$',exchangeRate:1},EUR:{symbol:'€',exchangeRate:.9}},displayOptions:()=>['sidebar','settings','both','off'].map(v=>h('option',{key:v,value:v},v)),USAGE_POSITION_SWITCHABLE:false}))}
 createRoot(document.getElementById('root')).render(h(App));
 `
 const compiled=await build({stdin:{contents:code,resolveDir:process.cwd(),loader:'js'},bundle:true,write:false,platform:'browser',format:'iife'})
@@ -58,14 +58,13 @@ try{
   const field=page.getByLabel('显示时间',{exact:true})
   let cards=await choices.boundingBox(),time=await field.boundingBox()
   assert.ok(time.y>=cards.y+cards.height,'time options are below all style choices')
-  assert.ok(time.width>=200&&time.width<=224,'the inspector keeps a compact readable width')
+  assert.ok(time.width>=180,'the unified inspector has enough width for readable controls')
   assert.ok(cards.height<=240,'the three style choices use a compact vertical layout')
   assert.ok(await choices.locator('.cm-peak-choice-heading strong').evaluateAll(nodes=>nodes.every(node=>parseFloat(getComputedStyle(node).fontSize)<=11)),'compact labels use the smaller font')
   for(const width of [900,620,560]){
     await page.locator('#root').evaluate((node,width)=>node.style.width=width+'px',width)
     const scene=await page.locator('.cm-preview-scene').boundingBox(),inspector=await page.locator('.cm-display-inspector[data-component=peak]').boundingBox()
-    assert.ok(inspector.x>=scene.x+scene.width,'settings stay beside the preview at container width '+width)
-    assert.ok(Math.abs(inspector.y-scene.y)<4,'settings stay aligned at the top at container width '+width)
+    assert.ok(inspector.x>=scene.x+scene.width,'controls stay on the right at desktop panel width '+width);assert.ok(Math.abs(inspector.y-scene.y)<4,'controls align at the top at desktop panel width '+width)
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false)
     await page.locator('.cm-region-preview').screenshot({path:join(output,`side-by-side-${width}.png`)})
   }
@@ -105,6 +104,6 @@ try{
     await page.locator('.cm-display-inspector[data-component=peak]').screenshot({path:join(output,`inspector-${theme}-${width}.png`)})
   }
   assert.deepEqual(errors,[]);assert.deepEqual(external,[])
-  writeFileSync(join(output,'report.json'),JSON.stringify({passed:true,themes:2,widths:[1100,720,390],desktopContainerWidths:[900,620,560],sideBySide:true,inspectorWidth:220,maxChoicesHeight:240,enlargedTextOverflowFixed:true,fullTextOnHover:true,actualStyleComponents:3,separateTimeControls:true,keyboard:true,exampleSettingsNotSaved:true,errors,external},null,2))
+  writeFileSync(join(output,'report.json'),JSON.stringify({passed:true,themes:2,widths:[1100,720,390],desktopContainerWidths:[900,620,560],sideBySide:true,narrowSideBySide:true,inspectorMinWidth:180,maxChoicesHeight:240,enlargedTextOverflowFixed:true,fullTextOnHover:true,actualStyleComponents:3,separateTimeControls:true,keyboard:true,exampleSettingsNotSaved:true,errors,external},null,2))
   console.log('[ok] Peak style picker: three real samples, visible selection, separate full-width time controls, keyboard and responsive themes; no example writes or external requests')
 }finally{await browser.close();await new Promise(done=>server.close(done))}

@@ -6,7 +6,7 @@ import { apply } from '../lib/index.js'
 
 // 通过真实服务刷新路径验证引用发现、配置状态和脱敏；只使用隔离目录与假凭据。
 const root = mkdtempSync(join(tmpdir(), 'cm-go-refs-'))
-const envNames = ['DSH_HOME', 'USERPROFILE', 'HOME', 'XDG_CONFIG_HOME', 'OPENCODE_GO_API_KEY', 'OPENCODE_API_KEY', 'OPENCODEGO_API_KEY', 'ARBITRARY_ROUTE_KEY']
+const envNames = ['DSH_HOME', 'USERPROFILE', 'HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'OPENCODE_AUTH_CONTENT', 'OPENCODE_GO_API_KEY', 'OPENCODE_API_KEY', 'OPENCODEGO_API_KEY', 'ARBITRARY_ROUTE_KEY']
 const savedEnv = Object.fromEntries(envNames.map(n => [n, process.env[n]]))
 const originalFetch = globalThis.fetch
 const cleanups = []

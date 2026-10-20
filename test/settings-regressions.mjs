@@ -91,7 +91,7 @@ const roundTrip = config => ui.parseConfig(sanitizeConfig(config), 'config')
 }
 assert.equal(roundTrip({}).codexQuotaSidebar, true, 'old configs retain the sidebar card')
 assert.equal(roundTrip({}).codexQuotaStrip, true, 'old configs retain the composer quota strip')
-for (const key of ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact']) {
+for (const key of ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact', 'followSkinTransparency']) {
   assert.equal(roundTrip({})[key], false)
   for (const enabled of [true, false]) {
     const patch = applyConfigPatch(sanitizeConfig({}), { [key]: enabled })

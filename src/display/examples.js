@@ -28,6 +28,8 @@ function displayPreviewData(state, config, examples, selected, planId = 'minimax
     goQuota: { status: 'ok', rolling: { percent: 24 }, weekly: { percent: 18 }, monthly: { percent: 12 }, fetchedAt: 0 },
     codingPlans: { [planId]: { status: 'ok', windows: { '5h': { percent: 35 }, weekly: { percent: 62 } }, fetchedAt: 0 } },
     customBalances: [], customBalance: { status: 'ok', remaining: 68, spend: 32, maxBudget: 100, unit: 'USD', fetchedAt: 0 },
-    displayPreviewCodex: { status: 'ok', windows: Object.fromEntries(['five', 'weekly'].filter(key => codexWindows[key]).map(key => [key, { percent: key === 'five' ? 35 : 42 }])), fetchedAt: 0 }, gatewayQuotas: { sources: [] },
+    displayPreviewCodex: { status: 'ok', windows: Object.fromEntries(['five', 'weekly'].filter(key => codexWindows[key]).map(key => [key, {
+      percent: key === 'five' ? 35 : 42, resetsAt: new Date(Date.now() + (key === 'five' ? 3 : 7 * 24) * 3600000).toISOString(),
+    }])), fetchedAt: 0 }, gatewayQuotas: { sources: [] },
   } }
 }

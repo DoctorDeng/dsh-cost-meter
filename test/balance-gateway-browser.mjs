@@ -92,6 +92,7 @@ try {
     const injected=settings.options.inject(),store=injected.hooks.cost;
     function useCost(pick){return pick(React.useSyncExternalStore(store.subscribe,store.getSnapshot))}
     window.current=()=>store.getSnapshot().state;window.refreshGateway=id=>injected.api.refreshGatewayQuota(id);
+    window.setLegacyBalanceOff=()=>injected.api.updateConfig({balance:{...window.current().config.balance,display:'off'}});
     function App(){const[opened,setOpened]=React.useState(true);window.openSettings=setOpened;return React.createElement(React.Fragment,null,
       React.createElement('div',{id:'settings'},opened&&React.createElement(settings.component,{...injected,useCost})),
       React.createElement('div',{id:'sidebar'},React.createElement(footer.component,{...injected,useCost,wide:true})),
@@ -117,14 +118,25 @@ try {
     await page.getByLabel('调整组件', { exact: true }).selectOption('balance')
   }
   await display()
-  await page.getByLabel('显示位置', { exact: true }).selectOption('off')
-  await page.waitForFunction(() => window.current().config.balance.display === 'off')
+  await page.getByRole('switch', { name: '显示此组件', exact: true }).uncheck()
+  await page.waitForFunction(() => window.current().config.hideOfficialBalance === true)
+  assert.equal((await api.getState()).config.balance.display, 'both', 'hiding the sidebar retains the settings balance')
   assert.equal(await page.locator('#sidebar [data-cm-display=balance]').count(), 0)
   await page.evaluate(() => window.openSettings(false))
   await page.locator('.cm-section').waitFor({ state: 'detached' })
   await page.evaluate(() => window.openSettings(true))
   await display()
-  await page.getByLabel('显示位置', { exact: true }).selectOption('both')
+  await page.getByRole('switch', { name: '显示此组件', exact: true }).check()
+  await page.locator('#sidebar').getByText('¥82.5593', { exact: true }).waitFor()
+  assert.equal(balanceCalls, 1, 'sidebar-only hiding reuses the fresh balance cache')
+  // Older configurations can still disable all balance queries with display=off.
+  await page.evaluate(() => window.setLegacyBalanceOff())
+  await page.waitForFunction(() => window.current().config.balance.display === 'off')
+  await page.evaluate(() => window.openSettings(false))
+  await page.locator('.cm-section').waitFor({ state: 'detached' })
+  await page.evaluate(() => window.openSettings(true))
+  await display()
+  await page.getByRole('switch', { name: '显示此组件', exact: true }).check()
   await page.locator('#sidebar').getByText('¥82.5593', { exact: true }).waitFor()
   assert.equal(balanceCalls, 2, 'reopen queries exactly once, without restarting the host or waiting 60 minutes')
   await page.locator('#composer .cm-qchip').waitFor()

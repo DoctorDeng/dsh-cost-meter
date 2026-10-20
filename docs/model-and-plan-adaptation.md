@@ -92,6 +92,7 @@
 | OpenRouter | `openrouter.ai/api/v1/credits` | 预付 credits 已用% | 端点存活(401) |
 | SiliconFlow 硅基流动 | `api.siliconflow.cn/v1/user/info` | 账户余额文本 | 端点存活(30014) |
 | CommandCode | `api.commandcode.ai/alpha/billing/credits` | 5 小时/周窗口用量% + 月度 Credits 余额文本 | 端点存活(401;issue #30);凭据 `COMMANDCODE_API_KEY`(`user_*`) |
+| Cline Pass | `api.cline.bot/api/v1/users/me/plan/usage-limits` | 5 小时 / 周 / 月三窗口用量% + 重置时间 | 端点存活(401;2026-10 实测);凭据 `CLINE_PASS_API_KEY`(`sk_*`);响应里的 `percentUsed` 已是已用百分比 |
 | SCNet 超算互联网 Token Plan | —(无 API 端点,本地计量) | 月度 Credits 已用% + 用量文本 | 平台仅提供 `sk-tp-` 推理端点,用量只在控制台可见;按官方抵扣表本地估算 |
 | 火山方舟 Volcano Ark Coding Plan | `open.volcengineapi.com`(`Action=GetUsageDetails`/`GetPersonalPlan`/`GetAFPUsage`,Version=2024-01-01,service=ark,region=cn-beijing,AK/SK HMAC) | 5 小时 / 周 / 月三档用量%与重置时间 | 管控面需 IAM 子用户 `ArkReadOnlyAccess`+`BillingCenterReadOnlyAccess`,凭据 `VOLC_ACCESSKEY`/`VOLC_SECRETKEY`(issue #60);含 Lite≈5h1200/周9000/月18000、Pro 5倍档位 |
 
@@ -132,7 +133,7 @@
 
 | 厂商 | 默认(auto 行为)| 说明 |
 |---|---|---|
-| anthropic / zai / minimax / commandcode / scnet / volcengine | 启用额度查询 → plan | 窗口百分比制订阅 |
+| anthropic / zai / minimax / commandcode / clinepass / scnet / volcengine | 启用额度查询 → plan | 窗口百分比制订阅 |
 | kimi | 启用额度查询 → plan | 订阅窗口;PAYG 余额场景请把对应模型覆盖为 api |
 | openrouter / siliconflow | api | credits/余额为真实扣费 |
 | OpenCode Go(zen/opencode 路由)| 启用 Go 额度 → plan | Go 订阅包含模型;Zen 按量用户请覆盖为 api |

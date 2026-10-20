@@ -684,11 +684,8 @@
 
     /** provider 展示名归一:历史请求携带的 'zen' 是错误叫法,统一展示为 'go'。 */
     const prettyProvider = provider => (provider === 'zen' ? 'go' : provider)
-    const prettyProviderKey = key => {
-      const sep = key.indexOf(':')
-      if (sep <= 0) return key
-      return prettyProvider(key.slice(0, sep).toLowerCase()) + key.slice(sep)
-    }
+    // Labels only: retain the original model ID in ledger keys, pricing and requests.
+    const prettyProviderKey = key => key.replace(/^zen:/i, 'go:').replace(/^(deepseek(?:-official|-account)?):deepseek-(?:v4(?:\.1)?-)?flash(?:-vision-exp)?$/i, '$1:DeepSeek V4.1 Flash')
 
     /** 按模型统计面板:今日/近90天两个口径,费用排行、Token 消耗(堆叠)、缓存命中率、性价比。
      *  纯前端聚合:state.today.byProviderModel 与 state.history[].byProviderModel(宿主已逐次计费)。
@@ -737,8 +734,8 @@
           const tokens = b.input + b.output + b.cacheRead + b.cacheWrite + b.reasoning
           const hitDen = b.cacheRead + b.input
           return {
-            label: key === 'deepseek:legacy' ? t('modelStatsLegacy')
-              : (provider === 'deepseek' || provider === '' ? model : prettyProvider(provider) + ':' + model),
+            label: state.modelLabels?.[key] ?? (key === 'deepseek:legacy' ? t('modelStatsLegacy')
+              : (provider === 'deepseek' || provider === '' ? model : prettyProvider(provider) + ':' + model)),
             key, ...b, tokens,
             // 计费方式(issue #64):plan=订阅额度(费用为等值口径),api=按量计费。
             cls: billingClassOfLocal(provider, model, config),
@@ -1514,10 +1511,12 @@
       { id: 'openrouter', labelKey: 'codingPlanOpenrouter' },
       { id: 'siliconflow', labelKey: 'codingPlanSiliconflow' },
       { id: 'commandcode', labelKey: 'codingPlanCommandcode' },
+      { id: 'clinepass', labelKey: 'codingPlanClinepass' },
       { id: 'scnet', labelKey: 'codingPlanScnet' },
       { id: 'volcengine', labelKey: 'codingPlanVolcengine' },
       { id: 'qwen', labelKey: 'codingPlanQwen' },
       { id: 'mimo', labelKey: 'codingPlanMimo' },
+      { id: 'workbuddy', labelKey: 'wbT' },
       { id: 'factory', labelKey: 'codingPlanFactory' },
     ]
 
@@ -1716,6 +1715,7 @@
                 placeholder: t('volcengineSecretPlaceholder'),
               }),
               el('p', { className: 'cm-note' }, t('volcengineNote')))
+            : planId === 'workbuddy' ? el('p', { className: 'cm-note' }, t('wbH'))
             : el(Fragment, null,
               el('div', { className: 'cm-field' },
                 el('label', null, planId === 'mimo' ? 'Cookie (platform.xiaomimimo.com)' : planId === 'factory' ? 'Factory Token' : planId === 'opendesign' ? 'OpenDesign Control Key' : t('codingPlanKeyLabel'))),
@@ -2234,6 +2234,7 @@
           planOptions: CODING_PLAN_ROWS.map(row => [row.id, t(row.labelKey)]),
           onNavigate: (page, plan) => { setQuotaTarget(plan); setTab(page) },
           renderSidebar: (preview, data = state) => renderSidebarFooter({ ...data, config: preview }, true, undefined, true),
+          renderCorner: data => el(CornerChips, { useCost: () => ({ state: data }) }),
           renderStyleSample: (preview, data = state, examples = true) => {
             if (!examples) return renderSidebarFooter({ ...data, config: preview }, true, undefined, true)
             const simple = preview.sidebarSimple === true
@@ -2244,8 +2245,7 @@
             return el('div', { className: 'cm-footer-stack' + (simple ? ' simple' : preview.sidebarStyle === 'compact' ? ' compact' : '') },
               el(BudgetBoxContent, { state: sampleState, wide: true, summary: simple }),
               el(MiniMaxPlanCard, { five: windows.five ?? { percent: 24 }, seven: windows.seven ?? { percent: 18 }, fetchedAt: 0, t, wide: true, direction: barDirectionOf(preview, 'plan') }))
-          },
-          renderModelsSettings: options => el(ModelSidebarSettings, { draft, setDraft, t, ...options }) }))
+          } }))
         : null,
         // ── 价格:峰谷计价、价格表、模型名匹配、官方价格同步、OpenRouter 公开报价 ──
         tab === 'pricing' ? el('div', { key: 'pricing', className: 'cm-pricing-page' },
@@ -2422,7 +2422,7 @@
       }
       const pages = {}
       const loadPage = name => {
-        if (!pages[name]) pages[name] = require.async('./client.' + name + '.js').then(module => module.mount(ctx, store, resolveLocale)).catch(error => { delete pages[name]; throw error })
+        if (!pages[name]) pages[name] = require.async('./client.' + name + '.js').then(module => module.mount(ctx, store, resolveLocale, { formatMoneyUsd, displayCostOf, formatTokens })).catch(error => { delete pages[name]; throw error })
         return pages[name]
       }
       const api = {
@@ -2614,6 +2614,8 @@
       let lastPeakAlert = null
       const sync = () => {
         const state = store.getSnapshot().state
+        if (state?.config?.sessionListCosts) void loadPage('session-list').catch(() => {})
+        if (state?.config?.followSkinTransparency) void loadPage('display').catch(() => {})
         const position = state?.config?.position ?? 'dock'
         const showToday = state?.config?.sidebar !== false && state?.config?.hideTodayCost !== true
         const balanceDisplay = state?.config?.balance?.display ?? 'both'

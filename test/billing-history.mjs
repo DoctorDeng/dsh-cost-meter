@@ -58,6 +58,13 @@ try {
   now += 100
   ledger.account(tokens, 'model', 'new', now, 'fixture')
   near(detail(records('new', now)).cost, original.cost * 10)
+  // One replay crosses price versions for the same model: a per-replay lookup
+  // cache must retain the catalog/override identity, not just provider + model.
+  const mixed = [...records('mixed', at, 1), ...records('mixed', now, 2).filter(row => row.type !== 'session')]
+  const mixedDetail = detail(mixed)
+  assert.equal(mixedDetail.calls.length, 2)
+  near(mixedDetail.calls[0].cost, original.cost)
+  near(mixedDetail.calls[1].cost, original.cost * 10)
   near(Object.values(ledger.days).reduce((sum, day) => sum + day.cost, 0), oldTotal * 11)
 
   // A call starting before an edit and ending after it retains its start price.

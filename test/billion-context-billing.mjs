@@ -38,7 +38,7 @@ const config = sanitizeConfig({ peakEnabled: false, includeSubagentCost: true, p
   fixture: { models: { main: price } }, '127.0.0.1': { models: { summary: price, main: price, google: price, responses: price } },
 } }, planBilling: { models: { '127.0.0.1:summary': 'plan' } } })
 const ledgerPath = join(root, 'storages/cost-meter/ledger.json')
-let ledger, bridge, realUpstream = false, upstreamVersion = '', retry = 0, producer, runtime, nativeRuntime
+let ledger, bridge, realUpstream = false, directSupported = false, upstreamVersion = '', retry = 0, producer, runtime, nativeRuntime
 const originalFetch = globalThis.fetch
 try {
   // Each supplied npm archive exercises its actual retry and summary helpers.
@@ -47,6 +47,7 @@ try {
     const built = await buildBillionCompatibility(process.env.DSH_TEST_BILLION_PACKAGE, root, { pack: false })
     const entry = join(built.directory, 'dist/index.js')
     const source = readFileSync(entry, 'utf8'), hasTransport = /\bfunction withFetchTransport\(/.test(source)
+    directSupported = /function __dshCmOriginal_fetchWithTimeout\([^)]*\bforceDirect\b/.test(source)
     writeFileSync(entry, source + '\nexport { fetchWithTimeout, fetchWithRetry, requestSummaryBody' + (hasTransport ? ', withFetchTransport' : '') + ' };\n')
     runtime = await import(pathToFileURL(entry).href)
     if (!hasTransport) runtime = { ...runtime, withFetchTransport: (_, run) => run() }
@@ -117,20 +118,32 @@ try {
     }))
     try {
       globalThis[key] = { begin: () => group, ack: (id, ok) => acknowledgements.push({ id, ok }) }
-      assert.equal(nativeRuntime.installNativeFetchIntercept({ origin: address, ready: Promise.resolve(address), headersFor: () => ({}) }), true)
+      const liveState = { origin: address, ready: Promise.resolve(address), headersFor: () => ({}) }
+      assert.equal(nativeRuntime.installNativeFetchIntercept(liveState), true)
       const request = options(), response = await globalThis.fetch(address + '/bili/' + upstream + '/v1/chat/completions', request)
       assert.deepEqual(await response.json(), { native: true })
       assert.equal(probeRequest.headers['x-dsh-cost-meter-group'], group)
       assert.equal(probeRequest.body, request.body)
       assert.deepEqual(acknowledgements, [{ id: group, ok: true }], 'the actual upstream native interceptor carries and acknowledges metering')
+      if (String(nativeRuntime.installNativeFetchIntercept).includes('prepareDirectSend')) {
+        liveState.takeoverGate = async () => false
+        liveState.prepareDirectSend = async () => ({ outcome: 'restored', body: options('restored').body })
+        await (await globalThis.fetch(address + '/bili/' + upstream + '/v1/chat/completions', request)).json()
+        assert.equal(probeRequest.body, options('restored').body, 'new direct fallback restores the body before metering')
+        const sent = acknowledgements.length
+        liveState.prepareDirectSend = async () => ({ outcome: 'unrestorable' })
+        await assert.rejects(globalThis.fetch(address + '/bili/' + upstream + '/v1/chat/completions', request), /lane-specific/)
+        assert.equal(acknowledgements.length, sent, 'locally refused requests do not create a billable receipt')
+      }
     } finally {
       Object.defineProperty(globalThis, 'fetch', descriptor)
       if (previousBridge === undefined) delete globalThis[key]; else globalThis[key] = previousBridge
     }
   }
   const reported = { inputTokens: 90, outputTokens: 8, cacheReadTokens: 5, cacheWriteTokens: 0, reasoningTokens: 0 }
+  let transportCalls = 0
   const proxy = await listen(createServer((req, res) => {
-    producer.meterBillionRequest(req, res, () => runtime.withFetchTransport(guarded, async () => {
+    producer.meterBillionRequest(req, res, () => runtime.withFetchTransport((...args) => { transportCalls++; return guarded(...args) }, async () => {
       if (req.url === '/__bili/health') return sendJson(res, { ok: true })
       for await (const _ of req) { /* request fixture content is never persisted */ }
       const call = async (path, opts = options()) => { const result = await runtime.fetchWithTimeout(upstream + path, opts); try { return await result.response.text() } finally { result.clearTimer() } }
@@ -140,6 +153,11 @@ try {
         const retried = await runtime.fetchWithRetry(upstream + '/v1/chat/completions?retry', options()); await retried.response.text(); retried.clearTimer()
         await call('/v1beta/models/google:streamGenerateContent', options('google'))
         await call('/v1/responses', options('responses'))
+      } else if (req.url.includes('mode=direct')) {
+        const before = transportCalls
+        const result = await runtime.fetchWithTimeout(upstream + '/v1/chat/completions', options(), 60000, undefined, true)
+        await result.response.text(); result.clearTimer()
+        assert.equal(transportCalls, before, 'forceDirect bypasses the custom transport without bypassing metering')
       } else if (req.url.includes('mode=google-array')) await call('/v1beta/models/google:generateContent', options('google'))
       else if (req.url.includes('mode=unknown')) await call('/v1/chat/completions?unknown')
       else if (req.url.includes('mode=partial')) {
@@ -213,6 +231,13 @@ try {
   near(newPrice.cost, 1500 / 1e6)
   near(newPrice.recorded.cost, newPrice.cost)
   ledger.config = originalConfig
+  if (directSupported) {
+    hostEvents.set('coverage-direct', [...hostEvents.get('root').slice(0, 3)])
+    const before = ledger.sumDays().calls
+    await run('coverage-direct', 'direct')
+    assert.equal(ledger.sumDays().calls, before + 1, 'the new direct path records one actual upstream call')
+    assert.equal((await getSessionBilling(ledger, ctx, { ...query, sessionId: 'coverage-direct' })).totalCalls, 1)
+  }
   for (const mode of ['google-array', 'unknown', 'partial']) {
     hostEvents.set('coverage-' + mode, [...hostEvents.get('root').slice(0, 3)])
     await run('coverage-' + mode, mode)
@@ -273,7 +298,7 @@ try {
   assert.equal(normalizeBillionUsage('openai', { prompt_tokens: 5, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 9 } }), null)
   assert.equal(normalizeBillionUsage('responses', { input_tokens: -1, output_tokens: 1 }), null)
   assert.ok((await billionRecordsFor(ledgerPath, 'root')).some(row => row.type.endsWith('replacement')))
-  console.log(JSON.stringify({ check: 'billion-context billing', actualPinnedUpstream: realUpstream, upstreamVersion, billedCalls: 8, totalUsd: before,
+  console.log(JSON.stringify({ check: 'billion-context billing', actualPinnedUpstream: realUpstream, upstreamVersion, forceDirectCovered: directSupported, billedCalls: 8, totalUsd: before,
     checks: 'four protocols, compression, retry attempts, actual cache buckets, API/Plan, parent/agents, replay equality, restart, atomic receipts, cancellation, unknown usage and privacy', externalRequests: 0 }))
 } finally {
   globalThis.fetch = originalFetch

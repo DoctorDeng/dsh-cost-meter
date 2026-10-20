@@ -38,6 +38,9 @@ const names = [
   ['kimi-tokenplan', 'm', 'kimi'], ['SCNetPlan', 'm', 'scnet'], ['qwenplan', 'm', 'qwen'],
   ['MiMoTokenPlan', 'm', 'mimo'], ['FactoryPlan', 'm', 'factory'], ['OpenCodeGoPlan', 'm', 'go'],
   ['OpenRouterTokenPlan', 'm', 'openrouter'], ['SiliconFlowPlan', 'm', 'siliconflow'], ['CommandCodePlan', 'm', 'commandcode'],
+  // 自定义渠道名:渠道名带 plan 标记 + cline-pass 片段时必须两端都识别为 clinepass。
+  ['my-cline-pass-plan', 'm', 'clinepass'], ['ClinePassPlan', 'm', 'clinepass'],
+  ['cline-pass-plan', 'm', 'clinepass'], ['relay', 'cline-pass-plan', 'clinepass'], ['cline', 'm', null],
   ['relay', 'ark-coding-plan', 'volcengine'], ['relay', 'claude', null], ['ark-api', 'doubao', null],
   ['my-relay', 'gpt-5.6', null], ['ark-kimi-plan', 'ark-plan', null], ['marketplace', 'm', null],
 ]
@@ -49,6 +52,21 @@ let config = sanitizeConfig({ codingPlans: { volcengine: { enabled: true }, mini
 assert.equal(planProviderIdOf('llm-VolcEngine'), 'volcengine')
 assert.equal(billingClassOf('ark-api', 'm', config.planBilling, enabledPlanSetOf(config)), 'api')
 assert.equal(billingClassOf('my-ark-coding-plan', 'm', config.planBilling, enabledPlanSetOf(config)), 'plan')
+
+// Cline Pass:启用后,自定义渠道名的归属在服务端与客户端必须一致
+// (客户端投影排除 API 费用,服务端账本也要归 Plan,否则同一调用两端口径不同)。
+const clineConfig = sanitizeConfig({ codingPlans: { clinepass: { enabled: true } } })
+for (const [provider, model] of [
+  ['my-cline-pass-plan', 'm'],
+  ['cline-pass', 'm'],
+  ['ClinePassPlan', 'm'],
+]) {
+  assert.equal(planProviderIdOf(provider, clineConfig.planBilling, model), 'clinepass', '服务端 plan id: ' + provider)
+  assert.equal(ui.planProviderIdOfLocal(provider, clineConfig, model), 'clinepass', '客户端 plan id: ' + provider)
+  assert.equal(billingClassOf(provider, model, clineConfig.planBilling, enabledPlanSetOf(clineConfig)), 'plan', '服务端计费分类: ' + provider)
+  assert.equal(ui.billingClassOfLocal(provider, model, clineConfig), 'plan', '客户端计费分类: ' + provider)
+}
+
 const key = 'relay:example-model'
 const selected = { providers: config.planBilling.providers, models: { [key]: 'plan' }, modelPlans: { [key]: 'volcengine' } }
 const patch = applyConfigPatch(config, { planBilling: selected })

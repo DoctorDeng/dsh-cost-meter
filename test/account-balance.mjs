@@ -277,14 +277,17 @@ try {
   for (const method of ['getState', 'refreshBalance']) {
     useHome('snapshot-race-' + method)
     const gate = deferred()
-    let descriptionStarted = false, blockDescription = true
+    const entered = deferred()
+    let blockDescription = true
     const snapshot = mount({
       account: () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '100' }], bonusWallets: [] }),
-      describe: async ref => { if (ref === 'DEEPSEEK_BALANCE_API_KEY' && blockDescription) { descriptionStarted = true; await gate.promise } },
+      describe: async ref => { if (ref === 'DEEPSEEK_BALANCE_API_KEY' && blockDescription) { entered.resolve(); await gate.promise } },
     })
     const response = snapshot.service[method]()
-    for (let n = 0; n < 100 && !descriptionStarted; n++) await tick()
-    assert.ok(descriptionStarted, '状态组装已进入异步凭据描述')
+    // Wait for the actual boundary; setImmediate iteration counts depend on disk/CI speed.
+    let timeout
+    try { await Promise.race([entered.promise, new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('credential description did not start')), 5000) })]) }
+    finally { clearTimeout(timeout) }
     snapshot.emit('deepseek-account/signed-out')
     blockDescription = false
     gate.resolve()

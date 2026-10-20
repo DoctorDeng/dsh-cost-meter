@@ -62,6 +62,7 @@ try {
         this.typertRemote = { service: this, serviceKey: 'costMeter', namespace: 'costMeter' }
         for (const d of TYPERT.invocations) this[d.method] = (...args) => {
           calls.push([d.method, ...args])
+          if (d.method === 'getTurnCost') return { found: true, cost: 1, apiCost: 1, rows: [], calls: [] }
           return { ok: true, message: d.method }
         }
       }
@@ -101,6 +102,10 @@ try {
       assert.equal(result.value.message, method)
       assert.deepEqual(calls.at(-1), [method, ...args])
     }
+    const turnArgs = ['fixture-session', 1, 3, 'CNY']
+    const turnResult = await remote.getTurnCost(...turnArgs)
+    assert.equal(turnResult.ok, true)
+    assert.deepEqual(calls.at(-1), ['getTurnCost', ...turnArgs], '#338: fourth currency argument crosses the real RPC transport')
     const before = transported
     for (const [method, args] of [
       ['updateConfig', [null]], ['refreshCustomBalance', [8]],

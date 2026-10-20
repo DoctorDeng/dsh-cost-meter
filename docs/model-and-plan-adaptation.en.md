@@ -92,6 +92,7 @@ The "Coding Plan quotas" panel in Settings supports **12 vendors**, each with it
 | OpenRouter | `openrouter.ai/api/v1/credits` | prepaid credits used % | endpoint alive (401) |
 | SiliconFlow | `api.siliconflow.cn/v1/user/info` | account balance text | endpoint alive (30014) |
 | CommandCode | `api.commandcode.ai/alpha/billing/credits` | 5-hour/weekly window used % + monthly credits balance text | endpoint alive (401; issue #30); credential `COMMANDCODE_API_KEY` (`user_*`) |
+| Cline Pass | `api.cline.bot/api/v1/users/me/plan/usage-limits` | 5-hour / weekly / monthly windows used % + reset times | endpoint alive (401; verified 2026-10); credential `CLINE_PASS_API_KEY` (`sk_*`); `percentUsed` is already a used percentage |
 | SCNet Token Plan | — (no API endpoint; local metering) | monthly credits used % + usage text | the platform only offers `sk-tp-` inference endpoints; usage is console-only — estimated locally via the official deduction table |
 | Volcano Ark Coding Plan | `open.volcengineapi.com` (`Action=GetUsageDetails`/`GetPersonalPlan`/`GetAFPUsage`, Version=2024-01-01, service=ark, region=cn-beijing, AK/SK HMAC) | 5-hour / weekly / monthly windows used % + reset times | control-plane requires IAM sub-user `ArkReadOnlyAccess`+`BillingCenterReadOnlyAccess`, credentials `VOLC_ACCESSKEY`/`VOLC_SECRETKEY` (issue #60); Lite≈5h1200/weekly9000/monthly18000, Pro 5× |
 
@@ -124,7 +125,7 @@ The ledger records both the total equivalent cost (cost) and the real-money port
 
 | Vendor | Default (auto) | Notes |
 |---|---|---|
-| anthropic / zai / minimax / commandcode / scnet / volcengine | plan while enabled | percent-based subscription windows |
+| anthropic / zai / minimax / commandcode / clinepass / scnet / volcengine | plan while enabled | percent-based subscription windows |
 | kimi | plan while enabled | subscription windows; override models to api for PAYG balance scenarios |
 | openrouter / siliconflow | api | credits/balance are real money |
 | OpenCode Go (zen/opencode routes) | plan while Go enabled | Go-subscription models; Zen PAYG users should override to api |

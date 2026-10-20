@@ -8,7 +8,7 @@ import { sanitizeConfig, applyConfigPatch, Ledger } from '../lib/store.js'
 
 const sourceDir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(sourceDir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, sourceDir), 'utf8')).join('')
-const expose = ['SidebarModelCosts', 'ModelSidebarSettings', 'sidebarModelRows', 'modelStatsRows', 'MODEL_SIDEBAR_DEFAULTS', 'MODEL_OPEN_KEY', 'QuotaCard', 'useQuotaRefresh', 'QuotasSection', 'PlanQuotaCard', 'GatewayQuotaCard', 'GoQuotaCard', 'GoQuotaSettings', 'CustomBalanceEntryPanel', 'SidebarFooter', 'CornerChips', 'parseConfig', 'makeT', 'CODING_PLAN_ROWS']
+const expose = ['SidebarModelCosts', 'sidebarModelRows', 'modelStatsRows', 'MODEL_SIDEBAR_DEFAULTS', 'MODEL_OPEN_KEY', 'QuotaCard', 'useQuotaRefresh', 'QuotasSection', 'PlanQuotaCard', 'GatewayQuotaCard', 'GoQuotaCard', 'GoQuotaSettings', 'CustomBalanceEntryPanel', 'SidebarFooter', 'CornerChips', 'parseConfig', 'makeT', 'CODING_PLAN_ROWS']
 expose.push('CostSection', 'MiniMaxPlanCard')
 expose.push('BalancePanel', 'CredentialField', 'parseBalance')
 const element = (type, props, ...children) => ({ type, props: props ?? {}, children })
@@ -186,7 +186,8 @@ assert.equal(withClass(model.tree, 'cm-collapse-h')[0].props['aria-expanded'], '
 assert.equal(withClass(model.tree, 'cm-bbox-head').length, 0)
 withClass(model.tree, 'cm-collapse-h')[0].props.onClick(); await e.flush()
 assert.match(textOf(model.tree), /Today \$10 · 4 models/)
-assert.deepEqual(withClass(model.tree, 'cm-bal-amt').map(n => textOf(n)), ['$6', '$3', '$1'])
+assert.deepEqual(withClass(model.tree, 'cm-bbox-head').flatMap(head => withClass(head, 'cm-bal-amt')).map(n => textOf(n)), ['$6', '$3', '$1'])
+assert.equal(textOf(withClass(withClass(model.tree, 'cm-collapse-h')[0], 'cm-bal-amt')[0]), '$10 · 4 models', 'collapsed summary separates its right-aligned amount from the label')
 assert.deepEqual(withClass(model.tree, 'cm-bbox-bar').map(n => n.props.title), ['60.0%', '30.0%', '10.0%'])
 assert.match(textOf(model.tree), /Other/)
 assert.equal(e.storage.get(e.ui.MODEL_OPEN_KEY), '1')

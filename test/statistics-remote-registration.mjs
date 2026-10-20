@@ -35,11 +35,11 @@ function moduleFrom(source, require) {
   let factory
   vm.runInNewContext(source, {
     window: { __ModuleLoader__: { load: value => { factory = value.factory } } }, navigator: { language: 'en' },
-    document: { querySelector: () => null, createElement: () => ({ dataset: {}, remove() {} }), head: { appendChild() {} },
+    document: { querySelector: () => null, createElement: () => ({ dataset: {}, remove() {} }), head: { appendChild() {}, append() {} },
       addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn) },
       removeEventListener(name, fn) { listeners.get(name)?.delete(fn) }, hidden: false },
     setInterval: fn => { timers.add(fn); return fn }, clearInterval: fn => timers.delete(fn),
-    AbortSignal, AbortController, crypto: globalThis.crypto, console,
+    setTimeout, clearTimeout, AbortSignal, AbortController, crypto: globalThis.crypto, console,
   })
   return factory(require)
 }
@@ -52,11 +52,13 @@ const pluginSource = file => baseline
 const statistics = moduleFrom(pluginSource('client.statistics.js'), () => React)
 const catalog = baseline ? null : moduleFrom(pluginSource('client.openrouter.js'), () => React)
 const pricing = baseline ? null : moduleFrom(pluginSource('client.pricing.js'), () => React)
+const sessionList = baseline ? null : moduleFrom(pluginSource('client.session-list.js'), () => React)
 let loadCalls = 0, failLoad = false
 const requireMain = id => id === 'react' ? React : {}
 requireMain.async = async id => {
-  assert.ok(['./client.statistics.js', './client.openrouter.js', './client.pricing.js'].includes(id)); loadCalls++
+  assert.ok(['./client.statistics.js', './client.openrouter.js', './client.pricing.js', './client.session-list.js'].includes(id)); loadCalls++
   if (failLoad) { failLoad = false; throw new Error('synthetic chunk load failure') }
+  if (id === './client.session-list.js') return sessionList
   return id === './client.statistics.js' ? statistics : id === './client.pricing.js' ? pricing : catalog
 }
 const main = moduleFrom(pluginSource('client.js'), requireMain)
@@ -86,6 +88,7 @@ class Connection extends Service {
         if (endpoint === 'costMeter/getBillingStatistics') return { ok: true, value: billingStatistics(ledger, payload.args.query) }
         if (endpoint === 'costMeter/getSessionBilling') return { ok: true, value: await getSessionBilling(ledger, { get: () => ({ get: () => ({ snapshotEvents: () => [] }) }) }, payload.args.query) }
         if (endpoint === 'costMeter/getTurnInspection') return { ok: true, value: await getTurnInspection({ get: () => ({ get: () => ({ snapshotEvents: () => [] }) }) }, payload.args.query) }
+        if (endpoint === 'costMeter/getSessionListCosts') return { ok: true, value: [] }
         if (endpoint === 'costMeter/getSessionTrajectory') return { ok: true, value: await getSessionTrajectory(ledger, { get: () => ({ get: () => ({ snapshotEvents: () => [] }) }) }, payload.args.query) }
         if (endpoint === 'costMeter/getCallInspection') return { ok: true, value: await getCallInspection({ get: () => ({ get: () => ({ snapshotEvents: () => [] }) }) }, payload.args.query) }
         throw new Error('unexpected RPC ' + endpoint)
@@ -203,6 +206,10 @@ try {
     assert.equal((await pricingRpc('repriceModelHistory', true, 'deepseek:deepseek-v4-pro')).ok, true)
     assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['costMeter/repriceModelHistory', { confirmed: true, model: 'deepseek:deepseek-v4-pro' }])
     await assert.rejects(pricingRpc('repriceModelHistory', true, ''), /Expected channel\/model/)
+    await first.api.updateConfig({ sessionListCosts: true })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.ok(registrations.has('sidebar.workspaces.session.row.action:cost-meter-session-list'), 'enabling amounts mounts the shipped lazy session list')
+    assert.equal((await client.get('remote.costMeter').getSessionListCosts({ sessionIds: ['selected'], period: 'total' })).value.length, 0)
     const expectedMethods = TYPERT.invocations.filter(d => d.namespace === 'costMeter').map(d => d.method).sort()
     const actualMethods = Array.from(client.typert.remotes.list().filter(d => d.namespace === 'costMeter'), d => d.method).sort()
     assert.deepEqual(actualMethods, expectedMethods, 'all main and statistics methods coexist exactly once')
@@ -211,6 +218,7 @@ try {
     assert.equal(client.typert.remotes.list().filter(d => d.namespace === 'costMeter').length, 0, 'unload withdraws both contributions')
     assert.equal(timers.size, 0)
     assert.equal([...listeners.values()].reduce((sum, rows) => sum + rows.size, 0), 0, 'unload removes lazy activation listeners')
+    state.config.sessionListCosts = false
     const second = await activate()
     const Reopened = await second.api.loadStatistics()
     assert.equal(typeof await second.api.loadPricing(), 'function', 'pricing contribution supports plugin reload')

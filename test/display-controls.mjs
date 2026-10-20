@@ -35,7 +35,8 @@ assert.equal(config.codingPlans.minimax.display, 'sidebar')
 assert.equal(config.codingPlans.minimax.enabled, false, 'display changes never enable a quota query')
 assert.equal(JSON.stringify(config.codingPlans.kimi), initial, 'another account is unchanged')
 tree = inspect('plan')
-assert.ok(!nodes(tree).some(node => node.type === 'input' && node.props.type === 'checkbox'), 'placement replaces the duplicate visibility checkbox')
+assert.equal(nodes(tree).filter(node => node.props.role === 'switch').length, 1, 'one explicit visibility switch precedes the component controls')
+assert.ok(!control(tree, 'Placement').children.some(node => node.props?.value === 'off'), 'placement does not duplicate the visibility switch')
 control(tree, 'Placement').props.onChange({ target: { value: 'settings' } })
 assert.equal(config.codingPlans.minimax.display, 'settings', 'sidebar visibility preserves the settings card')
 const beforeSwitch = writes
@@ -54,12 +55,12 @@ control(inspect('today'), 'sidebarTodayMetric').props.onChange({ target: { value
 assert.equal(config.sidebarTodayMetric, 'tokens', 'the inspector still controls the daily value format')
 for (const selected of ['codex', 'strip-codex']) {
   const tree = inspect(selected)
-  const checkbox = label => nodes(tree).find(node => node.type === 'label' && node.children.some(child => child?.children?.includes(label)))?.children.find(child => child?.type === 'input')
-  checkbox('codexQuotaStrip').props.onChange({ target: { checked: false } })
-  assert.equal(config.codexQuotaStrip, false)
-  assert.equal(config.codexQuotaSidebar, true, 'composer display never hides the sidebar')
+  assert.equal(nodes(tree).filter(node => node.props.role === 'switch').length, 0, 'account and placement toggles are not duplicated within Codex controls')
+  for (const source of ['subscription', 'chatgpt']) {
+    assert.ok(control(tree, 'Data source').children.some(node => node.props?.value === source))
+    control(tree, 'Data source').props.onChange({ target: { value: source } })
+    assert.equal(config.codexQuotaSource, source)
+  }
   assert.equal(config.codexQuotaEnabled, false, 'display changes do not enable account queries')
-  checkbox('codexQuotaStrip').props.onChange({ target: { checked: true } })
-  assert.equal(config.codexQuotaStrip, true)
 }
 console.log('[ok] display controls: per-account visibility/placement, no query enablement, independent selection, targeted navigation and separate today control')

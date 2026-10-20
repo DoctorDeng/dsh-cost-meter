@@ -11,7 +11,15 @@ window.__ModuleLoader__.load({
     try { hostNative = require('@deepseek-ai/dsh-client-ui-primitives') } catch {}
     const Native = Object.fromEntries(Object.entries(fallbackNative).map(([name, component]) => [name, hostNative[name] ?? component]))
     const css = 'DISPLAY_STYLE_SOURCE'
+    // Only owned surfaces change. Nested statistics share the surrounding material;
+    // floating surfaces retain a 90% opacity floor, including fully transparent skins.
+    const skinCss = `
+      body :is(.cm-section,.cm-stat){background:transparent}
+      body :is(.cm-stat-dialog,.cm-qguide,.cm-peak-alert,.cm-footer-stack.simple,.cm-combo-panel,.cm-context-intro),body dialog.cm-fee-dialog{background:var(--cm-opaque-base,#fff);background:rgb(from var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff)) r g b / max(alpha,.9))}
+      body :is(.cm-simple-summary,.cm-billion-notice){background:var(--cm-opaque-base,#fff);background:rgb(from var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff)) r g b / max(alpha,.9))}
+    `
     /* DISPLAY_APPEARANCE_SOURCE */
+    /* DISPLAY_PARTS_SOURCE */
     /* DISPLAY_SIDEBAR_SOURCE */
     /* DISPLAY_CONTROLS_SOURCE */
     /* DISPLAY_EXAMPLES_SOURCE */
@@ -21,8 +29,9 @@ window.__ModuleLoader__.load({
       const config = draft ?? props.state.config
       const en = locale === 'en', text = (zh, english) => en ? english : zh
       const [region, setRegion] = useState('sidebar'), [expanded, setExpanded] = useState(false)
-      const [selected, setSelected] = useState(null), [selectedPlan, selectPlan] = useState('minimax')
-      const select = (key, planId) => { setSelected(key); if (planId) selectPlan(planId) }
+      const [selected, setSelected] = useState('budget'), [selectedPlan, selectPlan] = useState('minimax'), [stylesOpen, setStylesOpen] = useState(false)
+      const select = (key, planId) => { setSelected(key); setStylesOpen(false); if (planId) selectPlan(planId) }
+      const chooseRegion = key => { setRegion(key); setStylesOpen(false); setSelected(key === 'sidebar' ? 'budget' : key === 'composer' ? 'strip-budget' : 'session-header') }
       const [examples, setExamples] = useState(() => {
         try { return localStorage.getItem('dsh-cost-meter:display-examples') !== 'false' } catch { return true }
       })
@@ -31,6 +40,7 @@ window.__ModuleLoader__.load({
       const appearance = useDisplayAppearance()
       const labels = { balance: text('官方余额', 'Official balance'), budget: text('侧栏预算', 'Sidebar budget'), today: text('今日用量', 'Today’s usage'), peak: text('峰谷时段', 'Peak / off-peak'), models: text('模型花费', 'Model costs'), go: text('Go 额度', 'Go quota'), plan: text('套餐进度条', 'Plan bars'), customBalance: text('自定义余额', 'Custom balance'), codex: text('Codex 额度', 'Codex quota'), badge: text('会话费用摘要', 'Session cost summary'), 'session-header': text('顶部费用明细', 'Header cost details'), 'session-dock': text('输入框下方费用明细', 'Composer cost details'), turn: text('每轮费用', 'Per-turn cost'), corner: text('右下角额度', 'Corner quota'), 'strip-budget': text('预算进度条', 'Budget strip'), 'strip-go': text('Go 进度条', 'Go strip'), 'strip-plans': text('套餐进度条', 'Plan strip') }
       labels['strip-codex'] = text('Codex 额度', 'Codex quota')
+      labels.sessionList = text('会话列表金额', 'Session list amounts')
       const registry = {}
       const id = React.useId(), dialogRef = React.useRef(null), expandButton = React.useRef(null)
       React.useEffect(() => {
@@ -45,6 +55,7 @@ window.__ModuleLoader__.load({
       const goPercent = previewData.state.goQuota?.rolling?.percent ?? null
       const planPercent = Object.values(previewData.state.codingPlans ?? {}).flatMap(plan => Object.values(plan.windows ?? {})).find(win => Number.isFinite(win?.percent))?.percent ?? null
       const percentLabel = value => value === null ? '—' : Number(value.toFixed(1)) + '%'
+      const inner = (key, on, ...children) => el(key.startsWith('corner-') ? 'div' : 'span', { className: 'cm-preview-part', 'data-display-part': key, 'data-preview-hidden': !on }, ...children)
       const set = patch => setDraft(previous => ({ ...(previous ?? config), ...patch }))
 
       const item = (key, label, on, patch, content, extra = '') => {
@@ -55,7 +66,7 @@ window.__ModuleLoader__.load({
         title: label + text(' · 点击调整', ' · Click to customize'),
         onClick: () => select(key),
         onKeyDown: event => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); select(key) } },
-      }, el('span', { className: 'cm-display-item-content', inert: '' }, content),
+      }, el('div', { className: 'cm-display-item-content', inert: '', 'data-placeholder': label + ' —' }, content),
       el('span', { className: 'cm-display-item-tag', 'aria-hidden': true }, text('点击调整', 'Customize')))
         return node
       }
@@ -74,12 +85,15 @@ window.__ModuleLoader__.load({
       const planConfig = config.codingPlans?.[selectedPlan] ?? {}
       const planOn = ['both', 'sidebar'].includes(planConfig.display ?? (selectedPlan === 'minimax' ? 'both' : 'settings'))
       registry.plan = { on: planOn, patch: { codingPlans: { ...config.codingPlans, [selectedPlan]: { ...planConfig, display: planOn ? 'settings' : 'both' } } } }
+      registry.customBalance = { on: ['both', 'sidebar'].includes(config.customBalance?.display ?? 'both'), patch: { customBalance: { ...config.customBalance, display: ['both', 'sidebar'].includes(config.customBalance?.display ?? 'both') ? 'settings' : 'both' } } }
+      registry.codex = { on: config.codexQuotaSidebar !== false, patch: { codexQuotaSidebar: config.codexQuotaSidebar === false } }
+      registry.sessionList = { on: config.sessionListCosts === true, patch: { sessionListCosts: config.sessionListCosts !== true } }
       const strip = config.quotaStrip ?? {}
       const codex = previewData.state.displayPreviewCodex
       const codexPercentages = codex?.status === 'ok' ? Object.entries(codex.windows ?? {}).map(([key, win]) => ({ key, pct: Number.isFinite(win?.percent) ? Math.max(0, Math.min(100, 100 - win.percent)) : null })) : []
       const codexStrip = item('strip-codex', text('输入框上方 · Codex 额度', 'Above composer · Codex quota'),
-        strip.enabled === true && config.codexQuotaEnabled === true && config.codexQuotaStrip !== false,
-        { codexQuotaStrip: config.codexQuotaStrip === false },
+        strip.enabled === true && config.codexQuotaStrip !== false,
+        { codexQuotaStrip: !(strip.enabled === true && config.codexQuotaStrip !== false), ...(strip.enabled ? {} : { quotaStrip: { ...strip, enabled: true, budget: false, go: false, plans: false, promptSeen: true } }) },
         el('span', { className: 'cm-qchip' }, el('span', { className: 'cm-qlabel' }, 'Codex'),
           ...(codexPercentages.length ? codexPercentages : [{ pct: null }]).map(({ key, pct }, index) => el('span', { key: index, className: 'cm-qseg' },
             el('span', { className: 'cm-qbar' }, el('span', { className: 'cm-qfill', style: { width: (pct ?? 0) + '%' } })),
@@ -89,27 +103,37 @@ window.__ModuleLoader__.load({
         // Enabling one item from a disabled strip must not show its siblings unexpectedly.
         const next = strip.enabled ? { ...strip, [key]: !on } : { ...strip, budget: false, go: false, plans: false, [key]: true }
         const pct = value === null ? null : (config.barDirections?.[kind] ?? 'used') === 'remaining' ? 100 - value : value
-        return item('strip-' + key, text('输入框上方 · ', 'Above composer · ') + label, on, { quotaStrip: { ...next, enabled: true, promptSeen: true } },
+        return item('strip-' + key, text('输入框上方 · ', 'Above composer · ') + label, on, { quotaStrip: { ...next, enabled: true, promptSeen: true }, ...(strip.enabled ? {} : { codexQuotaStrip: false }) },
           el('span', { className: 'cm-qchip' }, el('span', { className: 'cm-qlabel' }, label),
             el('span', { className: 'cm-qbar' }, el('span', { className: 'cm-qfill', style: { width: (pct ?? 0) + '%' } })), el('span', { className: 'cm-qtext' }, percentLabel(pct))))
       }
       const session = position => item('session-' + position, text(position === 'header' ? '顶部费用明细' : '输入框下方费用明细', position === 'header' ? 'Header cost details' : 'Composer cost details'), config[position === 'header' ? 'hideSessionCostHeader' : 'hideSessionCostDock'] !== true,
         { [position === 'header' ? 'hideSessionCostHeader' : 'hideSessionCostDock']: config[position === 'header' ? 'hideSessionCostHeader' : 'hideSessionCostDock'] !== true },
         el('span', { className: 'cm-btn cm-stat-entry' }, text('费用明细', 'Cost details')))
-      const badge = position => (config.position === 'header' ? 'header' : 'dock') === position
-        ? item('badge', text('会话费用摘要', 'Session cost summary'), config.position !== 'off', { position: config.position === 'off' ? position : 'off' },
+      const badge = position => item('badge', text('会话费用摘要', 'Session cost summary'), config.position === position, { position: config.position === position ? 'off' : position },
           el('span', { className: 'cm-root cm-session-cost' }, el('span', { className: 'cm-session-amount' }, t('sessionLineCompact', { amount: examples ? money(.32) : '—' })),
-            config.sessionCostCompact === true ? null : el('span', { className: 'cm-session-detail' }, examples ? text(' · 输入 128K · 输出 4K', ' · In 128K · Out 4K') : text(' · 暂无会话缓存', ' · No cached session data')))) : null
+            inner('session-detail', config.sessionCostCompact !== true, el('span', { className: 'cm-session-detail' }, examples ? text(' · 输入 128K · 输出 4K', ' · In 128K · Out 4K') : text(' · 暂无会话缓存', ' · No cached session data')))))
       const cornerOn = config.corner?.enabled === true
       const native = (name, ...children) => el('div', { className: 'cm-native-' + name }, ...children)
       const icon = (name, size = 16) => el(Native[name], { size })
+      const cornerSample = (key, model = false) => props.renderCorner({ ...previewData.state, config: { ...previewData.config,
+        sidebarModels: { ...config.sidebarModels, dock: model },
+        corner: { enabled: !model, budget: false, goRolling: false, goWeekly: false, goMonthly: false, [key]: true } } })
       const corner = item('corner', text('右下角额度', 'Corner quota'), cornerOn, { corner: { ...config.corner, enabled: !cornerOn } },
-        el('span', { className: 'cm-corner-chip' }, t('budget') + ' ' + percentLabel(budgetPercent)))
+        el('div', { className: 'cm-preview-corner' }, ...[['goRolling', 'Go 5h'], ['goWeekly', text('Go 周', 'Go week')], ['goMonthly', text('Go 月', 'Go month')], ['budget', t('budgetShort')]].map(([key, label]) =>
+          React.cloneElement(inner('corner-' + key, config.corner?.[key] === true, cornerSample(key)), { 'data-placeholder': label + ' —' }))))
+      const dockModel = region === 'composer' ? item('models', text('模型花费', 'Model costs'), config.sidebarModels?.dock === true,
+        { sidebarModels: { ...config.sidebarModels, dock: config.sidebarModels?.dock !== true } }, cornerSample('model', true)) : null
+      registry.badge = { on: config.position === (region === 'conversation' ? 'header' : 'dock'), patch: { position: config.position === (region === 'conversation' ? 'header' : 'dock') ? 'off' : region === 'conversation' ? 'header' : 'dock' } }
+      if (region === 'composer') registry.models = { on: config.sidebarModels?.dock === true, patch: { sidebarModels: { ...config.sidebarModels, dock: config.sidebarModels?.dock !== true } } }
       const regions = [['sidebar', text('侧栏', 'Sidebar')], ['composer', text('输入区', 'Composer')], ['conversation', text('会话内容', 'Conversation')]]
       const scene = region === 'sidebar' ?
         el(SidebarPreview, { renderSidebar: renderPreviewSidebar, config: previewData.config, selected, selectedPlan, select, labels,
-          visibility: examples ? { balance: balanceOn, budget: registry.budget.on, today: todayOn,
-            go: registry.go.on, peak: registry.peak.on, models: registry.models.on, plan: planOn } : null,
+          displayConfig: config, visibility: { balance: balanceOn, budget: registry.budget.on, today: todayOn,
+            go: registry.go.on, peak: registry.peak.on, models: registry.models.on, plan: planOn, customBalance: registry.customBalance.on, codex: registry.codex.on },
+          listPreview: item('sessionList', labels.sessionList, config.sessionListCosts === true, registry.sessionList.patch,
+            el('div', { style: { display: 'flex', alignItems: 'center', gap: 12, padding: 8 } }, el('span', { style: { flex: 1 } }, text('整理项目计划', 'Organize the project plan')),
+              el('span', { style: { fontSize: 11, fontVariantNumeric: 'tabular-nums' } }, examples ? money(.84) : '—'))),
           appearance: { ...appearance.sidebar, ...(appearance.sidebarFooterWidth ? { maxWidth: appearance.sidebarFooterWidth + 28 } : {}) }, text, icon }) : region === 'composer' ?
         el('div', { className: 'cm-preview-composer' },
           el('div', { className: 'cm-preview-region-head' }, el('span', null, icon('IconPlusOutlineRegular'), text('输入区域', 'Composer area'))),
@@ -120,7 +144,7 @@ window.__ModuleLoader__.load({
               native('input-trailing', native('model', examples ? 'DeepSeek-V41-Flash' : text('当前模型', 'Current model'), icon('IconChevronDownOutlineRegular', 12)), icon('IconMicrophoneOutlineRegular', 20), native('input-primary', icon('IconSendOutlineRegular', 24))))),
           native('input-dock', el('span', { className: 'cm-native-dock-stat', 'aria-hidden': true }, icon('IconGaugeOutlineRegular', 14), examples ? text('2 轮 6 步 · 273 tok/s', '2 turns · 6 steps · 273 tok/s') : '—'),
             el('span', { className: 'cm-native-dock-stat', 'aria-hidden': true }, icon('IconDatabaseOutlineRegular', 14), examples ? text('128K tok · 缓存命中 98%', '128K tok · 98% cache') : '—'),
-            session('dock'), badge('dock'), corner,
+            session('dock'), badge('dock'), corner, dockModel,
             el('span', { className: 'cm-native-dock-context', 'aria-hidden': true }, el('i', { className: 'cm-native-context-ring' }), examples ? '29%' : '—'))) :
         el('div', { className: 'cm-preview-conversation' },
           el('div', { className: 'cm-native-chat-header', style: appearance.header },
@@ -140,30 +164,26 @@ window.__ModuleLoader__.load({
           el('span', null, examples ? text('展示完整效果，示例不计入账本', 'Full preview · example data is not recorded') : text('展示当前数据，缺失内容显示 —', 'Current data · unavailable values show —'))),
         el('div', { className: 'cm-display-region-tabs', role: 'tablist', 'aria-label': text('预览区域', 'Preview area') }, ...regions.map(([key, label], index) =>
           el('button', { key, type: 'button', role: 'tab', id: id + key, 'aria-selected': region === key, 'aria-controls': id + '-panel', tabIndex: region === key ? 0 : -1,
-            onClick: () => { setRegion(key); select(null) }, onKeyDown: event => {
+            onClick: () => chooseRegion(key), onKeyDown: event => {
               if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return
               event.preventDefault()
               const next = event.key === 'Home' ? 0 : event.key === 'End' ? regions.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + regions.length) % regions.length
-              setRegion(regions[next][0]); select(null); event.currentTarget.parentElement.children[next].focus()
+              chooseRegion(regions[next][0]); event.currentTarget.parentElement.children[next].focus()
             } }, label))),
-        region === 'sidebar' ? el('div', { className: 'cm-display-toggles', role: 'group', 'aria-label': text('侧栏显示', 'Sidebar visibility') },
-          ...['budget', 'today', 'peak', 'models'].map(key => el('label', { key, className: 'cm-check' },
-            el('input', { type: 'checkbox', 'data-display-toggle': key, checked: registry[key].on, onChange: () => set(registry[key].patch) }),
-            el('span', null, key === 'budget' ? t('budget') : labels[key])))) : null,
         el('div', { className: 'cm-preview cm-region-preview', role: 'tabpanel', id: id + '-panel', 'aria-labelledby': id + region, 'data-region': region },
           el('div', { className: 'cm-preview-workspace' }, el('div', { className: 'cm-preview-scene' }, scene),
             el(DisplayInspector, { props, config, set, selected, selectedPlan, selectPlan, select, labels, registry, text, region, examples, previewData,
-              openQuota: () => { setExpanded(false); props.onNavigate('quotas', selectedPlan) } }))))
+              stylesOpen, setStylesOpen, openQuota: () => { setExpanded(false); props.onNavigate('quotas', selected === 'codex' || selected === 'strip-codex' ? 'codex' : selectedPlan) } }))))
       return el('section', { className: 'cm-display', 'aria-label': text('交互式显示设置', 'Interactive display settings') },
         el('div', { className: 'cm-display-heading' }, el('div', null,
           el('h3', null, text('设置你看到的界面', 'Make the screen yours')),
           el('p', null, text('点击虚线框，在右侧调整显示与样式。淡化表示已隐藏。', 'Select an outlined item, then customize it on the right. Faded components are hidden.'))),
           el('button', { ref: expandButton, type: 'button', className: 'cm-btn small cm-display-expand', onClick: () => setExpanded(true) }, icon('IconFullscreenOutlineRegular', 14), text('放大预览', 'Expand preview'))),
+        el(SkinTransparency, { config, set, text }),
         expanded ? el('dialog', { ref: dialogRef, className: 'cm-display-dialog', 'aria-label': text('桌面显示预览', 'Desktop display preview'),
           onCancel: event => { event.preventDefault(); event.stopPropagation(); setExpanded(false) }, onKeyDown: event => { if(event.key==='Escape')event.stopPropagation() } },
           el('div', { className: 'cm-display-dialog-head' }, text('显示设置', 'Display settings'),
-            el('button', { type: 'button', className: 'cm-display-dialog-close', 'aria-label': text('关闭预览', 'Close preview'), autoFocus: true, onClick: () => setExpanded(false) }, icon('IconCloseOutlineRegular'))), preview) : preview,
-        el(DisplayInspector, { props, config, set, selected: 'general', text, general: true }))
+            el('button', { type: 'button', className: 'cm-display-dialog-close', 'aria-label': text('关闭预览', 'Close preview'), autoFocus: true, onClick: event => { event.stopPropagation(); setExpanded(false) } }, icon('IconCloseOutlineRegular', 18))), el('div', { className: 'cm-display-dialog-body' }, preview)) : preview)
     }
 
     class DisplayBoundary extends React.Component {
@@ -175,8 +195,16 @@ window.__ModuleLoader__.load({
         return el('section', { className: 'cm-display' },
           el('p', { role: 'alert' }, en ? 'Preview unavailable. Display options are still available below.' : '预览暂不可用，可在下方继续调整显示选项。'),
           el('button', { type: 'button', className: 'cm-btn small', onClick: () => this.setState({ failed: false }) }, en ? 'Retry preview' : '重试预览'),
-          el(DetailedSettings, { ...this.props, open: true }), this.props.renderModelsSettings?.())
+          el(DetailedSettings, { ...this.props, open: true }), el(ModelSidebarSettings, this.props))
       }
+    }
+    function SkinTransparency({ config, set, text }) {
+      return el('div', { className: 'cm-field' },
+        el('label', { className: 'cm-check' },
+          el('input', { type: 'checkbox', checked: config.followSkinTransparency === true,
+            onChange: event => set({ followSkinTransparency: event.target.checked }) }),
+          text('跟随皮肤透明度', 'Follow skin transparency')),
+        el('span', { className: 'cm-hint' }, text('费用页跟随设置窗口背景，弹窗保留至少 90% 不透明度。', 'Use the settings window background; dialogs remain at least 90% opaque.')))
     }
     function DetailedSettings({ state, draft, setDraft, t, locale, numInput, displayOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, open = false }) {
       const config=state.config
@@ -184,6 +212,7 @@ window.__ModuleLoader__.load({
       return el('details', { className: 'cm-display-details', open: open || undefined },
         el('summary', null, locale === 'en' ? 'More options · layout, currency and refresh intervals' : '详细设置 · 布局、金额格式与刷新频率'),
         el('div', { className: 'cm-grid' },
+            el(SkinTransparency, { config: draft ?? config, set: patch => setDraft(previous => ({ ...(previous ?? config), ...patch })), text: (zh, en) => locale === 'en' ? en : zh }),
             el('div', { className: 'cm-grid-group' }, t('groupGeneral')),
             ...['includeSubagentCost', 'codexQuotaEnabled', 'codexQuotaSidebar', 'codexQuotaStrip'].map(key => el('label', { key, className: 'cm-check' },
               el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
@@ -424,11 +453,19 @@ window.__ModuleLoader__.load({
                 el('span', null, t('budgetDetailLabel'))))))
     }
 
-    function mount(ctx) {
+    function mount(ctx, store) {
       const style = document.createElement('style')
       style.textContent = css
       document.head.appendChild(style)
-      ctx.effect(() => () => style.remove(), 'cost-meter: display settings styles')
+      const skin = document.createElement('style')
+      const syncSkin = () => {
+        const next = store?.getSnapshot().state?.config?.followSkinTransparency === true ? skinCss : ''
+        if (skin.textContent !== next) skin.textContent = next
+      }
+      document.head.appendChild(skin)
+      syncSkin()
+      const stop = store?.subscribe(syncSkin)
+      ctx.effect(() => () => { stop?.(); skin.remove(); style.remove() }, 'cost-meter: display settings styles')
       return DisplayBoundary
     }
     return { mount, DisplaySettings }

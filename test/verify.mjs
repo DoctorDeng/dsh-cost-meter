@@ -9,6 +9,7 @@ import './ledger-concurrency.mjs'
 import './ledger-lock-recovery.mjs'
 // This service fixture owns startup timers and must not overlap slow static imports.
 import './context-costs.mjs'
+import './clinepass-quota.mjs'
 import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, dirname, resolve } from 'node:path'
@@ -96,6 +97,9 @@ import {
   qwenTokenPlanWindows,
 } from '../lib/coding-plans.js'
 import { extractByRule } from '../lib/custom-balance.js'
+
+// Wait for the static multi-process fixtures before probing Windows native IDs.
+await import('./ledger-lock-compatibility.mjs')
 
 // Fixture credentials must never reach live APIs. Tests override this guard with
 // explicit in-process mocks; the optional public pricing smoke is read-only opt-in.
@@ -1097,6 +1101,7 @@ const officialHosts = {
   openrouter: ['openrouter.ai'],
   siliconflow: ['api.siliconflow.cn'],
   commandcode: ['api.commandcode.ai'],
+  clinepass: ['api.cline.bot'],
   scnet: [],
   volcengine: ['open.volcengineapi.com'],
   qwen: [],
@@ -1667,6 +1672,11 @@ vm.runInNewContext(readFileSync(new URL('../lib/client.pricing.js', import.meta.
   window: { __ModuleLoader__: { load: value => { pricingFactory = value.factory } } },
 })
 descriptors.push(...pricingFactory(() => ({})).CONTRIBUTION.descriptors)
+let sessionListFactory
+vm.runInNewContext(readFileSync(new URL('../lib/client.session-list.js', import.meta.url), 'utf8'), {
+  window: { __ModuleLoader__: { load: value => { sessionListFactory = value.factory } } },
+})
+descriptors.push(...sessionListFactory(() => ({})).CONTRIBUTION.descriptors)
 const clientMethods = Array.from(descriptors, d => d.method).sort()
 const serverMethods = TYPERT.invocations.map(i => i.method).sort()
 assert.deepEqual(clientMethods, serverMethods, '客户端 descriptor 与服务端 typert 清单方法一一对齐')
@@ -1879,7 +1889,7 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
   const retryIndexSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.ok(retryIndexSource.includes('err.soft = true'), 'queryBalance 守卫错误(未配置 Key/非官方端点)标记 soft')
   // 官方余额的 401 缓存与 500 自动恢复由 balance-credentials.mjs 实际调用验证。
-  assert.ok(retryIndexSource.includes("...goQuotaCache, value: { ...emptyGoQuota(), status: 'error'"), 'Go 额度硬失败写 error 状态并保留旧 fetchedAt')
+  // Go 的 401 缓存与立即恢复通过 go-authentication.mjs 实际调用验证；网络重试见上方真实刷新用例。
   // 自定义余额的失败与恢复通过 cache-lifecycle.mjs 实际调用服务验证。
   assert.ok(retryIndexSource.includes("...(codingPlanCaches[id] ?? { fetchedAt: 0, value: emptyCodingPlan() }),\n          value: { ...emptyCodingPlan(), status: 'error'"), 'Coding Plan 硬失败写 error 状态并保留旧 fetchedAt')
   assert.ok(retryIndexSource.includes("error && error.soft === true"), '软失败判定读取 error.soft 标记')
@@ -3490,7 +3500,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 }
 
 // 真实 refreshGoQuota 链路的重试回归(issue #28):首次 ECONNRESET 重试后成功;
-// 401 业务错误不重试、仍落 soft/off 中性提示。
+// 401 认证错误不重试，以 error 提示修正凭据，不当成无订阅。
 {
   const prevHome = process.env.DSH_HOME
   const prevFetch = globalThis.fetch
@@ -3519,9 +3529,9 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
       wantOk: true, wantStatus: 'ok', wantCalls: 2, wantPercent: 42.5,
     },
     {
-      tag: 'http401', // 业务错误不重试:soft → off 中性提示,仅 1 次网络调用。
+      tag: 'http401', // 认证错误不重试，不归为无订阅，仅 1 次网络调用。
       script: [{ ok: false, status: 401 }],
-      wantOk: false, wantStatus: 'off', wantCalls: 1,
+      wantOk: false, wantStatus: 'error', wantCalls: 1,
     },
   ]
   for (const { tag, script, wantOk, wantStatus, wantCalls, wantPercent } of scenarios) {
@@ -3844,6 +3854,9 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(planSrc.includes('function codingPlanWindowLabel(name, t)'), '窗口名本地化(fiveHour/weekly/monthly)')
   // 通用卡片样式:宽标签与文本窗口行的 CSS。
   assert.ok(planSrc.includes('.cm-mm-row.wide .cm-bbox-label{') && planSrc.includes('.cm-mm-row.wide .cm-mm-text{'), '通用卡片行样式存在')
+  // 单行余额来源(WorkBuddy):余额并入标题行右端,正文不再重复一行。
+  assert.ok(planSrc.includes("const titleValue = id === 'workbuddy'") && planSrc.includes("entries.filter(([name]) => name !== 'balance')"), '余额从正文窗口行剔除')
+  assert.ok(planSrc.includes("className: titleValue ? 'cm-mm-title cm-mm-row wide' : 'cm-mm-title'"), '标题行右端余额节点(复用通用行样式,零新增 CSS)')
   console.log('[ok] Coding Plan 侧边栏显示(display 门控/通用卡片/双语文案/设置页下拉)通过')
 }
 
@@ -4637,7 +4650,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 换算点 + Go/Plan 卡片各自传入的方向配置,覆盖语义不变。
   assert.ok(clientSrcV16.includes("BalanceBar, { segments, direction: barDirectionOf") && clientSrcV16.includes("simpleBarByDirection(pct === null") && clientSrcV16.includes("simpleBarByDirection(percent, direction)") && clientSrcV16.includes("barDirectionOf(config, 'go')") && clientSrcV16.includes("barDirectionOf(config, 'plan')"), '余额/预算/Go 条按方向换算填色与标签')
   assert.ok(clientSrcV16.includes("barDirectionOf(state.config, 'plan')") && clientSrcV16.includes("miniMaxRow(t('codingPlanRemain5h'), five, direction") && clientSrcV16.includes("miniMaxRow(t('codingPlanRemain7d'), seven, direction"), 'Plan/MiniMax 额度条按 plan 方向换算')
-  assert.ok(clientSrcV16.includes("quotaValueText(simpleBarByDirection(win.percent, 'remaining').label, 'remaining', t)") && clientSrcV16.includes("className: 'cm-codex-window'"), 'Codex 文本卡始终明确显示剩余额度')
+  // Codex remaining percentages, progress widths and reset placement are exercised
+  // through the actual card in client-issues-127-129 and codex-quota-browser.
   assert.ok(clientSrcV16.includes("barDirectionRemaining") && clientSrcV16.includes("barDirectionUsed") && clientSrcV16.includes("barDirectionsTitle"), '条方向中英文案存在')
   assert.ok(clientSrcV16.includes("segments.rev") && clientSrcV16.includes("cm-dir-row"), '条方向 CSS 与设置 UI 存在')
   console.log('[ok] 一致性重建/路由归类/含 Plan 总额开关(v1.6.0)通过')
@@ -6881,6 +6895,10 @@ await import('./gateway-retry.mjs')
 await import('./cache-lifecycle.mjs')
 await import('./core-boundaries.mjs')
 await import('./go-credentials.mjs')
+await import('./go-authentication.mjs')
+await import('./commandcode-monthly.mjs')
+await import('./model-labels.mjs')
+await import('./session-list-costs.mjs')
 await import('./balance-credentials.mjs')
 await import('./account-balance.mjs')
 await import('./factory-quota.mjs')
@@ -6898,6 +6916,7 @@ await import('./balance-display-currency.mjs')
 await import('./settings-regressions.mjs')
 await import('./model-statistics.mjs')
 await import('./display-controls.mjs')
+await import('./model-display-names.mjs')
 await import('./settings-poll-race.mjs')
 await import('./plan-provider-matching.mjs')
 await import('./community-client.mjs')
@@ -6916,6 +6935,8 @@ await import('./sidebar-regressions.mjs')
 await import('./gpt-astra-pricing.mjs')
 await import('./pricing-model-matching.mjs')
 await import('./provider-pricing-coverage.mjs')
+await import('./ollama-cloud-pricing.mjs')
+await import('./ollama-cloud-upgrade.mjs')
 await import('./subagent-billing.mjs')
 await import('./billing-integrity.mjs')
 await import('./session-restart.mjs')
@@ -6939,6 +6960,7 @@ await import('./session-log-repair.mjs')
 await import('./client-issues-127-129.mjs')
 await import('./model-quota-cards.mjs')
 await import('./mimo-quota.mjs')
+await import('./workbuddy-quota.mjs')
 await import('./mimo-enable-flow.mjs')
 await import('./mimo-v26-pricing.mjs')
 await import('./host-locale.mjs')
@@ -6955,6 +6977,7 @@ await import('./prices-revision.mjs')
 await import('./codex-subscription-compat.mjs')
 await import('./codex-client-loading.mjs')
 await import('./chatgpt-subscription-compat.mjs')
+await import('./chatgpt-subscription-quota.mjs')
 await import('./opendesign-quota-degradation.mjs')
 await import('./session-storage-compat.mjs')
 await import('./session-readpaths-rdb.mjs')

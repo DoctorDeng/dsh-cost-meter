@@ -8,22 +8,22 @@ Community and feedback: [Join the WeChat group →](#community). The WeChat grou
 
 **Session cost tracking plugin for the DeepSeek Harness web GUI (bilingual UI)**
 
-Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; weekends and Chinese public holidays are off-peak all day, with separate labels) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 170+ model-ID catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / Volcano Ark / Qwen / Xiaomi MiMo / Factory Droid) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · subscription plugin compatibility (Codex / ChatGPT subscription plans) · mobile layout (dsh-pocket) · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
+Per-conversation cost · daily totals · OpenCode Go subscription quota display · budget with usage percentage · official account balance · custom provider balance · balance progress bar · history · peak/off-peak pricing hours display (peak hours UTC 01:00–04:00, 06:00–10:00; weekends and Chinese public holidays are off-peak all day, with separate labels) · pre-switch popup & system-notification alerts for peak/off-peak changes (position / lead time / alert type configurable) · one-click price sync from the official docs · Codex-style token usage heat grid · multi-vendor model pricing (built-in 170+ model-ID catalog with auto-matching) · mainstream Coding Plan quota queries & display (Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / Cline Pass / SCNet / Volcano Ark / Qwen / Xiaomi MiMo / Factory Droid) plan/API dual-track billing (subscription quota vs pay-as-you-go money separated, per-1% & full-window token/equivalent-cost estimates with daily/weekly/monthly curves) · subscription plugin compatibility (Codex / ChatGPT subscription plans) · mobile layout (dsh-pocket) · quota strip above the input box (budget / Go / coding-plan usage in one row, toggleable)
 
-[![version](https://img.shields.io/badge/version-1.9.7-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.9.15-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
 **Minimum supported host: DSH 0.2.0.** The plugin declares the floor in `engines.dsh`, the host's admission gate for plugins, and no longer supports any DSH 0.1.x release; the adaptation target is the npm `next` release **0.2.1-rc.2**. Exact ranges and how the host reads them: [compatibility declaration](docs/dsh-0.2.1-compatibility.md#english).
 
 Supports [official Search/Fetch request fees](docs/web-request-fees.md#english), separately from model tokens.
 
-**v1.9.7** fixes the sidebar introduction close button being obstructed by desktop titlebars or plugin containers. Dismissal works with translucent skins, duplicated slots, and unavailable settings saves.
+**v1.9.15** adds an optional “Follow skin transparency” switch under Cost → Display, and supports Cline Pass quota in a single card with 5-hour, weekly and monthly windows.
 
 Configuration and verification: [OpenDesign queries](docs/opendesign-billing.md), [dynamic ports / LAN / WorkBuddy2API setup](docs/custom-balance-sources.md), and [opacity fixes with performance measurements](docs/performance-2026-10-18.md).
 
 
 Desktop users: follow the [Desktop installation instructions](docs/install-troubleshooting.md#desktop-安装与更新) for the application's own CLI and `desktop` Profile.
 
-Release notes: [v1.9.7](docs/update-notes-1.9.7.md#english). Fully restart DSH after updating.
+Release notes: [v1.9.15](docs/update-notes-1.9.15.md#english). Fully restart DSH after updating.
 
 Host records inside the declared range, and the earlier 0.1.x history, are in the [compatibility record](docs/host-compatibility.md); the per-release list lives in `package.json` (`dsh.compatibility.dshReleases`).
 
@@ -52,9 +52,9 @@ If startup reports **Ledger is busy** and the cost widgets are missing, see [led
 | Official balance | Sidebar top / Settings page (configurable) | Total / granted / topped-up balance, auto-refresh + manual refresh; optional three-segment progress bar (blue/orange/gray), whose today segment only counts official-channel spend (coding plans / custom providers excluded) |
 | Custom provider balance | Sidebar / Settings page (configurable) | Configurable HTTP balance lookup (e.g. LiteLLM); bilingual labels, currency, extract rules (dot path / number / add / subtract / divide — use divide for NewApi-style quota endpoints, see [example](#custom-provider-balance-example-newapi-template)); collapsible panel alongside Coding Plan quotas |
 | OpenCode Go quota | Sidebar / Settings / bottom-right dock (configurable) | Rolling-5h / weekly / monthly usage percent and reset times, each window toggleable independently, budget used % can show alongside; key auto-discovered (dedicated ref / official Go route apiKeyEnv / env / opencode login) or entered manually |
-| Coding plan quotas | Sidebar / Settings page (per vendor) | Multi-vendor coding-plan quota queries (Anthropic Claude Pro/Max, Z.ai / Zhipu GLM Coding Plan, MiniMax Token Plan, Kimi Code weekly + 5-hour quotas with PAYG balance fallback when no subscription key, OpenRouter credits, SiliconFlow balance, CommandCode 5h/weekly windows + monthly credits balance, Xiaomi MiMo Token Plan plan/compensation credit windows + period-end reset + balance via console cookie); per-vendor enable switch, key, display position and refresh interval (sidebar card in the same box style as the Go quota; the collapsed rail shows percentages), official endpoints by default, with a [configurable trusted MiniMax origin](docs/minimax-quota-endpoint.md#english); neutral hints when no credentials/subscription; SCNet Token Plan supports [external console snapshots](docs/scnet-official-snapshot.md#english); without a valid snapshot, monthly usage is estimated from the local ledger via the official credits deduction table (no credentials needed) |
+| Coding plan quotas | Sidebar / Settings page (per vendor) | Multi-vendor coding-plan quota queries (Anthropic Claude Pro/Max, Z.ai / Zhipu GLM Coding Plan, MiniMax Token Plan, Kimi Code weekly + 5-hour quotas with PAYG balance fallback when no subscription key, OpenRouter credits, SiliconFlow balance, CommandCode 5h/weekly windows + monthly credits balance, Cline Pass 5-hour/weekly/monthly windows, Xiaomi MiMo Token Plan plan/compensation credit windows + period-end reset + balance via console cookie); per-vendor enable switch, key, display position and refresh interval (sidebar card in the same box style as the Go quota; the collapsed rail shows percentages), official endpoints by default, with a [configurable trusted MiniMax origin](docs/minimax-quota-endpoint.md#english); neutral hints when no credentials/subscription; SCNet Token Plan supports [external console snapshots](docs/scnet-official-snapshot.md#english); without a valid snapshot, monthly usage is estimated from the local ledger via the official credits deduction table (no credentials needed) |
 | Subscription plugin compatibility | Settings → Cost → Codex / sidebar & quota cards | Detects installed Codex / ChatGPT subscription plugins and classifies their subscription calls as Plan quota instead of pay-as-you-go API spend; new usage is classified at record time, and a one-time dismissible prompt decides whether historical Codex billing is reclassified (idempotent). Explicit plan/API choices are never overridden. [Details](docs/update-notes-1.9.0.md#english) |
-| Codex quota display | Settings → Display → Codex / sidebar & quota strip | Reads the 5-hour and 7-day windows from `dsh-codex-subscription` directly, while staying compatible with the weekly window from `dsh-codex-connect`; the source can be `auto` (subscription first, fallback to connect), `subscription`, or `connect`. Independent of the billing classification in “Subscription plugin compatibility”. |
+| Codex quota display | Settings → Display → Codex / sidebar & quota strip | Reads actual 5-hour and 7-day windows from `dsh-codex-subscription` or `@eddyskywalker/dsh-chatgpt-subscription`, with `dsh-codex-connect` compatibility. Select `auto` (tries those three plugins in order), `subscription`, `chatgpt`, or `connect`. An explicit source shows only that plugin's current account. Independent of the billing classification in “Subscription plugin compatibility”. |
 | SQLite session storage (better-session) | Host integration | Auto-detects the host session backend; with `@morlay/better-session` / `@morlay/session-rdb` (SQLite) storage, historical backfill, legacy import, history repricing, hour-bucket repair, fork cleanup and per-session cost/trajectory/call details keep working. The JSONL path is unchanged; old JSONL and RDB histories are not merged automatically. [Guide](docs/better-session.md) |
 | OpenDesign quota | Sidebar / Settings (OpenDesign vendor) | Workspace coding-plan windows from the console API; with a Control Key, a 401/403 from the primary endpoint triggers one conservative `/billing/preflight` Bearer fallback, and window/wallet reads degrade independently. [Troubleshooting](docs/opendesign-billing.md#english) |
 | Mobile / dsh-pocket layout | All cost UIs | On screens ≤1023px and dsh-pocket mobile layouts: single-column cards, horizontally scrolling tabs, 36px touch targets, dialogs capped at 90vh with safe-area padding and scrolling wide tables; desktop layout unchanged |
@@ -341,22 +341,22 @@ On Node.js 20, use `npm install -g pnpm@10` instead. See [pnpm installation and 
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.9.7`** — review the script before running):
+**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.9.15`** — review the script before running):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.7/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.15/install.ps1 | iex
 ```
 
 **Or a plain command line** (the machine must already have pnpm and git; also pinned to the tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.7
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.15
 ```
 
 Without git, use the GitHub tag archive:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.7.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.15.tar.gz
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):
@@ -421,7 +421,7 @@ Workarounds:
 
    ```yaml
    minimumReleaseAgeExclude:
-     - dsh-cost-meter@1.9.7
+     - dsh-cost-meter@1.9.15
    ```
 
 3. For a one-off CLI operation, forward the pnpm flag: `dsh plugin --profile desktop remove dsh-cost-meter --config.minimum-release-age=0` (or add `--trust-lockfile` when only lockfile verification fails). Both flags were verified against pnpm 11.28.5 in a temporary profile.

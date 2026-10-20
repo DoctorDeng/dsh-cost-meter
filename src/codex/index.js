@@ -8,6 +8,33 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const { createElement: el, useState, useEffect, useRef } = React
 
+    // Read quota through the signed-in plugin; only window facts leave this helper.
+    async function readChatgptQuota(force = false) {
+      try {
+        const response = await fetch('/api/dsh-chatgpt-subscription/' + (force ? 'quota/refresh' : 'status'), {
+          credentials: 'same-origin', signal: AbortSignal.timeout(8000),
+          headers: { accept: 'application/json', ...(force ? { 'content-type': 'application/json' } : {}) },
+          ...(force ? { method: 'POST', body: '{}' } : {}),
+        })
+        if (!response.ok) return null
+        const result = await response.json()
+        if (result?.ok !== true) return null
+        const quota = force ? result.value : result.value?.quota
+        if ((!force && result.value?.authenticated !== true) || !['ready', 'stale'].includes(quota?.state)) return null
+        const bucket = Array.isArray(quota.buckets) ? quota.buckets.find(row => row?.id === 'codex') : null
+        if (!Array.isArray(bucket?.windows)) return null
+        const out = {}
+        for (const window of bucket.windows) {
+          const key = window?.windowDurationMins === 300 ? 'five' : window?.windowDurationMins === 10080 ? 'weekly' : null
+          const used = window?.usedPercent
+          if (!key || typeof used !== 'number' || !Number.isFinite(used) || used < 0 || used > 100) continue
+          const reset = new Date(typeof window.resetsAt === 'number' && window.resetsAt > 0 ? window.resetsAt * 1000 : NaN)
+          out[key] = { percent: Math.round(used * 10) / 10, resetsAt: Number.isFinite(reset.getTime()) ? reset.toISOString() : '' }
+        }
+        return out
+      } catch { return null }
+    }
+
     // Dialog geometry/head/body are reused from the always-loaded .cm-stat-dialog rules;
     // the chunk narrows the width itself (chunk bytes are not billed against client.js).
     const DIALOG_CLASS = 'cm-stat-dialog cm-codex-compat-dialog'
@@ -147,6 +174,6 @@ window.__ModuleLoader__.load({
     function mount() {
       return props => el(props.view === 'prompt' ? CodexCompatPrompt : CodexCompatPanel, props)
     }
-    return { mount, CodexCompatPrompt, CodexCompatPanel }
+    return { mount, CodexCompatPrompt, CodexCompatPanel, readChatgptQuota }
   },
 })

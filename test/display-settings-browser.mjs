@@ -8,6 +8,7 @@ import { build } from 'esbuild'
 import { sanitizeConfig, applyConfigPatch, zeroDay } from '../lib/store.js'
 import { stateSchema } from '../lib/typert.host.js'
 import { javascriptLiteral as literal } from '../scripts/javascript-literal.mjs'
+import { checkDisplayPreview } from './display-preview-checks.mjs'
 
 const modules = resolve(process.env.DSH_TEST_UI_MODULES ?? '.tmp-pr240-host/node_modules')
 const req = createRequire(join(modules, '__display.cjs'))
@@ -30,8 +31,9 @@ window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.peak.js', 'utf8')}
 window.__ModuleLoader__={load:mod=>window.displayUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.display.js', 'utf8')}
-const Display=window.displayUI.mount({effect:()=>{}}),{CostSection,parseConfig,SidebarFooter}=window.mainUI.preview;
+const {CostSection,parseConfig,SidebarFooter}=window.mainUI.preview;
 let state=${literal(state)};state.config=parseConfig(state.config,'config');window.patches=[];window.listeners=new Set();window.failSave=false;window.mounts=0;
+const Display=window.displayUI.mount({effect:()=>{}},{getSnapshot:()=>({state}),subscribe:fn=>{window.listeners.add(fn);return()=>window.listeners.delete(fn)}});
 const publish=()=>{for(const fn of window.listeners)fn({...state});return state};
 window.current=()=>state.config;window.setConfig=patch=>{state={...state,config:parseConfig({...state.config,...patch},'config')};publish()};
 window.changeLocale=locale=>window.setConfig({locale});
@@ -91,11 +93,17 @@ try {
     window.MutationObserver=class extends Observe{active=false;observe(...args){if(args[1]?.attributeFilter?.includes('data-theme')&&!this.active){window.previewObservers++;this.active=true}return super.observe(...args)}disconnect(){if(this.active){window.previewObservers--;this.active=false}return super.disconnect()}}
   })
   await page.getByRole('tab',{name:'显示',exact:true}).click();await page.locator('.cm-display').waitFor()
+  const skinSwitch = page.getByRole('checkbox', { name: '跟随皮肤透明度', exact: true })
+  await skinSwitch.check()
+  await page.waitForFunction(() => window.current().followSkinTransparency === true && getComputedStyle(document.querySelector('.cm-section')).backgroundColor === 'rgba(0, 0, 0, 0)')
+  await page.screenshot({ path: join(output, 'skin-transparency-zh.png'), fullPage: true })
+  await skinSwitch.uncheck()
+  await page.waitForFunction(() => window.current().followSkinTransparency === false && getComputedStyle(document.querySelector('.cm-section')).backgroundColor !== 'rgba(0, 0, 0, 0)')
   const region=async name=>page.getByRole('tab',{name,exact:true}).click()
   const item=key=>page.locator('.cm-preview [data-display="'+key+'"]')
-  const selectStyle=async label=>page.getByRole('button',{name:label,exact:true}).click()
+  const selectStyle=async label=>{if(['标准','紧凑','简洁'].includes(label)&&await page.locator('.cm-style-thumbnail').count()===0)await page.locator('.cm-inspector-layout').click();await page.getByRole('button',{name:label,exact:true}).click()}
   const customize=async key=>{await item(key).first().click({position:{x:8,y:8}});await page.locator('[data-inspector="'+key+'"]').waitFor()}
-  const toggle=async key=>{const direct=page.locator('[data-display-toggle="'+key+'"]');if(await direct.count())await direct.click();else{await customize(key);const placement=page.getByLabel('显示位置',{exact:true});if(await placement.count()){const current=await placement.getAttribute('value')??await placement.evaluate(n=>n.value);await placement.selectOption(['sidebar','both'].includes(current)?key==='balance'?'off':'settings':'both')}else await page.getByRole('checkbox',{name:'显示此组件',exact:true}).click()}}
+  const toggle=async key=>{await page.getByLabel('调整组件',{exact:true}).selectOption(key);await page.locator('[data-display-toggle="'+key+'"]').click()}
   const examples=page.getByRole('checkbox',{name:'使用示例数据',exact:true})
   assert.equal(await examples.isChecked(),true,'examples are on by default')
   assert.equal(await page.locator('.cm-display-model-options,.cm-display-details').count(),0,'options live in the inspector instead of folded forms')
@@ -103,6 +111,8 @@ try {
   await page.waitForFunction(()=>document.querySelector('.cm-preview-sidebar').style.backgroundColor==='rgb(238, 243, 248)')
   assert.equal(await page.locator('.cm-preview-sidebar').evaluate(n=>getComputedStyle(n).borderRadius),'19px','current skin surface is reused')
   assert.equal(await page.locator('.cm-sidebar-live').evaluate(n=>Math.round(n.getBoundingClientRect().width)),324,'preview follows the actual footer width')
+  assert.equal(await page.locator('.cm-display-toggles').count(),0,'visibility controls are only in the right inspector')
+  await page.locator('.cm-inspector-layout').click()
   const previews=page.locator('.cm-style-thumbnail')
   assert.equal(await previews.count(),3)
   for(const preview of await previews.all()) assert.equal(await preview.locator('.cm-mm-row .cm-bbox-bar').count(),2,'each style preview uses real quota progress rows')
@@ -124,27 +134,64 @@ try {
   const parity=async()=>{
     await page.evaluate(()=>{document.getElementById('actual-sidebar').style.width=document.querySelector('.cm-sidebar-live').getBoundingClientRect().width+'px'})
     const values=await page.evaluate(()=>{
-      const snapshot=root=>{const host=root.getBoundingClientRect();return [...root.querySelectorAll('.cm-footer-stack > *,[data-cm-display],.cm-bbox-head,.cm-bbox-line,.cm-bbox-bar')].map(n=>{const r=n.getBoundingClientRect();return{class:n.className,text:n.dataset.cmDisplay==='peak'?n.textContent.replace(/\d+/g,'#'):n.textContent,x:Math.round(r.x-host.x),y:Math.round(r.y-host.y),w:Math.round(r.width),h:Math.round(r.height)}})}
+      const snapshot=hostRoot=>{const root=hostRoot.querySelector(':scope > .cm-footer-stack')??hostRoot;const host=root.getBoundingClientRect();return [...root.querySelectorAll('.cm-footer-stack > *,[data-cm-display],.cm-bbox-head,.cm-bbox-line,.cm-bbox-bar')].map(n=>{const r=n.getBoundingClientRect();return{class:n.className,text:n.dataset.cmDisplay==='peak'?n.textContent.replace(/\d+/g,'#'):n.textContent,x:Math.round(r.x-host.x),y:Math.round(r.y-host.y),w:Math.round(r.width),h:Math.round(r.height)}})}
       return[snapshot(document.querySelector('.cm-sidebar-live')),snapshot(document.getElementById('actual-sidebar'))]
     })
     assert.deepEqual(values[0],values[1],'preview and real sidebar share exact card layout')
   }
-  for(const mode of ['标准','紧凑','简洁']){await selectStyle(mode);await page.waitForTimeout(650);await parity()}
+  for(const mode of ['标准','紧凑','简洁']){await selectStyle(mode);await page.waitForTimeout(650);await parity()
+    const alignment=await page.locator('.cm-sidebar-live .cm-foot:not(.cm-foot-rail),.cm-sidebar-live .cm-model-costs .cm-collapse-h').evaluateAll(nodes=>nodes.filter(n=>n.querySelector(':scope > .cm-bal-amt')).map(n=>{const r=n.getBoundingClientRect(),a=n.querySelector(':scope > .cm-bal-amt').getBoundingClientRect();return Math.abs(r.right-parseFloat(getComputedStyle(n).paddingRight)-a.right)}))
+    assert.ok(alignment.length>=(mode==='简洁'?1:2)&&alignment.every(gap=>gap<=2),mode+' today and model summary amounts align at the right edge: '+alignment)
+  }
+  for(const name of ['侧栏','输入区','会话内容']){
+    await region(name)
+    const picker=page.getByLabel('调整组件',{exact:true})
+    for(const key of await picker.locator('option').evaluateAll(nodes=>nodes.map(n=>n.value))){
+      await picker.selectOption(key)
+      const master=page.getByRole('switch',{name:'显示此组件',exact:true})
+      assert.equal(await master.count(),1,name+'/'+key+' has exactly one master switch')
+      const before=await master.isChecked()
+      await master.click();await page.waitForTimeout(80);assert.equal(await master.isChecked(),!before)
+      await master.click();await page.waitForTimeout(80);assert.equal(await master.isChecked(),before)
+      const switches=await page.locator('.cm-inspector-unified .cm-check input').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect(),l=n.parentElement.getBoundingClientRect();return l.right-r.right}))
+      assert.ok(switches.every(gap=>Math.abs(gap)<=1),'every switch is aligned to the right: '+name+'/'+key)
+    }
+  }
+  const configureStrip=async enabled=>{
+    await page.evaluate(async enabled=>{const patch={quotaStrip:{...window.current().quotaStrip,enabled,budget:true,go:!enabled,plans:true},codexQuotaStrip:true};await window.saveConfig(patch);window.setConfig(patch);window.remount()},enabled)
+    await page.getByRole('tab',{name:'显示',exact:true}).click();await region('输入区')
+  }
+  await configureStrip(false)
+  await toggle('strip-codex');await page.waitForFunction(()=>window.current().quotaStrip.enabled&&window.current().codexQuotaStrip)
+  assert.deepEqual(await page.evaluate(()=>[window.current().quotaStrip.budget,window.current().quotaStrip.go,window.current().quotaStrip.plans]),[false,false,false],'enabling Codex from a disabled strip hides all siblings')
+  await configureStrip(false)
+  await toggle('strip-budget');await page.waitForFunction(()=>window.current().quotaStrip.enabled&&window.current().quotaStrip.budget)
+  assert.deepEqual(await page.evaluate(()=>[window.current().quotaStrip.go,window.current().quotaStrip.plans,window.current().codexQuotaStrip]),[false,false,false],'enabling budget from a disabled strip keeps Codex and other siblings hidden')
+  await configureStrip(true)
+  await region('侧栏')
+  await page.getByLabel('调整组件',{exact:true}).selectOption('sessionList')
+  assert.equal(await page.locator('[data-display-toggle=sessionList]').isChecked(),false)
+  await toggle('sessionList');await page.waitForFunction(()=>window.current().sessionListCosts===true)
+  await page.getByLabel('统计周期',{exact:true}).selectOption('today');await page.waitForFunction(()=>window.current().sessionListCostPeriod==='today')
+  assert.equal(saved.sessionListCosts,true);assert.equal(saved.sessionListCostPeriod,'today')
+  await page.getByLabel('统计周期',{exact:true}).selectOption('total');await page.waitForFunction(()=>window.current().sessionListCostPeriod==='total')
+  await toggle('sessionList');await page.waitForFunction(()=>window.current().sessionListCosts===false)
   await selectStyle('紧凑');await page.waitForFunction(()=>window.current().sidebarStyle==='compact'&&!window.current().sidebarSimple)
+  await page.getByLabel('调整组件',{exact:true}).selectOption('balance')
   assert.equal(await item('budget').evaluate(n=>getComputedStyle(n).borderTopStyle),'dashed')
   const positions=await page.evaluate(()=>[document.querySelector('.cm-preview-sidebar').getBoundingClientRect().right,document.querySelector('.cm-display-inspector').getBoundingClientRect().left])
   assert.ok(positions[1]>positions[0],'style controls are on the right')
   await toggle('balance');await page.waitForFunction(()=>window.current().hideOfficialBalance===true)
-  assert.equal(await page.locator('.cm-sidebar-live [data-cm-display=balance]').count(),0)
+  assert.equal(await page.locator('.cm-sidebar-live [data-cm-display=balance]').getAttribute('data-preview-hidden'),'true','hidden balance remains grey in the current-data preview');assert.equal(await page.locator('#actual-sidebar [data-cm-display=balance]').count(),0)
   await toggle('balance');await page.waitForFunction(()=>window.current().hideOfficialBalance===false)
   await toggle('budget');await page.waitForFunction(()=>window.current().hideBudget===true);assert.equal(saved.budget.enabled,true)
   await toggle('budget');await page.waitForFunction(()=>window.current().hideBudget===false)
-  await page.locator('[data-display-toggle=today]').uncheck();await page.waitForFunction(()=>window.current().sidebar===false)
+  await page.getByLabel('调整组件',{exact:true}).selectOption('today');await page.locator('[data-display-toggle=today]').uncheck();await page.waitForFunction(()=>window.current().sidebar===false)
   await page.locator('[data-display-toggle=today]').check();await page.waitForFunction(()=>window.current().sidebar===true)
-  await customize('models');await page.getByRole('checkbox',{name:'默认展开',exact:true}).check();await page.waitForFunction(()=>window.current().sidebarModels.defaultOpen)
+  await customize('models');await page.getByRole('switch',{name:'默认展开',exact:true}).check();await page.waitForFunction(()=>window.current().sidebarModels.defaultOpen)
   assert.equal(await page.locator('.cm-sidebar-live .cm-collapse-h').getAttribute('aria-expanded'),'true')
   await page.locator('.cm-display').screenshot({path:join(output,'models-inspector.png')})
-  await page.getByRole('checkbox',{name:'默认展开',exact:true}).uncheck();await page.waitForFunction(()=>!window.current().sidebarModels.defaultOpen)
+  await page.getByRole('switch',{name:'默认展开',exact:true}).uncheck();await page.waitForFunction(()=>!window.current().sidebarModels.defaultOpen)
   await customize('peak');await selectStyle('进度条');await page.waitForFunction(()=>window.current().peakStyle==='progress')
   await page.locator('.cm-sidebar-live .cm-peak-progress').waitFor()
   await page.getByLabel('显示时间',{exact:true}).selectOption('switch');await page.waitForFunction(()=>window.current().peakTimeDisplay==='switch')
@@ -158,7 +205,7 @@ try {
   assert.equal(await page.getByLabel('调整组件',{exact:true}).locator('option[value=""]').count(),0,'instruction is not an option after selection')
   assert.equal(await page.getByText('点击左侧虚线框',{exact:true}).count(),0)
   await region('输入区');await customize('badge')
-  assert.equal(await page.getByRole('checkbox',{name:'仅显示金额',exact:true}).count(),1)
+  assert.equal(await page.getByRole('switch',{name:'仅显示金额',exact:true}).count(),1)
   assert.equal(await page.getByText('悬停查看费用分项。',{exact:true}).count(),1)
   await examples.check();await region('侧栏')
   await page.getByLabel('调整组件',{exact:true}).selectOption('codex')
@@ -166,14 +213,14 @@ try {
   assert.equal(await page.evaluate(()=>window.current().codexQuotaEnabled),false,'Codex example uses a supplied snapshot without enabling discovery')
   await region('输入区')
   await page.getByLabel('调整组件',{exact:true}).selectOption('strip-codex')
-  assert.equal(await page.getByRole('checkbox',{name:'显示此组件',exact:true}).count(),0,'Codex has independent explicit switches instead of a duplicate generic toggle')
+  assert.equal(await page.getByRole('switch',{name:'显示此组件',exact:true}).count(),1,'Codex uses the same single master switch as every component')
   await page.locator('[data-display=strip-codex]').waitFor()
-  await page.getByRole('checkbox',{name:'在输入区显示 Codex 额度',exact:true}).uncheck()
+  await page.getByRole('switch',{name:'显示此组件',exact:true}).uncheck()
   await page.waitForFunction(()=>window.current().codexQuotaStrip===false)
   assert.equal(await page.evaluate(()=>window.current().codexQuotaSidebar),true,'composer visibility keeps the sidebar preference')
   assert.equal(await page.evaluate(()=>window.current().codexQuotaEnabled),false,'display controls never enable discovery')
   await page.locator('.cm-display').screenshot({path:join(output,'codex-composer-inspector.png')})
-  await page.getByRole('checkbox',{name:'在输入区显示 Codex 额度',exact:true}).check()
+  await page.getByRole('switch',{name:'显示此组件',exact:true}).check()
   await page.waitForFunction(()=>window.current().codexQuotaStrip===true)
   await region('侧栏')
   await page.getByLabel('调整组件',{exact:true}).selectOption('customBalance')
@@ -183,8 +230,9 @@ try {
   assert.equal(await page.locator('.cm-sidebar-live [data-cm-display=budget]').getAttribute('data-preview-hidden'),'true','hidden sample stays faded and adjustable')
   await toggle('budget');await page.waitForFunction(()=>!window.current().hideBudget)
   assert.equal(saved.goQuota.enabled,false)
+  const previewChecks=await checkDisplayPreview(page,output)
   for(const theme of ['light','dark']){
-    await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;document.querySelector('._2H3hWW_root').style.backgroundColor=theme==='dark'?'rgb(37,39,43)':'rgb(238,243,248)'},theme)
+    await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;document.querySelector('._2H3hWW_root').style.backgroundColor=theme==='dark'?'rgb(37,39,43)':'rgb(238,243,248)';document.querySelector('.RlGAzG_card').style.backgroundColor=theme==='dark'?'rgb(48,50,54)':'rgb(244,248,252)'},theme)
     for(const width of [1100,720,390]){
       await page.setViewportSize({width,height:1000})
       for(const name of ['侧栏','输入区','会话内容']){
@@ -220,10 +268,46 @@ try {
   const sorted=[...timings].sort((a,b)=>a-b),p95=sorted[Math.ceil(sorted.length*.95)-1]
   assert.ok(p95<1000,'opening stays responsive under 4x CPU throttle: '+p95)
   await region('会话内容');assert.equal(await item('turn').getAttribute('data-visible'),'false','saved toggles survive repeated reopening')
-  await page.getByLabel('界面语言',{exact:true}).selectOption('en');await page.waitForFunction(()=>window.current().locale==='en')
-  await region('Sidebar');await page.evaluate(()=>window.failSave=true);await customize('balance');const placement=page.getByLabel('Placement',{exact:true});await placement.selectOption(await placement.inputValue()==='off'?'both':'off');await page.getByText(/synthetic save failure/).waitFor()
+  await page.locator('.cm-display-general summary').click();await page.getByLabel('界面语言',{exact:true}).selectOption('en');await page.waitForFunction(()=>window.current().locale==='en')
+  const enSkinSwitch = page.getByRole('checkbox', { name: 'Follow skin transparency', exact: true })
+  await enSkinSwitch.check();await page.waitForFunction(() => window.current().followSkinTransparency === true)
+  await page.screenshot({ path: join(output, 'skin-transparency-en.png'), fullPage: true })
+  await enSkinSwitch.uncheck();await page.waitForFunction(() => window.current().followSkinTransparency === false)
+  await region('Sidebar');await page.evaluate(()=>window.failSave=true);await customize('balance');const placement=page.getByLabel('Placement',{exact:true});await page.getByRole('switch',{name:'Show this component',exact:true}).click();await page.getByText(/synthetic save failure/).waitFor()
+  // #258 latest feedback: native component options and the active Today tab.
+  // Use the actual upstream Midnight token definition over a light host / dark OS.
+  const midnight=JSON.parse(readFileSync('test/fixtures/issue258/midnight.json','utf8'))
+  await page.emulateMedia({colorScheme:'dark'})
+  await page.evaluate(tokens=>{
+    document.documentElement.style.colorScheme='light'
+    for(const [key,value] of Object.entries(tokens))document.documentElement.style.setProperty(key,value)
+    window.failSave=false
+    const select=document.createElement('select');select.id='unrelated-select';select.innerHTML='<option>Other plugin</option>';document.body.append(select)
+  },midnight.tokens)
+  await region('Sidebar')
+  const picker=page.getByLabel('Customize',{exact:true})
+  await picker.waitFor()
+  const contrast=([a,b])=>{
+    const light=color=>color.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/(color.startsWith('color(srgb')?1:255)).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0)
+    const values=[light(a),light(b)].sort((a,b)=>a-b);return(values[1]+.05)/(values[0]+.05)
+  }
+  const options=await picker.locator('option').evaluateAll(nodes=>nodes.map(n=>({text:n.textContent,color:getComputedStyle(n).color,background:getComputedStyle(n).backgroundColor})))
+  assert.ok(options.length>=9)
+  for(const option of options)assert.ok(contrast([option.color,option.background])>=4.5,'#258 option '+option.text)
+  assert.equal(await picker.evaluate(n=>getComputedStyle(n).colorScheme),'light dark','native Windows popup is not forced to the light host scheme')
+  assert.equal(await page.locator('#unrelated-select option').evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(0, 0, 0, 0)','other plugin options remain untouched')
+  await page.locator('#actual-sidebar').evaluate(n=>{n.style.position='static';n.style.left='auto'})
+  const today=page.locator('#actual-sidebar .cm-model-costs .cm-mstats-tab.active').first()
+  if(!await today.count())await page.locator('#actual-sidebar .cm-model-costs .cm-collapse-h').click()
+  await today.waitFor()
+  const active=await today.evaluate(n=>({color:getComputedStyle(n).color,background:getComputedStyle(n).backgroundColor}))
+  // Convert CSS color(srgb) to rgb before checking the blended selected fill.
+  if(active.background.startsWith('color(srgb'))active.background='rgb('+active.background.match(/[\d.]+/g).slice(0,3).map(v=>Math.round(Number(v)*255)).join(',')+')'
+  assert.ok(contrast([active.color,active.background])>=4.5,'#258 selected Today remains readable without hover')
+  await page.screenshot({path:join(output,'issue258-midnight-controls.png'),fullPage:true})
+  await picker.click();await page.screenshot({path:join(output,'issue258-midnight-native-popup.png')});await picker.press('Escape')
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.deepEqual(previewQueries,[],'preview never starts account or Codex discovery requests')
-  const result={themes:2,widths:[1100,720,390],regions:3,normalFontSize:true,skinSurfaces:true,autosave:true,keyboard:true,reopenCount:25,hostConversationNodes:20000,cpuThrottle:4,openMedianMs:Math.round(sorted[Math.floor(sorted.length/2)]),openP95Ms:Math.round(p95),...metrics,externalRequests:external.length,browserErrors:errors.length}
+  const result={themes:2,widths:[1100,720,390],regions:3,normalFontSize:true,skinSurfaces:true,autosave:true,keyboard:true,...previewChecks,reopenCount:25,hostConversationNodes:20000,cpuThrottle:4,openMedianMs:Math.round(sorted[Math.floor(sorted.length/2)]),openP95Ms:Math.round(p95),...metrics,externalRequests:external.length,browserErrors:errors.length}
   writeFileSync(join(output,'result.json'),JSON.stringify(result,null,2));console.log('[ok] '+JSON.stringify(result))
 } catch(error){await page.screenshot({path:join(output,'failure.png'),fullPage:true});console.error(errors);throw error}
 finally{await browser.close();await new Promise(resolve=>server.close(resolve))}

@@ -8,22 +8,22 @@
 
 **DeepSeek Harness 会话费用统计插件(界面中英双语)**
 
-本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;周末与中国法定假日全天按谷价,分别标注) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 170+ 模型 ID 价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / SCNet / 火山方舟 / 千问 / 小米 MiMo 十一家,含 Volcano Ark AK/SK 签名与 MiMo 控制台 Cookie 查询) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 订阅插件兼容(Codex / ChatGPT 订阅) · 手机端适配(dsh-pocket) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
+本会话费用 · 当日费用 · OpenCode Go 订阅额度显示 · 预算与已用百分比 · 官方账户余额 · 自定义 Provider 余额查询(可配任意 HTTP 端点) · 余额三段进度条 · 历史记录 · 峰谷计价时段显示(UTC 01:00–04:00、06:00–10:00 为峰时段;周末与中国法定假日全天按谷价,分别标注) · 峰/谷切换前弹窗与系统通知提醒(位置/提前量/提醒类型可配) · 官方价格一键同步 · 类 Codex Token 用量热图 · 多厂商多模型价格计费(内置 170+ 模型 ID 价格目录与自动匹配) · 主流 Coding Plan 额度查询与显示(Anthropic / Z.ai / MiniMax / Kimi / OpenRouter / SiliconFlow / CommandCode / Cline Pass / SCNet / 火山方舟 / 千问 / 小米 MiMo 十二家,含 Volcano Ark AK/SK 签名与 MiMo 控制台 Cookie 查询) · Plan/API 双轨计费(订阅额度与按量金额分离统计,每 1% 额度与满窗的 token/等值金额估算及日/周/月曲线) · 订阅插件兼容(Codex / ChatGPT 订阅) · 手机端适配(dsh-pocket) · 输入框上方额度横条(预算/Go/Coding Plan 用量一条横排显示,可开关)
 
-[![version](https://img.shields.io/badge/version-1.9.7-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.9.15-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
 **最低支持宿主：DSH 0.2.0。** 插件把下限声明在 `engines.dsh`（宿主准入插件的闸门），不再支持任何 DSH 0.1.x 版本；本轮适配目标为 npm `next` 标签的 **0.2.1-rc.2**。具体范围与宿主的读取方式见[兼容声明](docs/dsh-0.2.1-compatibility.md#中文)。
 
 新增 [DeepSeek Search／Fetch API 次数费](docs/web-request-fees.md#中文)，只计有结果的成功请求，并将网页抓取独立分类。
 
-**v1.9.7** 修复“试试更轻巧的侧栏”提示无法关闭的问题，避开桌面端标题栏，适配皮肤和插件容器；重复挂载、设置保存失败或等待时也能关闭。
+**v1.9.15** 在“费用 → 显示”增加默认关闭的“跟随皮肤透明度”开关，并支持 Cline Pass 单卡片展示 5 小时、周与月额度。
 
 配置与验证：[OpenDesign 查询说明](docs/opendesign-billing.md)、[随机端口 / 局域网 / WorkBuddy2API 配置](docs/custom-balance-sources.md)、[透明度修复与性能测量](docs/performance-2026-10-18.md)。
 
 
 桌面端用户请按 [Desktop 安装说明](docs/install-troubleshooting.md#desktop-安装与更新)，使用应用自带的 CLI 和 `desktop` Profile。
 
-更新说明：[v1.9.7](docs/update-notes-1.9.7.md#中文)。更新后完全重启 DSH。
+更新说明：[v1.9.15](docs/update-notes-1.9.15.md#中文)。更新后完全重启 DSH。
 
 声明范围内的宿主记录与此前的 0.1.x 历史见[兼容记录](docs/host-compatibility.md)；逐版本清单在 `package.json` 的 `dsh.compatibility.dshReleases`。
 
@@ -52,9 +52,9 @@
 | 官方余额 | 侧边栏顶部 / 设置页(可配) | 总余额 / 赠送 / 充值,自动刷新 + 手动刷新;可选三段进度条(蓝/橙/灰),当日段只统计官方渠道费用(不含 Coding Plan / 自定义 Provider) |
 | 自定义 Provider 余额 | 侧边栏 / 设置页(可配) | 可配置 HTTP 查询任意 Provider 余额(LiteLLM 等);中/英名称、币种、extract 规则(点路径 / 数字常量 / add / subtract / divide,divide 适配 NewApi 等 quota 端点,见下方[示例](#自定义-provider-余额配置示例newapi-模板));与 Coding Plan 同区可折叠配置 |
 | OpenCode Go 额度 | 侧边栏 / 设置页 / 右下角(dock,可配) | 滚动 5 小时 / 本周 / 本月用量百分比与重置时间,三档可分别开关,可同时显示预算已用%;Key 自动发现(专用引用 / 官方 Go 路由 apiKeyEnv / 环境变量 / opencode 登录态)或手动填写 |
-| Coding Plan 额度 | 侧边栏 / 设置页(每家可配) | 多厂商 coding plan 订阅额度查询(Anthropic Claude Pro/Max、Z.ai/智谱 GLM、MiniMax Token Plan、Kimi Code 本周/5 小时配额(无订阅 Key 时回落 PAYG 余额)、OpenRouter credits、SiliconFlow 余额、CommandCode 5h/周窗口与月度 Credits 余额、小米 MiMo Token Plan 套餐/补偿积分窗口与周期截止重置、余额(控制台 Cookie 凭据)、火山方舟 Volcano Ark 5h/周/月三档(需 AK/SK 管控面 HMAC 签名,需 ArkReadOnlyAccess + BillingCenterReadOnlyAccess)),各家独立启用开关、凭据、显示位置与刷新间隔(侧边栏卡片与 Go 额度同款,收起窄栏显示百分比),默认使用官方端点，MiniMax 可[配置可信查询域名](docs/minimax-quota-endpoint.md);无凭据/无订阅为中性提示;SCNet 超算互联网 Token Plan 支持[外部控制台额度快照](docs/scnet-official-snapshot.md)，无有效快照时按官方 Credits 抵扣表由本地账本估算月度用量(无需凭据) |
+| Coding Plan 额度 | 侧边栏 / 设置页(每家可配) | 多厂商 coding plan 订阅额度查询(Anthropic Claude Pro/Max、Z.ai/智谱 GLM、MiniMax Token Plan、Kimi Code 本周/5 小时配额(无订阅 Key 时回落 PAYG 余额)、OpenRouter credits、SiliconFlow 余额、CommandCode 5h/周窗口与月度 Credits 余额、Cline Pass 5 小时/周/月三窗口用量%、小米 MiMo Token Plan 套餐/补偿积分窗口与周期截止重置、余额(控制台 Cookie 凭据)、火山方舟 Volcano Ark 5h/周/月三档(需 AK/SK 管控面 HMAC 签名,需 ArkReadOnlyAccess + BillingCenterReadOnlyAccess)),各家独立启用开关、凭据、显示位置与刷新间隔(侧边栏卡片与 Go 额度同款,收起窄栏显示百分比),默认使用官方端点，MiniMax 可[配置可信查询域名](docs/minimax-quota-endpoint.md);无凭据/无订阅为中性提示;SCNet 超算互联网 Token Plan 支持[外部控制台额度快照](docs/scnet-official-snapshot.md)，无有效快照时按官方 Credits 抵扣表由本地账本估算月度用量(无需凭据) |
 | 订阅插件兼容 | 设置 → 费用 → Codex / 侧边栏与额度卡片 | 自动检测已安装的 Codex / ChatGPT 订阅插件，把其订阅调用归为 Plan 订阅额度、不计入 API 按量花费；新用量在记账时直接归类，历史 Codex 计费由一次性可关闭提示确认后重算（幂等）。显式 plan/API 配置不被覆盖。[说明](docs/update-notes-1.9.0.md#中文) |
-| Codex 额度显示 | 设置 → 显示 → Codex / 侧边栏与额度横条 | 直接读取 `dsh-codex-subscription` 的 5 小时与 7 天窗口，同时兼容 `dsh-codex-connect` 的周窗口；数据源可选 `auto`（优先订阅插件，失败回退 connect）/ `subscription` / `connect`。与「订阅插件兼容」的计费归类别互不影响。 |
+| Codex 额度显示 | 设置 → 显示 → Codex / 侧边栏与额度横条 | 读取 `dsh-codex-subscription`、`@eddyskywalker/dsh-chatgpt-subscription` 的实际 5 小时与 7 天窗口，兼容 `dsh-codex-connect`；数据源可选 `auto`（依次尝试上述三个插件）/ `subscription` / `chatgpt` / `connect`。固定来源只显示该插件当前账号的额度；与「订阅插件兼容」的计费归类设置互不影响。 |
 | SQLite 会话存储（better-session） | 宿主集成 | 自动探测宿主会话后端；当 `@morlay/better-session` / `@morlay/session-rdb`（SQLite）接管存储时，历史回填、旧账本导入、历史重定价、小时桶修复、fork 清洗与逐会话费用/轨迹/调用详情继续可用。JSONL 路径行为不变；旧 JSONL 与 RDB 历史不自动合并。[说明](docs/better-session.md) |
 | OpenDesign 额度 | 侧边栏 / 设置页（OpenDesign 厂商） | 从控制台 API 读取工作区 coding plan 窗口；使用 Control Key 时主端点 401/403 会保守回退一次 `/billing/preflight`，窗口与钱包读取独立降级。[排查说明](docs/opendesign-billing.md#中文) |
 | 手机端适配（dsh-pocket） | 全部费用界面 | ≤1023px 窄屏与 dsh-pocket 移动布局下：卡片单列、标签横向滚动、36px 触控高度、对话框不超过 90vh 并避开安全区、宽表横向滚动；桌面布局不变 |
@@ -341,22 +341,22 @@ Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安�
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.9.7`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.9.15`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.7/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.15/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.7
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.15
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.7.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.15.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):
@@ -421,7 +421,7 @@ DSH **0.2.1-rc.1 / 0.2.1-rc.2** 宿主自带 pnpm **11.28.5**，默认启用内�
 
    ```yaml
    minimumReleaseAgeExclude:
-     - dsh-cost-meter@1.9.7
+     - dsh-cost-meter@1.9.15
    ```
 
 3. 仅本次操作用 CLI 透传 pnpm 参数：`dsh plugin --profile desktop remove dsh-cost-meter --config.minimum-release-age=0`；若只是 lockfile 校验阶段失败，可改用 `--trust-lockfile`。这两个参数已在本机 pnpm 11.28.5 临时 Profile 上实测可用。

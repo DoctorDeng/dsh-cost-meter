@@ -1,8 +1,8 @@
 {
-  "recordedAt": "2026-10-18T09:16:04.879Z",
+  "recordedAt": "2026-10-19T05:21:17.948Z",
   "plugins": {
     "billion-context": {
-      "version": "0.1.199",
+      "version": "0.1.201",
       "signature": {
         "main": "dist/index.js",
         "exports": {
@@ -21,23 +21,23 @@
             "summaryCandidate": true
           },
           "native": {
-            "nativeSends": 14,
+            "nativeSends": 10,
             "nativeTransport": "chain"
           }
         },
         "functions": {
-          "fetchWithTimeout": "0a2b18ec9c4449b10e740771203a4fc9b453ffb1286c764ace36c991f31058c1",
+          "fetchWithTimeout": "9414a85688c8d3ab23dcb271a2be4553ddad0c07fbdb30b08f9136eca75c9775",
           "handle": "be45cbd39c4c5f3cfb950c8d9416514c8df2d69757ec4d4438bf1d0850b6b061",
           "requestSummaryBody": "6af0543c5e140a10feb8552acbc1010680035e52c480b9130a9a966db6c70a13",
           "fetchWithRetry": "3dbdc1b29c2fa85771e39c5a242971ca836aae3b1e89ff97981a42ea1f45ffc1",
-          "installNativeFetchIntercept": "19c8236212c168f01ab97ef2303513f4c8c54101f8f965540aceb0a21529c97f"
+          "installNativeFetchIntercept": "f03b9d6c18acc479ce2ea721e2a7701124e2b8f55717b5757365051bdd744009"
         }
       },
-      "interfaceHash": "3434acdc01162d6d0dfce58b027385e8266c617a0a697308be2183534f88f803",
-      "integrity": "sha512-s1ZdlJxMw3P+gS/AmC6oJpvEugdHyv5U9uMyT2h1V25SXCOkdiO8dlnmPTgd3AqCabDs7jpdjY6SV6oC/Rz1nQ=="
+      "interfaceHash": "54a8210ced5de02934cba6187c0c7e5405ebc26f7c2ed1c9e3bd48b425a1531a",
+      "integrity": "sha512-vIce42Jnx4ioHghVPfGuktNg6aLhIWsRbWRlIbdMzt0jzG5kT6I7xK77HS2yPUAxtx+snD/qtlNT4kuV4kX9AA=="
     },
     "dsh-codex-subscription": {
-      "version": "3.0.1",
+      "version": "3.1.1",
       "signature": {
         "main": "./lib/index.js",
         "exports": {
@@ -82,7 +82,7 @@
         }
       },
       "interfaceHash": "2aaece2f9bd680fae05fc6f15cb6879db06016d2ba8c7b692c8dd3ba96f5fa57",
-      "integrity": "sha512-//qsyXVh8irRQydzxIZS/l3ASS0wcpZxs0l2h/U+KQ57ReEK7Z3q2vkblFExYnrEyImTWAiykAZ4bQHBJCJ7Pg=="
+      "integrity": "sha512-f1FdJ5Ea89B5UFATyapQuOSD2Ho5c2RglmpU6wJ1Yk3syQkQ2mb0pW4ERxOtPAP3EhJWV5I+evaX6Jl6SLD/tQ=="
     },
     "dsh-codex-connect": {
       "version": "0.2.0-alpha.1",

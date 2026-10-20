@@ -29,11 +29,11 @@ jobs:
           npm install -g pnpm
           pnpm install --frozen-lockfile
           mkdir -p .tmp-billion-matrix
-          npm pack billion-context@0.1.181 billion-context@0.1.190 billion-context@0.1.197 --ignore-scripts --pack-destination .tmp-billion-matrix
+          npm pack billion-context@0.1.181 billion-context@0.1.190 billion-context@0.1.197 billion-context@0.1.201 --ignore-scripts --pack-destination .tmp-billion-matrix
       - name: Verify automatic interface compatibility and actual native/proxy billing
         run: |
           node test/billion-context-compatibility.mjs
-          for version in 0.1.181 0.1.190 0.1.197; do
+          for version in 0.1.181 0.1.190 0.1.197 0.1.201; do
             DSH_TEST_BILLION_PACKAGE="$PWD/.tmp-billion-matrix/billion-context-$version.tgz" node test/billion-context-billing.mjs
             DSH_TEST_BILLION_PACKAGE="$PWD/.tmp-billion-matrix/billion-context-$version.tgz" node test/billion-context-auto.mjs
           done
@@ -65,12 +65,19 @@ jobs:
           export DSH_CONTEXT_068="$PWD/.tmp-context-068/package/lib/client.js"
           export CM_TEST_BROWSER=/usr/bin/google-chrome
           test -x "$CM_TEST_BROWSER" || (sudo apt-get update && sudo apt-get install -y google-chrome-stable)
+          mkdir -p .tmp-billion-matrix
+          npm pack dsh-codex-subscription@3.1.1 --ignore-scripts --pack-destination .tmp-billion-matrix
+          DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.1.tgz" node test/codex-subscription-published.mjs
+          npm pack @eddyskywalker/dsh-chatgpt-subscription@0.29.0 --ignore-scripts --pack-destination .tmp-billion-matrix
+          DSH_TEST_CHATGPT_PACKAGE="$PWD/.tmp-billion-matrix/eddyskywalker-dsh-chatgpt-subscription-0.29.0.tgz" node test/chatgpt-subscription-quota.mjs
           node test/context-costs.mjs --host
           node test/context-costs-client.mjs
           node test/context-costs-lifecycle.mjs
           node test/context-costs-regression-browser.mjs
           node test/context-costs-browser.mjs
+          node test/session-list-browser.mjs
           node test/session-costs-browser.mjs
+          node test/session-costs-performance-browser.mjs
           node test/statistics-cache.mjs
           node test/statistics-warmup.mjs
           node test/cost-views-browser.mjs
@@ -82,9 +89,11 @@ jobs:
           node test/cache-write-price-browser.mjs
           node test/model-stats-browser.mjs
           node test/factory-quota-browser.mjs
+          node test/codex-quota-browser.mjs
           node test/display-settings-browser.mjs
           node test/balance-gateway-browser.mjs
           node test/sidebar-guide-browser.mjs
+          node test/peak-alert-browser.mjs
           node test/peak-progress-browser.mjs
           node test/peak-style-picker-browser.mjs
           git fetch --depth=1 origin tag v1.8.29
@@ -97,8 +106,10 @@ jobs:
           path: |
             .tmp-context-regression-browser/*.png
             .tmp-display-review/*
+            .tmp-session-costs-performance-after/*
             .tmp-balance-gateway-browser/*
             .tmp-sidebar-guide-browser/*
+            .tmp-peak-alert-browser/*
             .tmp-idle-performance/result.json
             .tmp-context-regression-browser/report.json
             .tmp-pricing-theme-browser/*.png
@@ -113,6 +124,8 @@ jobs:
             .tmp-model-stats-browser/report.json
             .tmp-factory-quota-browser/*.png
             .tmp-factory-quota-browser/report.json
+            .tmp-codex-quota-browser/*
+            .tmp-session-list-browser/*
             .tmp-peak-progress-preview/
           if-no-files-found: ignore
           retention-days: 7
@@ -243,6 +256,7 @@ jobs:
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-next-host/node_modules"
           node test/host-peer-compatibility.mjs
           node test/verify.mjs
+          node test/go-quota-host.mjs
           node test/market-hot-install.mjs
           node test/codex-compat-http.mjs
           node test/plugin-compatibility-watch.mjs
@@ -255,6 +269,9 @@ jobs:
           mkdir -p .tmp-context-068
           npm pack dsh-context@0.68.1 --ignore-scripts --pack-destination .tmp-context-068
           tar -xzf .tmp-context-068/dsh-context-0.68.1.tgz -C .tmp-context-068
+          mkdir -p .tmp-billion-matrix
+          npm pack dsh-codex-subscription@3.1.1 --ignore-scripts --pack-destination .tmp-billion-matrix
+          DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.1.tgz" node test/codex-subscription-published.mjs
           node test/context-costs.mjs --host
           node test/context-costs-regression-browser.mjs
           node test/native-search-host.mjs
@@ -285,6 +302,7 @@ jobs:
         run: |
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-market-host/node_modules"
           node test/market-hot-install.mjs
+          node test/go-quota-host.mjs
 
   source-host-codecs:
     runs-on: ubuntu-latest

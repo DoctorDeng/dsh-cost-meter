@@ -19,8 +19,8 @@ const deferred = () => {
 const settle = async () => { for (let tick = 0; tick < 20; tick++) await Promise.resolve() }
 const copy = value => JSON.parse(JSON.stringify(value))
 
-async function fixture({ initial = false, deferStartup = false } = {}) {
-  let config = sanitizeConfig({ locale: 'en', hideOfficialBalance: true, goQuota: { enabled: false },
+async function fixture({ initial = false, deferStartup = false, initialSkin = false } = {}) {
+  let config = sanitizeConfig({ locale: 'en', followSkinTransparency: initialSkin, hideOfficialBalance: true, goQuota: { enabled: false },
     codingPlans: { opendesign: { enabled: initial, workspaceId: 'workspace-1' } } })
   const snapshot = () => ({ config: copy(config), today: zeroDay(), month: zeroDay(), total: zeroDay(), history: [] })
   let factory, nextRead, pendingRead, nextWrite, reads = 0, writes = 0
@@ -62,11 +62,13 @@ async function fixture({ initial = false, deferStartup = false } = {}) {
     get: name => name === 'remote.costMeter' ? rpc : name === 'slots' ? slots : undefined,
     effect: fn => { const dispose = fn(); if (typeof dispose === 'function') disposers.push(dispose); return dispose },
   }
-  await factory(name => name === 'react' ? { Component: class {}, createElement() {}, Fragment: 'fragment' } : {}).apply(context)
+  const loaded = [], require = name => name === 'react' ? { Component: class {}, createElement() {}, Fragment: 'fragment' } : {}
+  require.async = async path => ({ mount: (_ctx, store) => { loaded.push({ path, store }); return () => null } })
+  await factory(require).apply(context)
   await settle()
   const { hooks, api } = registrations.get('settings.section:cost-meter').options.inject()
   return {
-    api, store: hooks.cost, startupRead,
+    api, store: hooks.cost, startupRead, loaded,
     blockRead: () => { nextRead = deferred(); return nextRead },
     blockWrite: () => { nextWrite = deferred(); return nextWrite },
     update: enabled => api.updateConfig({ codingPlans: { opendesign: { ...config.codingPlans.opendesign, enabled } } }),
@@ -125,4 +127,17 @@ for (const initial of [false, true]) {
     assert.equal(view.enabled(), true, 'the second startup read cannot overwrite a setting saved after the local first paint')
   } finally { view.close() }
 }
-console.log('[ok] settings snapshots: OpenDesign enable/disable, stale success/error, pending/failed saves, startup refresh and subsequent polling' + (artifact ? ' (bundle)' : ' (source)'))
+if (!baseline) for (const initialSkin of [false, true]) {
+  const view = await fixture({ initialSkin })
+  try {
+    assert.equal(view.loaded.filter(x => x.path === './client.display.js').length, Number(initialSkin), 'saved skin transparency is restored without opening settings')
+    await view.api.updateConfig({ followSkinTransparency: true })
+    await settle()
+    const loaded = view.loaded.filter(x => x.path === './client.display.js')
+    assert.equal(loaded.length, 1, 'display styles load once')
+    assert.equal(loaded[0].store, view.store, 'styles subscribe to the live store')
+    await view.api.updateConfig({ followSkinTransparency: false })
+    assert.equal(loaded[0].store.getSnapshot().state.config.followSkinTransparency, false)
+  } finally { view.close() }
+}
+console.log('[ok] settings snapshots: OpenDesign enable/disable, stale success/error, pending/failed saves, startup refresh, polling and persisted skin styles' + (artifact ? ' (bundle)' : ' (source)'))

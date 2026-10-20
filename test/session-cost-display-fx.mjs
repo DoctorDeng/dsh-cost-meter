@@ -53,7 +53,7 @@ const detail = ui.modelCostDetail({ byProviderModel: {
   'deepseek:deepseek-v4-flash': { input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, reasoning: 0, cost: 0.5, apiCost: 0.5, costCny: 0, apiCostCny: 0, costEur: 0, apiCostEur: 0 },
   'deepseek:deepseek-v4-pro': { input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, reasoning: 0, cost: 0.5, apiCost: 0.5, costCny: 4, apiCostCny: 4, costEur: 0.6, apiCostEur: 0.6 },
 } }, config)
-assert.match(detail, /deepseek:deepseek-v4-flash ¥3\.6/, 'channel detail falls back to the USD amount')
+assert.match(detail, /deepseek:DeepSeek V4.1 Flash ¥3\.6/, 'channel detail falls back to the USD amount')
 assert.match(detail, /deepseek:deepseek-v4-pro ¥4/, 'channel detail keeps the frozen amount when present')
 
 console.log('[ok] issue #300: client display falls back from finite ¥0 frozen FX to recorded USD cost (badge, totals, channel details)')

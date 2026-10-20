@@ -30,6 +30,7 @@ function useCost(pick){return pick(React.useSyncExternalStore(store.subscribe,st
 window.copies=1;function App(){return React.createElement(React.Fragment,null,Array.from({length:window.copies},(_,key)=>React.createElement(guide.component,{...injected,useCost,key})))}
 const root=createRoot(document.getElementById('root'));let generation=0;window.remount=()=>root.render(React.createElement(App,{key:++generation}));window.remount();
 window.dispose=()=>{root.unmount();for(const dispose of disposers.reverse())dispose()};
+window.guideConfig=()=>store.getSnapshot().state.config;
 `
 const compiled = (await build({ stdin: { contents: code, resolveDir: process.cwd(), loader: 'js' }, bundle: true, write: false, format: 'esm', platform: 'browser' })).outputFiles[0].contents
 const server = createServer((request, response) => {
@@ -51,7 +52,7 @@ const server = createServer((request, response) => {
 await new Promise(done => server.listen(0, '127.0.0.1', done))
 const origin = `http://127.0.0.1:${server.address().port}`
 const browser = await chromium.launch({ executablePath, headless: true })
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, hasTouch: true })
 page.setDefaultTimeout(3000)
 const errors = [], external = [], cases = []
 page.on('pageerror', error => errors.push(error.message))
@@ -124,8 +125,40 @@ try {
   await fresh('windows')
   await page.evaluate(() => { HTMLElement.prototype.showPopover = undefined; window.remount() })
   await guide().getByRole('button', { name: '关闭提示', exact: true }).click(); await guide().waitFor({ state: 'detached' })
+  // Real floating widgets may hit-test their image coordinates at document capture,
+  // regardless of which top-layer element received the actual DOM event.
+  const intercept = async () => page.evaluate(() => {
+    const r = document.querySelector('.cm-qguide').getBoundingClientRect()
+    window.intercepted = 0
+    window.interceptedTypes = []
+    const capture = event => {
+      const x = event.clientX ?? event.touches?.[0]?.clientX, y = event.clientY ?? event.touches?.[0]?.clientY
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) return
+      window.intercepted++; window.interceptedTypes.push(event.type); event.preventDefault(); event.stopPropagation()
+    }
+    for (const type of ['pointerdown', 'pointerup', 'click', 'touchstart']) document.addEventListener(type, capture, { capture: true, passive: false })
+  })
+  for (const action of ['关闭提示', '保留当前显示', '开启简化显示']) {
+    await fresh('windows'); await intercept(); await page.evaluate(() => window.saveMode = 'ok')
+    await guide().getByRole('button', { name: action, exact: true }).click()
+    await guide().waitFor({ state: 'detached' })
+    assert.equal(await page.evaluate(() => window.intercepted), 0, 'owned guide events do not reach the widget capture listener')
+    assert.equal(await page.evaluate(() => window.saves), action === '关闭提示' ? 0 : 1, 'each action runs exactly once')
+    assert.equal(await page.evaluate(() => window.guideConfig().sidebarSimple), action === '开启简化显示')
+    await page.getByRole('button', { name: '页面操作', exact: true }).click()
+    assert.equal(await page.evaluate(() => window.pageClicks), 1, 'unrelated page actions remain usable')
+  }
+  await fresh('windows'); await intercept()
+  const outside = await page.getByRole('button', { name: '页面操作', exact: true }).boundingBox(), close = await guide().getByRole('button', { name: '关闭提示', exact: true }).boundingBox()
+  await page.mouse.move(outside.x + outside.width / 2, outside.y + outside.height / 2); await page.mouse.down()
+  await page.mouse.move(close.x + close.width / 2, close.y + close.height / 2); await page.mouse.up()
+  assert.ok((await page.evaluate(() => window.interceptedTypes)).includes('pointerup'), 'a drag started outside the guide still delivers its pointerup to the other plugin')
+  assert.equal(await guide().count(), 1, 'releasing an outside drag does not activate a guide button')
+  await guide().getByRole('button', { name: '关闭提示', exact: true }).click(); await guide().waitFor({ state: 'detached' })
+  await fresh('windows'); await intercept()
+  await guide().getByRole('button', { name: '关闭提示', exact: true }).tap(); await guide().waitFor({ state: 'detached' })
   assert.deepEqual(errors, []); assert.deepEqual(external, [])
-  const result = { cases, pendingSaveDismissal: true, failedSaveDismissal: true, escapeDismissal: true, unavailableStorageDismissal: true, duplicateSlotDismissal: true, legacyPopoverFallback: true, browserErrors: errors.length, externalRequests: external.length }
+  const result = { cases, pendingSaveDismissal: true, failedSaveDismissal: true, escapeDismissal: true, unavailableStorageDismissal: true, duplicateSlotDismissal: true, legacyPopoverFallback: true, captureConflictActions: 3, outsideDragPreserved: true, touchDismissal: true, browserErrors: errors.length, externalRequests: external.length }
   writeFileSync(join(output, 'result.json'), JSON.stringify(result, null, 2)); console.log('[ok]', JSON.stringify(result))
 } catch (error) { await page.screenshot({ path: join(output, 'failure.png') }); throw error }
 finally { await page.evaluate(() => window.dispose?.()).catch(() => {}); await browser.close(); await new Promise(done => server.close(done)) }

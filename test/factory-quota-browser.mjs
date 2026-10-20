@@ -109,6 +109,7 @@ try {
   await card.getByRole('button',{name:'刷新',exact:true}).click()
   await page.waitForFunction(count=>window.refreshes>count,before)
   await page.getByRole('tab',{name:'显示',exact:true}).click()
+  await page.locator('.cm-display-general summary').click()
   await page.getByLabel('界面语言',{exact:true}).selectOption('en')
   await page.waitForFunction(()=>window.patches.some(p=>p.locale==='en'))
   await page.getByRole('tab',{name:'Quotas',exact:true}).click()

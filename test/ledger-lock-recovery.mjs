@@ -47,14 +47,14 @@ if (process.argv[2] === '--holder') {
     withLedgerLock(path, () => {
       const owner = join(`${path}.lock`, readdirSync(`${path}.lock`)[0])
       record = JSON.parse(readFileSync(owner, 'utf8'))
-      assert.equal(record.version, 1)
+      assert.equal(record.version, process.platform === 'win32' ? 2 : 1)
       utimesSync(owner, oldTime, oldTime)
       assert.throws(() => withLedgerLock(path, () => assert.fail('must not enter'), 25), /Ledger is busy/)
       assert.equal(existsSync(owner), true, 'old mtime never expires a matching native identity')
     })
     if (record.identity) {
       const previous = structuredClone(record)
-      previous.identity.start = String(BigInt(previous.identity.start) - 1n)
+      previous.identity.start = String(BigInt(previous.identity.start) - (previous.identity.unit === 'ms' ? 60000n : 1n))
       plant(path, process.pid, JSON.stringify(previous), false)
       assert.equal(withLedgerLock(path, () => 'recovered', 100), 'recovered', 'birth identity detects reuse even with recent mtime')
     }
@@ -85,10 +85,17 @@ if (process.argv[2] === '--holder') {
     // The same live foreign PID reused after an earlier process also recovers.
     const foreign = JSON.parse(childText)
     if (foreign.identity) {
-      foreign.identity.start = String(BigInt(foreign.identity.start) - 1n)
+      foreign.identity.start = String(BigInt(foreign.identity.start) - (foreign.identity.unit === 'ms' ? 60000n : 1n))
       const foreignPath = join(root, 'foreign.json')
-      plant(foreignPath, child.pid, JSON.stringify(foreign), false)
-      assert.equal(withLedgerLock(foreignPath, () => 42, 100), 42)
+      const foreignOwner = plant(foreignPath, child.pid, JSON.stringify(foreign), false)
+      // Probe the real foreign process once. A timed-out OS query must preserve
+      // the owner; a known native identity must detect the earlier birth.
+      const identities = new Map()
+      assert.equal(staleLedgerLockOwner(foreignOwner, child.pid, identities), Boolean(identities.get(child.pid)))
+      assert.equal(readFileSync(foreignOwner, 'utf8'), JSON.stringify(foreign), 'probing never removes the owner')
+      // Always verify PID reuse with the identity supplied by the real child,
+      // independently of PowerShell startup load on Windows CI runners.
+      assert.equal(staleLedgerLockOwner(foreignOwner, child.pid, new Map([[child.pid, JSON.parse(childText).identity]])), true)
     }
     const legacyForeign = join(root, 'legacy-foreign.json')
     const legacyOwner = plant(legacyForeign, child.pid, '')

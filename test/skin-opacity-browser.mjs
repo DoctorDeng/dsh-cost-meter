@@ -23,11 +23,16 @@ window.chunks={};window.__ModuleLoader__={load:mod=>window.chunks[mod.chunk??'ma
 ${client}
 ${read('src/pricing/index.js')}
 ${stats}
+${read('lib/client.display.js')}
+let skinState={config:{followSkinTransparency:false}};const skinListeners=new Set(),skinDisposers=[];
+window.chunks['client.display.js'].mount({effect:fn=>skinDisposers.push(fn())},{getSnapshot:()=>({state:skinState}),subscribe:fn=>{skinListeners.add(fn);return()=>skinListeners.delete(fn)}});
+window.setSkin=enabled=>{skinState={config:{followSkinTransparency:enabled}};for(const fn of skinListeners)fn()};
+window.disposeSkin=()=>{for(const dispose of skinDisposers)dispose()};
 const ui=window.chunks['client.statistics.js'];
 const style=document.createElement('style');style.textContent=ui.css+ui.introCss;document.head.append(style);
 window.chunks['client.pricing.js'].mount({get:name=>name==='remote'?{$mount:async()=>()=>{}}:{},effect:fn=>fn()});
 const root=createRoot(document.getElementById('root'));
-window.renderSpecial=name=>{root.render(name==='fee'?React.createElement(ui.FeeDialog,{title:'费用明细',text:(zh,en)=>zh,onClose:()=>{}},'合成测试数据'):React.createElement(ui.BillionCompatibilityNotice,{locale:'zh',meter:{version:'0.1.180',compatibility:'needs_update',noticeId:'opacity-fixture'}}))};
+window.renderSpecial=name=>{root.render(name==='fee'?React.createElement(ui.FeeDialog,{title:'费用明细',text:(zh,en)=>zh,onClose:()=>{}},React.createElement('div',{className:'cm-stat'},'合成测试数据')):React.createElement(ui.BillionCompatibilityNotice,{locale:'zh',meter:{version:'0.1.180',compatibility:'needs_update',noticeId:'opacity-fixture'}}))};
 window.clear=()=>root.render(null);window.ready=true;
 `
 const compiled = await build({ stdin: { contents: source, resolveDir: process.cwd(), loader: 'js' }, bundle: true, write: false, format: 'iife', platform: 'browser' })
@@ -85,8 +90,42 @@ try {
     }
   }
   assert.deepEqual(errors, [])
+  const glass = []
+  if (!baseline) {
+    await page.evaluate(() => window.setSkin(true))
+    for (const theme of ['light', 'dark', 'dark-skin-light-host']) for (const alpha of [0, .65, .95, 1]) {
+      await page.evaluate(({ theme, alpha }) => {
+        document.body.toggleAttribute('data-ds-dark-theme', theme === 'dark')
+        for (const key of ['bg-base','bg-layer-1','bg-layer-2']) document.documentElement.style.setProperty('--dsw-alias-' + key, `rgba(${theme === 'light' ? '242,246,255' : '13,21,36'},${alpha})`)
+      }, { theme, alpha })
+      for (const name of classes) {
+        const special = name === 'cm-fee-dialog' || name === 'cm-billion-notice'
+        if (special) await page.evaluate(name => window.renderSpecial(name === 'cm-fee-dialog' ? 'fee' : 'billion'), name)
+        else await page.evaluate(name => { const node=document.createElement('div');node.id='surface';node.className=name;document.body.append(node) }, name)
+        const node = page.locator(special ? '.' + name : '#surface')
+        await node.waitFor({ state: 'attached' })
+        const opacity = await node.evaluate(node => {
+          const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d');ctx.fillStyle=getComputedStyle(node).backgroundColor;ctx.fillRect(0,0,1,1);return ctx.getImageData(0,0,1,1).data[3]/255
+        })
+        const nested = ['cm-section','cm-stat'].includes(name)
+        assert.ok(Math.abs(opacity - (nested ? 0 : Math.max(alpha, .9))) < .005, `${name} ${theme} alpha=${alpha}: ${opacity}`)
+        if (name === 'cm-fee-dialog') assert.equal(await node.locator('.cm-stat').evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)', 'dialog body shares the dialog material')
+        if (name === 'cm-fee-dialog' && theme === 'dark-skin-light-host' && alpha === .65) await page.screenshot({ path: join(output, 'skin-transparency-fee-dialog.png') })
+        glass.push({ theme, alpha, surface: name, opacity })
+        if (!special) await node.evaluate(el => el.remove())
+        else { await page.evaluate(() => window.clear()); await node.waitFor({ state: 'detached' }) }
+      }
+    }
+    const restored = await page.evaluate(() => {
+      const node=document.createElement('div');node.className='cm-section';document.body.append(node)
+      window.setSkin(false);const disabled=getComputedStyle(node).backgroundColor
+      window.setSkin(true);window.disposeSkin();const unloaded=getComputedStyle(node).backgroundColor;node.remove();return { disabled, unloaded }
+    })
+    assert.notEqual(restored.disabled, 'rgba(0, 0, 0, 0)')
+    assert.equal(restored.unloaded, restored.disabled, 'unloading restores default styling')
+  }
   const leaking = checks.filter(x => !x.opaque).length
   if (baseline) assert.ok(leaking > 0, 'baseline reproduces the reported transparency defect')
-  writeFileSync(join(output, 'result.json'), JSON.stringify({ baseline: baseline ?? null, checks, leaking, errors }, null, 2))
-  console.log(JSON.stringify({ cases: checks.length, leaking, errors, output }))
+  writeFileSync(join(output, 'result.json'), JSON.stringify({ baseline: baseline ?? null, checks, glass, leaking, errors }, null, 2))
+  console.log(JSON.stringify({ cases: checks.length, glassCases: glass.length, leaking, errors, output }))
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

@@ -144,12 +144,19 @@ const cssPhrases = [], cssTokenBase = 0x0180
 const cssTokenRange = `[${String.fromCharCode(cssTokenBase)}-${String.fromCharCode(cssTokenBase + 127)}]`
 assert.ok(!new RegExp(cssTokenRange).test(compactCss), 'CSS packing markers must be unused')
 let packedCss = compactCss
-for (const [phrase] of cssCandidates) {
-  const count = packedCss.split(phrase).length - 1, bytes = Buffer.byteLength(phrase)
-  if (count * (bytes - 2) - bytes - 1 < 12) continue
-  packedCss = packedCss.replaceAll(phrase, String.fromCharCode(cssTokenBase + cssPhrases.length))
-  cssPhrases.push(phrase)
-  if (cssPhrases.length === 128) break
+// Greedy by measured saving: each round re-counts every candidate in the already
+// packed text (earlier tokens change later counts) and takes the largest positive
+// net gain. Ties keep the deterministic candidate order above.
+while (cssPhrases.length < 128) {
+  let best = null, bestGain = 0
+  for (const [phrase] of cssCandidates) {
+    const count = packedCss.split(phrase).length - 1, bytes = Buffer.byteLength(phrase)
+    const gain = count * (bytes - 2) - bytes - 1
+    if (gain > bestGain) { best = phrase; bestGain = gain }
+  }
+  if (best === null) break
+  packedCss = packedCss.replaceAll(best, String.fromCharCode(cssTokenBase + cssPhrases.length))
+  cssPhrases.push(best)
 }
 assert.equal(packedCss.replace(new RegExp(cssTokenRange, 'g'), token => cssPhrases[token.charCodeAt(0) - cssTokenBase]), compactCss)
 src = src.replace(cssMatch[0], () => `const cssPhrases=${javascriptLiteral(cssPhrases.join('~'))}.split("~");const css=${javascriptLiteral(packedCss)}.replace(/${cssTokenRange}/g,token=>cssPhrases[token.charCodeAt(0)-${cssTokenBase}])`)
@@ -177,12 +184,12 @@ console.log('✓ lib/client.js within DSH STORE per-file bound (262144)')
 
 // DSH 0.2.0-rc.2 package-local chunks use the host's require.async contract.
 // Each on-demand screen has readable source and a bounded runtime asset.
-for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak']) {
+for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak', 'session-list']) {
   let source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
   if (chunk === 'display') {
     source = source.replace('/* DISPLAY_NATIVE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/native.js'), 'utf8'))
     source = source.replace('/* DISPLAY_APPEARANCE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/appearance.js'), 'utf8'))
-    for (const part of ['sidebar', 'controls', 'examples']) source = source.replace(`/* DISPLAY_${part.toUpperCase()}_SOURCE */`, readFileSync(resolve(projectRoot, `src/display/${part}.js`), 'utf8'))
+    for (const part of ['parts', 'sidebar', 'controls', 'examples']) source = source.replace(`/* DISPLAY_${part.toUpperCase()}_SOURCE */`, readFileSync(resolve(projectRoot, `src/display/${part}.js`), 'utf8'))
     const styles = await transform(readFileSync(resolve(projectRoot, 'src/display/preview.css'), 'utf8'), { loader: 'css', minify: true })
     source = source.replace("'DISPLAY_STYLE_SOURCE'", () => javascriptLiteral(styles.code))
   }

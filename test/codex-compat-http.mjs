@@ -56,7 +56,11 @@ try {
           }), peer)
           response.writeHead(result.status, Object.fromEntries(result.headers))
           response.end(Buffer.from(await result.arrayBuffer()))
-        } catch (error) { response.writeHead(500); response.end(String(error)) }
+        } catch (error) {
+          console.error(error)
+          response.writeHead(500)
+          response.end('Test fixture request failed')
+        }
       })
       await new Promise(done => server.listen(0, '127.0.0.1', done))
       const rpc = async method => {

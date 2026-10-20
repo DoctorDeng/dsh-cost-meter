@@ -318,7 +318,7 @@ window.__ModuleLoader__.load({
             setDraft({ ...draft, priceOverrides: next, priceMatchDismissed: [...new Set([...dismissed, key])] })
           }
           const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
-          const filter = keys => keys.filter(key => words.every(word => prettyProviderKey(key).toLowerCase().includes(word)))
+          const filter = keys => keys.filter(key => words.every(word => (key + ' ' + prettyProviderKey(key)).toLowerCase().includes(word)))
           const matched = filter(rows), total = matched.length
           const visible = matched.slice(0, limit)
           const row = key => {

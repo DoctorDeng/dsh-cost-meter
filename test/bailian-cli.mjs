@@ -287,7 +287,7 @@ process.stdout.write(spec.raw ?? JSON.stringify(spec.payload ?? {}));
   setResponse({ token: { payload: {} }, coding: { payload: {} } })
   result = await api.refreshCodingPlan('qwen')
   assert.equal(result.ok, false)
-  assert.equal(result.state.codingPlans.qwen.status, 'off')
+  assert.equal(result.state.codingPlans.qwen.status, 'off', result.message)
   assert.match(result.message, /no recognized plan quota/)
   assert.deepEqual(result.state.codingPlans.qwen.windows, {})
   // 硬失败:双命令退出 → error + 登录提示,错误遵守查询间隔。
