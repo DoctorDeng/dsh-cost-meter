@@ -94,3 +94,5 @@ Bailian source verification (2026-09-23): [Token Plan output](https://github.com
 Login source verification (2026-10-05): [auth status](https://github.com/modelstudioai/cli/blob/8bbbbc722d70fb200641ef22b6f6d033aeae9f74/packages/commands/src/commands/auth/status.ts), [console login](https://github.com/modelstudioai/cli/blob/8bbbbc722d70fb200641ef22b6f6d033aeae9f74/packages/commands/src/commands/auth/login-console.ts), [exit codes](https://github.com/modelstudioai/cli/blob/8bbbbc722d70fb200641ef22b6f6d033aeae9f74/packages/core/src/errors/codes.ts).
 
 #260 源码核验：[个人订阅额度映射](https://github.com/QianWen-AI/qianwen-cli/blob/054b874c985021ab4424dcf2d7e01c28aa99ad23/src/services/tokenplan-service.ts)、[订阅 JSON 输出](https://github.com/QianWen-AI/qianwen-cli/blob/054b874c985021ab4424dcf2d7e01c28aa99ad23/src/view-models/subscription/shared.ts)。新增回归覆盖 issue 中的 `0.00169%`、月／周窗口、到期与格式错误、补查失败／超时／脱敏及缓存并发；未查询真实付费订阅账号。
+
+订阅兜底查询的默认超时为 60 秒（普通 usage summary 仍为 15 秒），用于兼容 qianwen-cli 1.10 的 30–36 秒响应。显式传入 timeoutMs 时仍覆盖两条命令。超时提示说明 CLI 响应耗时，不再直接归因于网络。

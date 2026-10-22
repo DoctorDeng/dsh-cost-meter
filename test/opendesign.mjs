@@ -40,6 +40,20 @@ const quota = { workspaceId: 'ws-1', workspaceMemberId: 'member-1', eligible: tr
 const wallet = { billingScopeVersion: 2, workspaceId: 'ws-1', workspaceMemberId: 'member-1', balanceUsd: '0.00' }
 assert.equal(parseOpenDesignUsage(quota, 'ws-1').fiveHour.percent, 33.333)
 assert.equal(parseOpenDesignUsage(quota, 'ws-1').weekly.percent, 0)
+// Reproduce the 2026-10-21 report: 91% remaining resets tonight; 94% resets next week.
+// Window identity comes from durationSeconds, never response order or time until reset.
+const screenshotQuota = { ...quota, windows: [
+  { policyId: 'short-window', durationSeconds: 18000, usedCredits: '9', limitCredits: '100', remainingCredits: '91', resetsAt: '2026-10-21T21:02:08+08:00' },
+  { policyId: 'long-window', durationSeconds: 604800, usedCredits: '6', limitCredits: '100', remainingCredits: '94', resetsAt: '2026-10-27T20:02:08+08:00' },
+] }
+const screenshotWindows = {
+  fiveHour: { percent: 9, resetsAt: '2026-10-21T13:02:08.000Z' },
+  weekly: { percent: 6, resetsAt: '2026-10-27T12:02:08.000Z' },
+}
+for (const windows of [screenshotQuota.windows, [...screenshotQuota.windows].reverse()]) {
+  assert.deepEqual(parseOpenDesignUsage({ ...screenshotQuota, windows }, 'ws-1'), screenshotWindows)
+  assert.deepEqual(parseOpenDesignUsage({ workspaceId: 'ws-1', codingPlan: { ...screenshotQuota, windows } }, 'ws-1'), screenshotWindows)
+}
 assert.equal(parseOpenDesignUsage({ ...quota, windows: [] }, 'ws-1'), null)
 assert.deepEqual(parseOpenDesignUsage({ ...quota, eligible: false, windows: [] }, 'ws-1'), {})
 assert.equal(parseOpenDesignUsage({ ...quota, windows: [{ ...quota.windows[0], remainingCredits: '0' }] }, 'ws-1'), null)
@@ -111,10 +125,13 @@ const React = { createElement: element, Fragment: 'fragment', useState: value =>
   useRef: value => ({ current: value }), useEffect() {}, useMemo: fn => fn(), useCallback: fn => fn }
 const source = readdirSync(new URL('../src/client/', import.meta.url)).filter(name => name.endsWith('.js')).sort()
   .map(name => readFileSync(new URL('../src/client/' + name, import.meta.url), 'utf8')).join('')
-vm.runInNewContext(source.replace('exports.apply = apply', 'exports.testing = { PlanQuotaCard, CodingPlanBox, QuotaStrip, parseConfig, resolveClientPriceRaw, billingClassOfLocal, MESSAGES }; exports.apply = apply'), {
+vm.runInNewContext(source.replace('exports.apply = apply', 'exports.testing = { PlanQuotaCard, CodingPlanBox, QuotaStrip, parseConfig, resolveClientPriceRaw, billingClassOfLocal, MESSAGES, useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd }; exports.apply = apply'), {
   window: { __ModuleLoader__: { load: value => { factory = value.factory } } }, navigator: { language: 'en' }, console, setTimeout, clearTimeout,
 })
 const ui = factory(name => name === 'react' ? React : {}).testing
+let plansFactory
+vm.runInNewContext(readFileSync(new URL('../src/plan-settings/index.js', import.meta.url), 'utf8'), { window: { __ModuleLoader__: { load: value => { plansFactory = value.factory } } } })
+ui.PlanQuotaCard = plansFactory(() => React).mount(ui)
 const clientConfig = ui.parseConfig({ ...config, codingPlans: { ...config.codingPlans, opendesign: { ...config.codingPlans.opendesign, workspaceId: 'ws-1' } } })
 assert.equal(clientConfig.codingPlans.opendesign.workspaceId, 'ws-1')
 for (const provider of OPENDESIGN_PROVIDER_IDS) {
@@ -124,7 +141,7 @@ for (const provider of OPENDESIGN_PROVIDER_IDS) {
 const nodes = value => Array.isArray(value) ? value.flatMap(nodes) : value && typeof value === 'object' ? [value, ...nodes(value.children)] : []
 for (const locale of ['zh', 'en']) {
   let saved
-  const t = name => ui.MESSAGES[locale][name] ?? name
+  const t = (name, args = {}) => (ui.MESSAGES[locale][name] ?? name).replace(/\{(\w+)\}/g, (_, key) => args[key] ?? '')
   const card = ui.PlanQuotaCard({ state: { config: clientConfig, codingPlans: {} }, draft: clientConfig, setDraft: value => { saved = value }, planId: 'opendesign', labelKey: 'codingPlanOpendesign', t, api: {} })
   const contents = nodes(card.props.configNode)
   const input = contents.find(row => row.type === 'input' && row.props['aria-label'] === t('opendesignWorkspace'))
@@ -132,6 +149,51 @@ for (const locale of ['zh', 'en']) {
   assert.equal(saved.codingPlans.opendesign.workspaceId, 'ws-2')
   assert.ok(contents.some(row => row.props.target === 'codingPlans.opendesign' && row.props.placeholder === 'OPENDESIGN_CONTROL_KEY'))
   assert.ok(contents.some(row => row.children?.includes(t('opendesignNote'))))
+  // Distinct allowances exercise the reported swap through settings, sidebar and strip.
+  const enabledWindows = { ...clientConfig, locale, quotaStrip: { ...clientConfig.quotaStrip, enabled: true, plans: true }, codingPlans: { ...clientConfig.codingPlans, opendesign: { ...clientConfig.codingPlans.opendesign, enabled: true, display: 'both' } } }
+  const parsedWindows = parseOpenDesignUsage(quota, 'ws-1')
+  assert.deepEqual(parsedWindows, parseOpenDesignUsage({ ...quota, windows: [...quota.windows].reverse() }, 'ws-1'), 'mapping is independent of upstream row order')
+  assert.equal(parsedWindows.fiveHour.percent, 33.333)
+  assert.equal(parsedWindows.weekly.percent, 0)
+  assert.equal(parsedWindows.weekly.resetsAt, '2026-10-22T00:00:00.000Z')
+  assert.equal(parsedWindows.fiveHour.resetsAt, '')
+  const quotaState = { config: enabledWindows, codingPlans: { opendesign: { status: 'ok', fetchedAt: 1, windows: parsedWindows } } }
+  const settings = ui.PlanQuotaCard({ state: quotaState, draft: enabledWindows, setDraft() {}, planId: 'opendesign', labelKey: 'codingPlanOpendesign', t, api: {} })
+  const settingRows = nodes(settings.props.statusNode).filter(row => ['weekly', 'fiveHour'].includes(row.props.key))
+  assert.equal(settingRows.length, 2)
+  for (const row of settingRows) {
+    const text = JSON.stringify(row)
+    assert.ok(text.includes(row.props.key === 'fiveHour' ? '33%' : '0%'), 'settings pairs each window label with its allowance')
+  }
+  const sidebar = ui.CodingPlanBox({ id: 'opendesign', state: quotaState, wide: true })
+  const sidebarRows = nodes(sidebar).filter(row => ['weekly', 'fiveHour'].includes(row.props.key))
+  assert.equal(sidebarRows.length, 2)
+  for (const row of sidebarRows) assert.ok(JSON.stringify(row).includes(row.props.key === 'fiveHour' ? '33%' : '0%'), 'sidebar uses the same corrected mapping')
+  const strip = JSON.stringify(ui.QuotaStrip({ useCost: () => ({ state: quotaState }) }))
+  assert.ok(strip.includes('5h') && strip.includes('33%') && strip.includes('0%'), 'quota strip retains both corrected windows')
+  for (const direction of ['used', 'remaining']) {
+    const displayConfig = { ...enabledWindows, barDirections: { ...enabledWindows.barDirections, plan: direction } }
+    const screenshotState = { config: displayConfig, codingPlans: { opendesign: { status: 'ok', fetchedAt: 1, windows: parseOpenDesignUsage(screenshotQuota, 'ws-1') } } }
+    const card = ui.CodingPlanBox({ id: 'opendesign', state: screenshotState, wide: true })
+    const settings = ui.PlanQuotaCard({ state: screenshotState, draft: displayConfig, setDraft() {}, planId: 'opendesign', labelKey: 'codingPlanOpendesign', t, api: {} })
+    const tooltipLines = card.props.label.children[0].split('\n')
+    for (const name of ['fiveHour', 'weekly']) {
+      const win = screenshotWindows[name]
+      const percent = direction === 'remaining' ? 100 - win.percent : win.percent
+      const label = ui.codingPlanWindowLabel(name, t)
+      const resetText = new Date(win.resetsAt).toLocaleString()
+      for (const root of [card, settings.props.statusNode]) {
+        const row = nodes(root).find(row => row.props.key === name)
+        assert.ok(row, name + ' row exists')
+        const text = JSON.stringify(row)
+        assert.ok(text.includes(label) && text.includes(percent + '%'), name + ' keeps its label and percentage in ' + direction + ' mode')
+      }
+      const line = tooltipLines.find(line => line.startsWith(label + ' '))
+      assert.ok(line?.includes(percent + '%') && line.includes(resetText), name + ' tooltip keeps its own percentage and reset time')
+      const settingRow = nodes(settings.props.statusNode).find(row => row.props.key === name)
+      assert.ok(JSON.stringify(settingRow).includes(resetText), name + ' settings reset time agrees with the tooltip')
+    }
+  }
   const message = locale === 'zh' ? '套餐额度：查询失败，钱包仍可用。' : 'Plan quota: unavailable; wallet is still available.'
   const enabled = { ...clientConfig, locale, quotaStrip: { ...clientConfig.quotaStrip, enabled: true }, codingPlans: { ...clientConfig.codingPlans, opendesign: { ...clientConfig.codingPlans.opendesign, enabled: true } } }
   const state = { config: enabled, codingPlans: { opendesign: { status: 'ok', message, fetchedAt: 1, windows: { balance: { text: '$12.50', resetsAt: '' } } } } }

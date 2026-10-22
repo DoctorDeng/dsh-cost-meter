@@ -68,6 +68,55 @@ for (const [provider, model] of [
 }
 
 const key = 'relay:example-model'
+// #364: WorkBuddy international calls share the WorkBuddy classification,
+// including explicit overrides and the disabled/default API behavior.
+const workbuddyModel = 'deepseek-v4.1-flash'
+function assertBilling(provider, model, cfg, expected) {
+  assert.equal(billingClassOf(provider, model, cfg.planBilling, enabledPlanSetOf(cfg), cfg.prices), expected, 'server: ' + provider)
+  assert.equal(ui.billingClassOfLocal(provider, model, cfg), expected, 'client: ' + provider)
+}
+const workbuddyConfig = sanitizeConfig({ codingPlans: { workbuddy: { enabled: true } } })
+for (const provider of ['workbuddy', 'workbuddy-subscription', 'workbuddy-ai', 'llm-workbuddy-ai', ' WorkBuddy-AI ', 'workbuddy-global', 'llm-workbuddy-global']) {
+  assert.equal(planProviderIdOf(provider, workbuddyConfig.planBilling, workbuddyModel), 'workbuddy')
+  assert.equal(ui.planProviderIdOfLocal(provider, workbuddyConfig, workbuddyModel), 'workbuddy')
+  assertBilling(provider, workbuddyModel, workbuddyConfig, 'plan')
+  assertBilling(provider, workbuddyModel, sanitizeConfig({}), 'api')
+  assertBilling(provider, workbuddyModel, sanitizeConfig({ planBilling: { providers: { workbuddy: 'plan' } } }), 'plan')
+  assertBilling(provider, workbuddyModel, sanitizeConfig({ ...workbuddyConfig, planBilling: { providers: { workbuddy: 'api' } } }), 'api')
+}
+assertBilling('workbuddy-ai', workbuddyModel, sanitizeConfig({ ...workbuddyConfig,
+  planBilling: { models: { ['workbuddy-ai:' + workbuddyModel]: 'api' } },
+}), 'api')
+
+// Explicit route overrides must survive the real config/RPC/client pipeline.
+const routePatch = applyConfigPatch(workbuddyConfig, { planBilling: {
+  providers: { 'custom-credits': 'plan', 'workbuddy-ai': 'api', 'workbuddy': 'plan' },
+} })
+assert.deepEqual(routePatch.errors, [])
+const routeConfig = ui.parseConfig(stateSchema.shape.config.parse(routePatch.config), 'config')
+assert.equal(routeConfig.planBilling.providers['custom-credits'], 'plan')
+assertBilling('custom-credits', 'm', routeConfig, 'plan')
+assertBilling('llm-custom-credits', 'm', routeConfig, 'api') // Raw overrides match the request provider exactly.
+assertBilling('unconfigured-route', 'm', routeConfig, 'api')
+assertBilling('workbuddy-ai', workbuddyModel, routeConfig, 'api')
+assertBilling('workbuddy', workbuddyModel, routeConfig, 'plan')
+assertBilling('workbuddy-ai', workbuddyModel, sanitizeConfig({ ...routeConfig,
+  planBilling: { ...routeConfig.planBilling, models: { ['workbuddy-ai:' + workbuddyModel]: 'plan' } },
+}), 'plan')
+assertBilling('workbuddy-ai', workbuddyModel, sanitizeConfig({ ...routeConfig,
+  planBilling: { providers: { workbuddy: 'plan', 'workbuddy-ai': 'auto' } },
+}), 'plan')
+assertBilling('custom-credits', 'm', sanitizeConfig({ planBilling: { providers: { 'custom-credits': 'auto' } } }), 'api')
+for (const model of ['deepseek-web-search', 'deepseek-web-fetch', 'deepseek-search-api', 'deepseek-fetch-api', 'deepseek-search-server']) {
+  assertBilling('deepseek-official', model, sanitizeConfig({ planBilling: {
+    providers: { 'deepseek-official': 'plan' }, models: { ['deepseek-official:' + model]: 'plan' },
+  } }), 'api')
+}
+assert.ok(applyConfigPatch(workbuddyConfig, { planBilling: { providers: { ' ': 'plan' } } }).errors.length)
+assert.ok(applyConfigPatch(workbuddyConfig, { planBilling: { providers: { 'custom-credits': 'invalid' } } }).errors.length)
+assert.equal(sanitizeConfig({ planBilling: { providers: { ' ': 'plan', 'custom-credits': 'invalid' } } }).planBilling.providers[' '], undefined)
+assert.equal(sanitizeConfig({ planBilling: { providers: { 'custom-credits': 'invalid' } } }).planBilling.providers['custom-credits'], undefined)
+
 const selected = { providers: config.planBilling.providers, models: { [key]: 'plan' }, modelPlans: { [key]: 'volcengine' } }
 const patch = applyConfigPatch(config, { planBilling: selected })
 assert.deepEqual(patch.errors, [])

@@ -19,11 +19,11 @@ const state = {config:saved,today:total,month:total,total,history:[],codingPlans
 const client = readdirSync('src/client').filter(n=>n.endsWith('.js')).sort().map(n=>readFileSync('src/client/'+n,'utf8')).join('')
   .replace('exports.apply = apply','exports.picker = { renderSidebarFooter, CornerChips, makeT, css, formatMoneyUsd }; exports.apply = apply')
 const code = `
-import React from ${literal(req.resolve('react'))};import{createRoot}from ${literal(req.resolve('react-dom/client'))};const h=React.createElement;
+import * as ReactDOMPortal from ${literal(req.resolve('react-dom'))};import React from ${literal(req.resolve('react'))};import{createRoot}from ${literal(req.resolve('react-dom/client'))};const h=React.createElement;
 const mainRequire=name=>name==='react'?React:{Tooltip:({children})=>children};mainRequire.async=async()=>window.peakUI;
 window.__ModuleLoader__={load:mod=>window.mainUI=mod.factory(mainRequire)};
 ${client}
-window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(()=>React)};
+window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(name=>name==='react-dom'?ReactDOMPortal:React)};
 ${readFileSync('lib/client.peak.js','utf8')}
 window.__ModuleLoader__={load:mod=>window.displayUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.display.js','utf8')}

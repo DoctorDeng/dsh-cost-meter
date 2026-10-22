@@ -1,6 +1,6 @@
     function ModelSidebarSettings({ draft, setDraft, t, visibilityControl = true, numInput }) {
       const cfg = { enabled: false, period: 'today', topN: 5, summary: 'total', position: 'last', defaultOpen: false, remember: true, tokens: false, shares: true, refreshSeconds: 60, dock: false, ...draft?.sidebarModels }
-      const set = (key, value) => { if (draft) setDraft({ ...draft, sidebarModels: { ...cfg, [key]: value } }) }
+      const set = (key, value) => { if (draft) setDraft({ ...draft, ...(key === 'position' && Object.hasOwn(draft, 'sidebarOrder') ? { sidebarOrder: [] } : {}), sidebarModels: { ...cfg, [key]: value } }) }
       const select = (key, choices) => el('div', { className: 'cm-field', key, 'data-model-field': key }, el('label', null, t('models_' + key)), el('select', { className: 'cm-input', value: cfg[key], onChange: e => set(key, e.target.value) }, choices.map(([value, label]) => el('option', { key: value, value }, t(label)))))
       return el('div', { className: 'cm-grid' },
         visibilityControl ? el('div', { className: 'cm-grid-group' }, t('modelsTitle')) : null,
@@ -14,7 +14,7 @@
 // Real footer markup, clipped and scaled only in the small style selector.
 // The editable scene itself always stays at its normal size.
 function SidebarStyleSample({ render, config, mode, data, examples }) {
-  const sample = React.useMemo(() => render({ ...config, sidebarSimple: mode === 'simple', sidebarStyle: mode === 'compact' ? 'compact' : 'standard' }, data, examples), [render, config, mode, data, examples])
+  const sample = React.useMemo(() => render({ ...config, sidebarSimple: mode === 'simple', sidebarStyle: mode === 'simple' ? 'standard' : mode }, data, examples), [render, config, mode, data, examples])
   return el('div', { className: 'cm-style-thumbnail', 'aria-hidden': true, inert: '' },
     el('div', { className: 'cm-style-thumbnail-content' }, sample))
 }
@@ -44,8 +44,10 @@ function DisplayInspector({ props, config, set, selected, selectedPlan, selectPl
   const direction = (kind, label = t('barDirectionsTitle')) => React.cloneElement(choice(label, config.barDirections?.[kind] ?? (kind === 'balance' ? 'remaining' : 'used'),
     [['used', t('barDirectionUsed')], ['remaining', t('barDirectionRemaining')]], value => nested('barDirections', { [kind]: value })), { 'data-inspector-wide': true })
   const display = key => field(text('显示位置', 'Placement'), el('select', { className: 'cm-input', value: config[key]?.display === 'off' ? 'sidebar' : config[key]?.display ?? 'both', onChange: e => set({ [key]: { ...config[key], display: e.target.value }, ...(key === 'balance' ? { hideOfficialBalance: false } : {}) }) }, ...displayOptions(t).filter(option => option.props.value !== 'off')))
-  const todayControls = () => [
-    choice(t('sidebarTodayMetric'), config.sidebarTodayMetric ?? 'cost', [['cost', t('sidebarTodayCost')], ['tokens', t('sidebarTodayTokens')]], value => set({ sidebarTodayMetric: value }))]
+  const todayControls = () => ['cost', 'tokens'].map(kind => {
+    const mode = config.sidebarTodayMetric ?? 'cost', other = kind === 'cost' ? 'tokens' : 'cost'
+    return check(kind === 'cost' ? t('sidebarTodayCost') : t('sidebarTodayTokens'), mode !== other, enabled => set({ sidebarTodayMetric: enabled ? mode === other ? 'both' : kind : other }), { 'data-display-option': 'today-' + kind, disabled: mode === kind })
+  })
   const sessionControls = () => [
     choice(t('positionLabel'), config.position === 'off' ? region === 'conversation' ? 'header' : 'dock' : config.position ?? 'dock', [['dock', t('positionDock')], ['header', t('positionHeader')]], value => set({ position: value })),
     check(t('sessionCostCompact'), config.sessionCostCompact === true, value => set({ sessionCostCompact: value })),
@@ -107,11 +109,12 @@ function DisplayInspector({ props, config, set, selected, selectedPlan, selectPl
     ]
   }
   if (selected === 'codex' || selected === 'strip-codex') controls = [
+    check(t('codexQuotaEnabled'), config.codexQuotaEnabled === true, value => set({ codexQuotaEnabled: value }), { 'data-display-option': 'codex-enabled' }),
     choice(text('数据源', 'Data source'), config.codexQuotaSource ?? 'auto',
       [['auto', text('自动检测', 'Auto-detect')], ['connect', 'dsh-codex-connect'], ['subscription', 'dsh-codex-subscription'], ['chatgpt', 'dsh-chatgpt-subscription']],
       value => set({ codexQuotaSource: value })),
     el('p', { className: 'cm-inspector-note cm-inspector-help' }, text('自动检测依次尝试 dsh-codex-subscription、dsh-chatgpt-subscription、dsh-codex-connect。', 'Auto tries dsh-codex-subscription, dsh-chatgpt-subscription, then dsh-codex-connect.')),
-    config.codexQuotaEnabled !== true ? el('p', { className: 'cm-inspector-note' }, text('先在账户与额度设置中启用 Codex 额度。', 'Enable Codex quota in account and quota settings first.')) : null,
+    config.codexQuotaEnabled !== true ? el('p', { className: 'cm-inspector-note' }, text('额度查询未开启。打开上方开关后，可在侧栏和输入区显示。', 'Quota queries are disabled. Enable the switch above to show quota in the sidebar and composer.')) : null,
     el('button', { type: 'button', className: 'cm-btn small', onClick: openQuota }, text('账户与额度设置 →', 'Account and quota settings →'))]
   if (selected === 'general') controls = [
     choice(t('languageLabel'), config.locale ?? 'auto', [['auto', t('localeAuto')], ['zh', '简体中文'], ['en', 'English']], value => set({ locale: value })),
@@ -122,10 +125,10 @@ function DisplayInspector({ props, config, set, selected, selectedPlan, selectPl
     number(t('decimalsLabel'), config.decimals ?? 2, value => set({ decimals: Math.floor(value) }), 0, 10),
     USAGE_POSITION_SWITCHABLE ? choice(t('usagePositionLabel'), config.usage?.position ?? 'cost', [['cost', t('usagePositionCost')], ['general', t('usagePositionGeneral')], ['section', t('usagePositionSection')]], value => nested('usage', { position: value })) : null]
   if (general) return el('details', { className: 'cm-display-general cm-display-inspector' },
-    el('summary', null, text('金额与语言', 'Currency and language')),
-    el('p', null, text('统一应用于所有费用组件。', 'Applies to all cost components.')),
+    el('summary', null, text('通用设置 · 外观、提醒、金额与语言', 'General · appearance, notices, currency and language')),
+    el('div', { className: 'cm-display-preferences' }, el(SkinTransparency, { config, set, text }), el(CompatibilityNotice, { config, set, text, state: props.state })),
     el('div', { className: 'cm-general-grid' }, ...controls))
-  const mode = config.sidebarSimple ? 'simple' : config.sidebarStyle === 'compact' ? 'compact' : 'standard'
+  const mode = config.sidebarSimple ? 'simple' : config.sidebarStyle === 'summary' ? 'summary' : config.sidebarStyle === 'compact' ? 'compact' : 'standard'
   const showStyles = region === 'sidebar' && stylesOpen
   const selection = registry[selected]
   const scope = region === 'sidebar' ? text('在侧栏显示', 'Show in sidebar') : region === 'composer' ? text('在输入区显示', 'Show in composer') : text('在会话内容显示', 'Show in conversation')
@@ -134,12 +137,13 @@ function DisplayInspector({ props, config, set, selected, selectedPlan, selectPl
       ...(region === 'sidebar' ? ['sessionList','budget','balance','today','peak','models','go','plan','customBalance','codex'] : region === 'composer' ? ['strip-budget','strip-go','strip-plans','strip-codex','session-dock','badge','corner','models'] : ['session-header','badge','turn']).map(key => el('option', { key, value: key }, labels[key])))),
     selection ? el('div', { className: 'cm-inspector-visibility', title: scope }, check(text('显示此组件', 'Show this component'), selection.on, () => set(selection.patch), { 'data-display-toggle': selected })) : null,
     selected ? el('div', { className: 'cm-inspector-controls', key: selected, 'data-inspector': selected }, ...controls) : null,
-    region === 'sidebar' ? el('button', { type: 'button', className: 'cm-inspector-layout', 'aria-expanded': stylesOpen, onClick: () => setStylesOpen?.(!stylesOpen) }, text('侧栏布局', 'Sidebar layout'), el('span', null, text(mode === 'simple' ? '简洁' : mode === 'compact' ? '紧凑' : '标准', mode === 'simple' ? 'Simple' : mode === 'compact' ? 'Compact' : 'Standard'), stylesOpen ? ' ▴' : ' ▾')) : null,
+    region === 'sidebar' ? check(text('今日消费与余额同行', 'Today and balance on one line'), config.sidebarTodayBalanceInline === true, value => set({ sidebarTodayBalanceInline: value, ...(value ? { sidebarTodayMetric: 'cost' } : {}) }), { 'data-display-option': 'today-balance-inline' }) : null,
+    region === 'sidebar' ? el('button', { type: 'button', className: 'cm-inspector-layout', 'aria-expanded': stylesOpen, onClick: () => setStylesOpen?.(!stylesOpen) }, text('侧栏布局', 'Sidebar layout'), el('span', null, text(mode === 'summary' ? '合并卡片' : mode === 'simple' ? '简洁' : mode === 'compact' ? '紧凑' : '标准', mode === 'summary' ? 'Combined card' : mode === 'simple' ? 'Simple' : mode === 'compact' ? 'Compact' : 'Standard'), stylesOpen ? ' ▴' : ' ▾')) : null,
     showStyles ? el('div', { className: 'cm-preview-style-options', role: 'group', 'aria-label': text('侧栏布局', 'Sidebar layout') },
-      ...[['simple', text('简洁', 'Simple')], ['standard', text('标准', 'Standard')], ['compact', text('紧凑', 'Compact')]].map(([value, label]) =>
+      ...[['summary', text('合并卡片', 'Combined card')], ['simple', text('简洁', 'Simple')], ['standard', text('标准', 'Standard')], ['compact', text('紧凑', 'Compact')]].map(([value, label]) =>
         el('div', { key: value, role: 'button', tabIndex: 0, 'aria-pressed': mode === value,
           onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.currentTarget.click() } },
-          onClick: () => set({ sidebarSimple: value === 'simple', sidebarSimplePromptSeen: true, ...(value === 'simple' ? {} : { sidebarStyle: value }) }) },
+          onClick: () => set({ sidebarSimple: value === 'simple', sidebarSimplePromptSeen: true, ...(value === 'simple' ? {} : { sidebarStyle: value }), ...(value === 'summary' ? { ...(Object.hasOwn(config, 'sidebarSummaryPromptSeen') ? { sidebarSummaryPromptSeen: true } : {}), sidebarTodayMetric: 'both', peakStyle: 'progress', ...(Object.hasOwn(config, 'sidebarOrder') ? { sidebarOrder: ['today', 'balance', 'peak', ...(config.sidebarOrder ?? []).filter(key => !['today', 'balance', 'peak'].includes(key))] } : {}) } : {}) }) },
           el(SidebarStyleSample, { render: props.renderStyleSample, config: previewData.config, data: previewData.state, examples, mode: value }), el('span', { className: 'cm-style-caption' }, label)))) : null,
     el(DisplayInspector, { props, config, set, selected: 'general', text, general: true }))
 }

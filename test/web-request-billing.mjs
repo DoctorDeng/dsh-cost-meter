@@ -18,7 +18,7 @@ const clock = Date.now; let now = Date.now() - 86400000
 Date.now = () => now
 const path = join(root, 'ledger.json'), session = { id: 'web-fees' }
 let ledger = new Ledger(sanitizeConfig({ exchangeRate: 7.2, peakEnabled: true,
-  planBilling: { models: { 'deepseek-official:deepseek-web-fetch': 'plan' } } }), {}, path)
+  planBilling: { models: { 'deepseek-official:deepseek-fetch-api': 'plan' } } }), {}, path)
 let payload = { title: 'PRIVATE-TITLE', content: '# PRIVATE-PAGE' }, status = 200, both = true, redirected = false, error
 const captured = [], gaps = []
 const target = { fetch(url, init) {

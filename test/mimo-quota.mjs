@@ -141,7 +141,7 @@ const i18nSrc = readFileSync(resolve(root, 'src/client/01-open-styles-i18n.js'),
 for (const key of ['codingPlanMimo:', 'mimoWindowPlan', 'mimoWindowCompensation', 'codingPlanWindowBalance']) {
   assert.equal(i18nSrc.split(key).length - 1, 2, `i18n key ${key} 应在中英两处出现`)
 }
-const panelsSrc = readFileSync(resolve(root, 'src/client/03-settings-panels-main.js'), 'utf8')
+const panelsSrc = readFileSync(resolve(root, 'src/client/03-settings-panels-main.js'), 'utf8') + readFileSync(resolve(root, 'src/plan-settings/index.js'), 'utf8')
 assert.ok(panelsSrc.includes("{ id: 'mimo', labelKey: 'codingPlanMimo' }"))
 assert.ok(panelsSrc.includes('Cookie (platform.xiaomimimo.com)'))
 const sidebarSrc = readFileSync(resolve(root, 'src/client/02-validators-helpers-sidebar.js'), 'utf8')

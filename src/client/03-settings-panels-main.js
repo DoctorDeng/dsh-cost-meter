@@ -13,14 +13,14 @@
     function BillionCompatibilityGuide(props) {
       const state = props.useCost?.(s => s)?.state, meter = state?.billionContext
       const [Page, setPage] = useState(null)
-      const show = meter?.noticeId && ['needs_update', 'changed', 'bridge_missing'].includes(meter.compatibility)
+      const show = state?.config?.billionContextNoticeEnabled !== false && meter?.noticeId && !state?.config?.billionContextNoticesSeen?.includes(meter.noticeId) && ['needs_update', 'changed', 'bridge_missing'].includes(meter.compatibility)
       useEffect(() => {
         if (!show) return
         let active = true
         props.api.loadStatistics().then(page => { if (active) setPage(() => page.BillionCompatibilityNotice) }).catch(() => {})
         return () => { active = false }
       }, [!!show, props.api])
-      return show && Page ? el(Page, { meter, locale: resolveLocale(state?.config ?? {}) }) : null
+      return show && Page ? el(Page, { meter, config: state.config, api: props.api, locale: resolveLocale(state?.config ?? {}) }) : null
     }
     function BillingStatistics(props) {
       const load = props.load ?? props.api.loadStatistics
@@ -1521,223 +1521,11 @@
     ]
 
     /** 单个 Coding Plan 订阅卡片(11 家共用:开关在标题行,展示/间隔/计划额度/凭据收在展开区)。 */
-    function PlanQuotaCard(props) {
-      const { state, api, t, draft, setDraft, planId, labelKey } = props
-      const config = state.config
-      const plansState = state.codingPlans ?? {}
-      const cfgEntry = draft?.codingPlans?.[planId] ?? config.codingPlans?.[planId] ?? {}
-      const live = plansState[planId] ?? { status: 'off', message: '', fetchedAt: 0, windows: {} }
-      const enabled = cfgEntry.enabled === true
-      const [open, setOpen] = useState(props.targeted === true)
-      const loginRequired = planId === 'qwen' && config.codingPlans?.qwen?.quotaSource === 'bailian'
-        && cfgEntry.quotaSource === 'bailian' && live.quotaSource === 'bailian' && live.loginRequired === true
-      const [busy, msg, doRefresh] = useQuotaRefresh(t, () => loginRequired ? api.loginCodingPlan(planId) : api.refreshCodingPlan(planId))
-      const setPlan = (field, value) => {
-        if (draft === null) return
-        const base = draft.codingPlans ?? config.codingPlans ?? {}
-        setDraft({ ...draft, codingPlans: { ...base, [planId]: { ...(base[planId] ?? {}), [field]: value } } })
-      }
-      // 千问抵扣率编辑(#103):三项未填齐时保留本地草稿,完整后才自动保存。
-      // 空行属于编辑状态,不能放进自动保存的 rates:服务端会清除空费率。
-      const [qwenNewRateModel, setQwenNewRateModel] = useState('')
-      const [qwenRateDrafts, setQwenRateDrafts] = useState({})
-      const ratesDraftOf = entry => (entry?.rates !== null && typeof entry?.rates === 'object' && !Array.isArray(entry.rates) ? entry.rates : {})
-      const rateFields = ['input', 'cachedInput', 'output']
-      const qwenRateEntry = model => qwenRateDrafts[model] ?? ratesDraftOf(cfgEntry)[model] ?? {}
-      const rateReady = entry => rateFields.every(field => Number.isFinite(Number(entry[field])) && Number(entry[field]) > 0)
-      const setPlanRates = (model, field, raw) => {
-        if (draft === null) return
-        const entry = { ...qwenRateEntry(model), [field]: String(raw) }
-        setQwenRateDrafts(rows => ({ ...rows, [model]: entry }))
-        const empty = rateFields.every(key => String(entry[key] ?? '').trim() === '')
-        if (!empty && !rateReady(entry)) return
-        const base = draft.codingPlans ?? config.codingPlans ?? {}
-        const current = { ...((base.qwen ?? {}).rates ?? {}) }
-        if (empty) delete current[model]
-        else current[model] = Object.fromEntries(rateFields.map(key => [key, Number(entry[key])]))
-        setDraft({ ...draft, codingPlans: { ...base, qwen: { ...(base.qwen ?? {}), rates: current } } })
-      }
-      const setPlanRatesAdd = model => {
-        if (draft === null) return
-        setQwenRateDrafts(rows => ({ ...rows, [model]: rows[model] ?? ratesDraftOf(cfgEntry)[model] ?? {} }))
-      }
-      const setPlanRatesRemove = model => {
-        if (draft === null) return
-        setQwenRateDrafts(rows => { const next = { ...rows }; delete next[model]; return next })
-        const base = draft.codingPlans ?? config.codingPlans ?? {}
-        const current = { ...((base.qwen ?? {}).rates ?? {}) }
-        delete current[model]
-        setDraft({ ...draft, codingPlans: { ...base, qwen: { ...(base.qwen ?? {}), rates: current } } })
-      }
-      const windows = live.windows !== null && typeof live.windows === 'object' ? live.windows : {}
-      const statusNode = enabled === false
-        ? el('p', { className: 'cm-note' }, t('codingPlanDisabledNote'))
-        : live.status === 'ok'
-          ? el('div', { className: 'cm-go-list' },
-            live.message ? el('p', { className: 'cm-note' }, live.message) : null,
-            Object.keys(windows).length > 0
-              ? (planId === 'minimax' && (miniMaxWindowsOf(windows).five != null || miniMaxWindowsOf(windows).seven != null)
-                ? el(MiniMaxPlanCard, {
-                  five: miniMaxWindowsOf(windows).five,
-                  seven: miniMaxWindowsOf(windows).seven,
-                  fetchedAt: live.fetchedAt,
-                  t,
-                  wide: true,
-                  direction: barDirectionOf(config, 'plan'),
-                })
-                : Object.entries(windows).map(([name, win]) => quotaWindowRow(t, codingPlanWindowLabel(name, t), win, barDirectionOf(config, 'plan'), false, name)))
-              : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried')),
-            el('div', { className: 'cm-go-time' }, t('goQuotaFetchedAt', {
-              time: live.fetchedAt > 0 ? new Date(live.fetchedAt).toLocaleTimeString() : '—',
-            })))
-          : live.status === 'error'
-            ? el('div', { className: 'cm-bal-line err' }, live.message || t('unknownError'))
-            : live.status === 'off' && live.message
-              ? el('p', { className: 'cm-note' }, live.message)
-              : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried'))
-      const configNode = el(Fragment, null,
-        planId === 'opendesign' ? el('div', { className: 'cm-field' },
-          el('label', null, t('opendesignWorkspace')),
-          el('input', { className: 'cm-input', 'aria-label': t('opendesignWorkspace'), value: cfgEntry.workspaceId ?? '', onChange: e => setPlan('workspaceId', e.target.value) }),
-          el('p', { className: 'cm-note' }, t('opendesignNote'))) : null,
-        planId === 'factory' ? el(Fragment, null,
-          el('div', { className: 'cm-field' },
-            el('label', null, t('factoryPool')),
-            el('select', { className: 'cm-input', 'aria-label': t('factoryPool'), value: cfgEntry.factoryPool ?? 'standard', onChange: e => setPlan('factoryPool', e.target.value) },
-              el('option', { value: 'standard' }, 'Standard'),
-              el('option', { value: 'core' }, 'Droid Core'),
-              el('option', { value: 'both' }, t('factoryPoolBoth')))),
-          el('div', { className: 'cm-field' },
-            el('label', null, t('factoryOrg')),
-            el('input', { className: 'cm-input', 'aria-label': t('factoryOrg'), value: cfgEntry.orgId ?? '', onChange: e => setPlan('orgId', e.target.value) }))) : null,
-        planId === 'minimax' ? el('div', { className: 'cm-field' },
-          el('label', null, t('minimaxOrigin')),
-          el('input', { className: 'cm-input', type: 'url', value: cfgEntry.baseUrl ?? '', placeholder: 'https://www.minimax.cn',
-            'aria-label': t('minimaxOrigin'), onChange: e => setPlan('baseUrl', e.target.value) }),
-          el('p', { className: 'cm-note' }, t('minimaxOriginNote'))) : null,
-        planId === 'qwen' ? el('div', { className: 'cm-field' },
-          el('label', null, t('qwenSource')),
-          el('select', { className: 'cm-input', value: cfgEntry.quotaSource ?? 'local', onChange: e => setPlan('quotaSource', e.target.value) },
-            el('option', { value: 'local' }, t('qwenSourceLocal')),
-            el('option', { value: 'cli' }, t('qwenSourceCli')),
-            el('option', { value: 'bailian' }, t('qwenSourceBailian'))),
-          el('p', { className: 'cm-note' }, t(cfgEntry.quotaSource === 'bailian' ? 'qwenBailianNote' : 'qwenCliNote'))) : null,
-        el('div', { className: 'cm-field' },
-          el('label', null, t('codingPlanDisplayLabel')),
-          el('select', {
-            className: 'cm-input',
-            value: typeof cfgEntry.display === 'string' ? cfgEntry.display : (planId === 'minimax' ? 'both' : 'settings'),
-            onChange: event => setPlan('display', event.target.value),
-          },
-            el('option', { value: 'sidebar' }, t('balanceSidebar')),
-            el('option', { value: 'settings' }, t('balanceSettings')),
-            el('option', { value: 'both' }, t('balanceBoth')),
-            el('option', { value: 'off' }, t('off'))),
-          el('span', { className: 'cm-hint' }, t('codingPlanDisplayNote'))),
-        // 刷新间隔(issue #33):进程内缓存过期分钟数,1-1440,保存后生效;
-        // 本地估算无缓存间隔；千问 CLI 使用可配置的查询间隔。
-        planId !== 'scnet' && (planId !== 'qwen' || (cfgEntry.quotaSource ?? 'local') !== 'local') ? el('div', { className: 'cm-field' },
-          el('label', null, t('codingPlanRefreshIntervalLabel')),
-          numInput({ value: typeof cfgEntry.refreshMinutes === 'number' && Number.isFinite(cfgEntry.refreshMinutes) && cfgEntry.refreshMinutes > 0 ? cfgEntry.refreshMinutes : 15 }, v => {
-            setPlan('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v))))
-          })) : null,
-        planId === 'scnet' || (planId === 'qwen' && (cfgEntry.quotaSource ?? 'local') === 'local')
-          ? el(Fragment, null,
-            el('div', { className: 'cm-field' },
-              el('label', null, t(planId === 'qwen' ? 'qwenPlanCreditsLabel' : 'scnetPlanCreditsLabel')),
-              el('input', {
-                className: 'cm-input', type: 'number', min: '1', step: '1000',
-                value: typeof cfgEntry.planCredits === 'number' && Number.isFinite(cfgEntry.planCredits) && cfgEntry.planCredits > 0 ? cfgEntry.planCredits : (planId === 'qwen' ? 500000 : 240000),
-                onChange: event => {
-                  const n = Number(event.target.value)
-                  if (Number.isFinite(n) && n > 0) setPlan('planCredits', Math.floor(n))
-                },
-              })),
-            el('div', { className: 'cm-field' },
-              el('label', null, t(planId === 'qwen' ? 'qwenPlanStartLabel' : 'scnetPlanStartLabel')),
-              el('input', {
-                className: 'cm-input', type: 'date',
-                value: typeof cfgEntry.planStart === 'string' ? cfgEntry.planStart : '',
-                onChange: event => setPlan('planStart', event.target.value),
-              })),
-            // 千问抵扣率覆盖(issue #78):模型名 + 输入/缓存读/输出三费率(每百万
-            // token 抵扣的 Credits);留空用内置表,改指模型按新表折算。
-            planId === 'qwen' ? el(Fragment, null,
-              el('div', { className: 'cm-field' },
-                el('label', null, t('qwenRatesLabel'))),
-              [...new Set([...Object.keys(ratesDraftOf(cfgEntry)), ...Object.keys(qwenRateDrafts)])].sort().map(model => el('div', { key: model, className: 'cm-match-row' },
-                el('span', { style: { minWidth: '120px' } }, model),
-                rateFields.map(field => el('input', {
-                  key: field, className: 'cm-input narrow', type: 'number', min: '0', step: '0.1',
-                  value: qwenRateEntry(model)[field] ?? '',
-                  placeholder: t('qwenRate_' + field), 'aria-label': model + ' · ' + t('qwenRate_' + field),
-                  onChange: event => {
-                    const raw = event.target.value
-                    setPlanRates(model, field, raw)
-                  },
-                })),
-                el('button', { className: 'cm-btn small', onClick: () => setPlanRatesRemove(model) }, t('overrideRemove')),
-                model in qwenRateDrafts && !rateReady(qwenRateEntry(model)) ? el('span', { className: 'cm-note' }, t('qwenRateDraftNote')) : null)),
-              el('div', { className: 'cm-buttons' },
-                el('input', {
-                  className: 'cm-input narrow', type: 'text', placeholder: t('qwenRatesModelPlaceholder'),
-                  value: qwenNewRateModel,
-                  onChange: event => setQwenNewRateModel(event.target.value),
-                }),
-                el('button', { className: 'cm-btn small', onClick: () => {
-                  const name = qwenNewRateModel.trim()
-                  if (name.length === 0) return
-                  setPlanRatesAdd(name)
-                  setQwenNewRateModel('')
-                }, disabled: qwenNewRateModel.trim().length === 0 }, t('qwenRatesAdd'))))
-              : null,
-            el('p', { className: 'cm-note' }, t(planId === 'qwen' ? 'qwenLocalNote' : 'scnetLocalNote')))
-          : planId === 'qwen' ? null : planId === 'volcengine'
-            ? el(Fragment, null,
-              el('div', { className: 'cm-field' },
-                el('label', null, t('volcengineAccessKeyIdLabel'))),
-              // 密钥改由 DSH 凭据库托管(v1.6.8):不再读/写 config 里的明文,
-              // 经 setCredential / clearCredential 单向操作凭据库,输入框永不回显。
-              el(CredentialField, {
-                target: 'codingPlans.volcengine.ak',
-                configured: live.keyConfigured === true,
-                source: live.keySource,
-                t, api,
-                placeholder: t('volcengineAccessKeyPlaceholder'),
-              }),
-              el('div', { className: 'cm-field' },
-                el('label', null, t('volcengineSecretAccessKeyLabel'))),
-              el(CredentialField, {
-                target: 'codingPlans.volcengine.sk',
-                configured: live.keyConfigured === true,
-                source: live.keySource,
-                t, api,
-                placeholder: t('volcengineSecretPlaceholder'),
-              }),
-              el('p', { className: 'cm-note' }, t('volcengineNote')))
-            : planId === 'workbuddy' ? el('p', { className: 'cm-note' }, t('wbH'))
-            : el(Fragment, null,
-              el('div', { className: 'cm-field' },
-                el('label', null, planId === 'mimo' ? 'Cookie (platform.xiaomimimo.com)' : planId === 'factory' ? 'Factory Token' : planId === 'opendesign' ? 'OpenDesign Control Key' : t('codingPlanKeyLabel'))),
-              el(CredentialField, {
-                target: 'codingPlans.' + planId,
-                configured: live.keyConfigured === true,
-                source: live.keySource,
-                t, api,
-                placeholder: planId === 'mimo' ? 'api-platform_serviceToken=…; userId=…' : planId === 'factory' ? 'FACTORY_API_KEY' : planId === 'opendesign' ? 'OPENDESIGN_CONTROL_KEY' : 'sk-…',
-              })))
-      return el(QuotaCard, {
-        planId, targeted: props.targeted,
-        name: t(labelKey), enabled, saved: config.codingPlans?.[planId], busy, open, errorMsg: msg,
-        statusNode, configNode,
-        onToggle: value => setPlan('enabled', value),
-        onRefresh: doRefresh,
-        onLogin: doRefresh,
-        loginRequired,
-        onToggleOpen: () => setOpen(v => !v),
-        t,
-      })
+    let planSettingsPage
+    function loadPlanSettings() {
+      return planSettingsPage ??= require.async('./client.plan-settings.js').then(module => module.mount({ useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd })).catch(error => { planSettingsPage = null; throw error })
     }
+    function PlanQuotaCard(props) { return el(BillingStatistics, { ...props, load: loadPlanSettings }) }
 
     /** 额度区总装:四类来源归一成同一串卡片,已启用的排前面(顺序纯由 enabled 派生,不落盘)。 */
     function QuotasSection(props) {
@@ -2422,7 +2210,7 @@
       }
       const pages = {}
       const loadPage = name => {
-        if (!pages[name]) pages[name] = require.async('./client.' + name + '.js').then(module => module.mount(ctx, store, resolveLocale, { formatMoneyUsd, displayCostOf, formatTokens })).catch(error => { delete pages[name]; throw error })
+        if (!pages[name]) pages[name] = require.async('./client.' + name + '.js').then(module => module.mount(ctx, store, resolveLocale, { formatMoneyUsd, displayCostOf, formatTokens, updateConfig: patch => api.updateConfig(patch) })).catch(error => { delete pages[name]; throw error })
         return pages[name]
       }
       const api = {
@@ -2430,7 +2218,7 @@
         loadOpenRouter: () => loadPage('openrouter'),
         loadCommunity: () => loadPage('community'),
         loadPricing: () => loadPage('pricing'),
-        loadDisplay: () => loadPage('display'),
+        loadDisplay: () => Promise.all([loadPage('display'), loadPage('sidebar-order')]).then(([view]) => view),
         loadCodex: () => loadPage('codex'),
         reload,
         updateConfig: async patch => {
@@ -2551,6 +2339,8 @@
         { name: 'sidebar.footer.action', id: 'cost-meter-billion-compatibility', order: 2, inject: injected }, BillionCompatibilityGuide))
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: 'cost-meter-peak-progress-guide', order: 1, inject: injected }, PeakProgressGuide))
+      slots.inject('sidebar.footer.action', () => slots.register(
+        { name: 'sidebar.footer.action', id: 'cost-meter-summary-guide', order: 1, inject: injected }, SidebarSummaryGuide))
       // 首次更新引导:常驻 sidebar.footer.action 挂载,组件内部按 promptSeen 门控。
       slots.inject('sidebar.footer.action', () => {
         const dispose = slots.register(
@@ -2615,7 +2405,6 @@
       const sync = () => {
         const state = store.getSnapshot().state
         if (state?.config?.sessionListCosts) void loadPage('session-list').catch(() => {})
-        if (state?.config?.followSkinTransparency) void loadPage('display').catch(() => {})
         const position = state?.config?.position ?? 'dock'
         const showToday = state?.config?.sidebar !== false && state?.config?.hideTodayCost !== true
         const balanceDisplay = state?.config?.balance?.display ?? 'both'
@@ -2628,6 +2417,8 @@
           || Object.values(state?.config?.codingPlans ?? {}).some(side)
           || (state?.config?.gatewayQuotas?.sources ?? []).some(side)
           || visibleCustomEntries(state, state?.config).length > 0
+        if (state?.config?.followSkinTransparency) void loadPage('display').catch(() => {})
+        if (footer && require.async) void loadPage('sidebar-order').catch(() => {})
         const cornerEnabled = state?.config?.corner?.enabled === true || state?.config?.sidebarModels?.dock === true
         const sectionLocale = resolveLocale(state?.config || { activeLocale: store.getSnapshot().locale })
         const usagePosition = state?.config?.usage?.position ?? 'cost'

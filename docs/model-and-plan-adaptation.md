@@ -129,17 +129,20 @@
 
 ## 二·五、Plan/API 双轨计费分类(issue #64,v1.5.51 起)
 
-账本在 day / session / byProviderModel 三级同时记录「总等值金额 cost」与「真金白银 apiCost」;预算、今日费用、概览卡片等金额展示仅统计 API 部分,订阅额度消耗以等值口径单独呈现。分类优先级:**模型级覆盖(planBilling.models[provider:model])> 厂商级配置(planBilling.providers)> auto**(该家额度查询启用即 plan,否则 api)。
+账本在 day / session / byProviderModel 三级同时记录「总等值金额 cost」与「真金白银 apiCost」;预算、今日费用、概览卡片等金额展示仅统计 API 部分,订阅额度消耗以等值口径单独呈现。分类优先级:**模型级覆盖(planBilling.models[provider:model])> 原始渠道配置(planBilling.providers[provider])> 套餐厂商配置 > auto**(该家额度查询启用即 plan,否则 api)。原始渠道名按请求中的 provider 精确匹配，可为未内置的渠道显式配置 plan/api；auto 表示继续按套餐厂商配置和启用状态判断。DeepSeek 官方搜索、抓取请求费始终归 API。
 
 | 厂商 | 默认(auto 行为)| 说明 |
 |---|---|---|
 | anthropic / zai / minimax / commandcode / clinepass / scnet / volcengine | 启用额度查询 → plan | 窗口百分比制订阅 |
 | kimi | 启用额度查询 → plan | 订阅窗口;PAYG 余额场景请把对应模型覆盖为 api |
+| workbuddy / workbuddy-ai / workbuddy-global | 启用 WorkBuddy 积分查询 → plan | 两种 WorkBuddy 连接插件的国内版、国际版沿用 workbuddy 套餐配置；也可显式设置 providers.workbuddy=plan |
 | openrouter / siliconflow | api | credits/余额为真实扣费 |
 | OpenCode Go(zen/opencode 路由)| 启用 Go 额度 → plan | Go 订阅包含模型;Zen 按量用户请覆盖为 api |
 | Codex(ChatGPT 订阅)| api(手动标记)| 无 API-Key 化额度端点,可在设置中按 provider:model 标记为 plan |
 
 每 1% 额度与满窗的 token/等值金额估算由**百分比采样历史**差分推算(每次额度刷新成功记录一条样本,每厂商×窗口上限 400 条 / 90 天);样本不足时回退「本周期实际 ÷ 当前已用%」折算。SCNet 为本地 Credits 自估,不参与采样估算。
+
+WorkBuddy 国际版的历史分类修复在升级后的启动阶段执行一次，按现有配置调整每日和会话的 API 金额，保留原金额、历史价格、Token 和调用数。Plan 等值金额用于比较模型用量，不代表 WorkBuddy 实际扣除的积分；免费模型仍可有非零的 API 等值金额。
 
 ---
 

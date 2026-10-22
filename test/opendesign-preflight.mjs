@@ -179,7 +179,7 @@ for (const locale of ['zh', 'en']) {
   const broken = { ...preflightBody, codingPlan: { ...preflightBody.codingPlan, windows: [{ ...windows[0], remainingCredits: '0' }] } }
   const { result } = await run({ usage: rejected(401), preflight: json(broken), wallet: json(wallet) })
   assert.deepEqual(result.partial, { usage: OPEN_DESIGN_QUOTA_FAILURES.invalidResponse })
-  assert.equal(Object.hasOwn(result.windows, 'fiveHour'), false)
+  assert.equal(Object.hasOwn(result.windows, 'weekly'), false)
 }
 
 // 9. A network failure on the preflight fallback is classified and never leaks the transport error.

@@ -6,6 +6,7 @@ window.__ModuleLoader__.load({
     const { createElement: el, useState, useEffect, useRef, Fragment } = React
     let modelLabels = () => ({})
     const prettyProviderKey = key => modelLabels()[key] ?? key.replace(/^zen:/i, 'go:').replace(/^(deepseek(?:-official|-account)?):deepseek-(?:v4(?:\.1)?-)?flash(?:-vision-exp)?$/i, '$1:DeepSeek V4.1 Flash')
+    const webSourceName = (call, text) => ({ messages: text('旧版 Messages 搜索', 'Legacy Messages search'), 'search-api': text('新版 Search API', 'New Search API'), 'fetch-api': text('新版 Fetch API', 'New Fetch API') })[call.webSource] ?? ''
     const fields = ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'calls', 'cost', 'apiCost']
     const amount = (row, basis) => basis === 'total' ? row.cost : basis === 'plan' ? Math.max(0, row.cost - row.apiCost) : row.apiCost
     const tokens = row => row.input + row.cacheRead + row.cacheWrite + row.output
@@ -17,19 +18,27 @@ window.__ModuleLoader__.load({
     const number = scalar('number'), string = scalar('string'), boolean = scalar('boolean')
     const nullableNumber = v => v === null ? null : number(v)
     const array = parse => v => { if (!Array.isArray(v)) throw new Error('Invalid statistics array'); return v.map(parse) }
-    const object = spec => v => {
-      if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('Invalid statistics object')
-      return Object.fromEntries(Object.entries(spec).map(([key, parse]) => [key, parse(v[key])]))
+    const object = spec => {
+      const entries = Object.entries(spec)
+      return v => {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('Invalid statistics object')
+        const parsed = {}
+        for (const [key, parse] of entries) parsed[key] = parse(v[key])
+        return parsed
+      }
     }
     const bucketSpec = Object.fromEntries(fields.map(key => [key, number]))
     const buckets = object(bucketSpec)
-    const costRow = value => ({ ...object({ provider: string, model: string, bucket: string, tokens: number, rate: number, cost: number, priced: boolean, plan: boolean })(value), ...(value.requests === undefined ? {} : { requests: number(value.requests) }) })
+    const costRowBase = object({ provider: string, model: string, bucket: string, tokens: number, rate: number, cost: number, priced: boolean, plan: boolean })
+    const costRow = value => ({ ...costRowBase(value), ...(value.requests === undefined ? {} : { requests: number(value.requests) }) })
     const requestNames = text => ({ searchRequests: text('搜索请求', 'Search requests'), fetchRequests: text('抓取请求', 'Fetch requests') })
     const sessionId = v => string(v ?? '')
     const meteringRow = object({ source: string, requestId: string, attempt: number, complete: boolean, status: string, upstream: string })
     const callBase = object({ sessionId, logSeq: v => nullableNumber(v ?? null), kind: string, turn: nullableNumber, step: nullableNumber, provider: string, model: string, atMs: number, cost: number, apiCost: number, plan: boolean, priced: boolean, longContext: boolean, rows: array(costRow) })
     const callRow = value => {
       const row = callBase(value)
+      if (value.webSource !== undefined) { if (!['messages','search-api','fetch-api'].includes(value.webSource)) throw new Error('Invalid search source'); row.webSource = value.webSource }
+      if (value.webSelection !== undefined) row.webSelection = string(value.webSelection)
       if (value.metering != null) row.metering = meteringRow(value.metering)
       return row
     }
@@ -305,7 +314,7 @@ window.__ModuleLoader__.load({
         el('div', { className: 'cm-cost-legend' }, ...rows.map(row => el('button', { ...inspect(row), type: 'button', key: row.key, className: 'cm-cost-key', 'aria-label': row.label + ' ' + share(row) }, el('i', { className: 'cm-plan-dot', style: { background: row.color } }), el('span', { className: 'cm-cost-key-label' }, row.label, amounts ? el('small', { className: 'cm-cost-key-amount' }, row.amount, row.caption ? ' · ' + row.caption : '') : null, ranked ? el('span', { className: 'cm-fee-share-track', 'aria-hidden': true }, el('i', { style: { width: (total > 0 ? row.value / total * 100 : 0) + '%', background: row.color } })) : null), el('span', { className: 'cm-cost-key-share' }, share(row))))),
         el('div', { className: 'cm-cost-inspect', role: 'status', 'aria-live': 'polite' }, active ? el(Fragment, null, el('strong', null, active.label), el('span', null, meta(active)), el('strong', null, active.amount)) : null))
     }
-    function ContextCosts({ api, sessionId, revision = '', text = (zh, en) => en, money = value => '$' + value.toLocaleString('en-US', { maximumFractionDigits: 6 }), integrated = false, compact = false, expanded = false }) {
+    function ContextCosts({ api, sessionId, revision = '', text = (zh, en) => en, money = value => '$' + value.toLocaleString('en-US', { maximumFractionDigits: 6 }), currency = 'USD', integrated = false, compact = false, expanded = false }) {
       const root = useRef(null), refresh = useRef(() => {}), revisionRef = useRef(revision)
       revisionRef.current = revision
       const [result, setResult] = useState(() => ({ value: cachedValue(requestEntry(api, 'getContextCosts', { sessionId }), revision), error: '', busy: true }))
@@ -335,7 +344,7 @@ window.__ModuleLoader__.load({
         integrated && api.disableIntegration ? el('button', { type: 'button', onClick: api.disableIntegration }, text('关闭联动', 'Turn off integration')) : null,
         el('button', { type: 'button', onClick: () => refresh.current(true), disabled: result.busy }, text('刷新', 'Refresh'))))
       const wrap = content => el('section', { className: 'cm-plan' + (compact ? ' cm-context-compact' : ''), ref: root, 'aria-label': text('当前上下文费用构成', 'Current context cost breakdown'), 'data-cm-plan-session': sessionId }, el('style', null, contextCostsCss), header,
-        integrated ? el('p', { className: 'cm-plan-sub' }, 'dsh-context × dsh-cost-meter · USD') : null,
+        integrated ? el('p', { className: 'cm-plan-sub' }, 'dsh-context × dsh-cost-meter · ' + currency) : null,
         result.error ? el('p', { role: 'alert', className: 'cm-plan-error' }, result.error) : null, content)
       if (!data || data.status !== 'ready') return wrap(el('p', { className: 'cm-plan-note' }, !data
         ? result.error ? text('点击刷新重试。', 'Select Refresh to retry.') : text('正在读取当前上下文…', 'Reading current context…')
@@ -364,7 +373,7 @@ window.__ModuleLoader__.load({
             el('div', { className: 'cm-plan-part-meta' }, el('span', null, '≈ ' + countText(row.tokens) + ' tokens'), el('span', null, priced ? pct(row.cost, breakdown.cost) : '—')))
         })))),
         call ? el('section', { className: 'cm-plan-last' }, el('h3', null, text('最近一次调用 · 用量计费', 'Latest call · usage-based costs')),
-          el('p', { className: 'cm-plan-sub' }, prettyProviderKey(call.provider + ':' + call.model) + ' · ' + new Date(call.atMs).toLocaleString()),
+          el('p', { className: 'cm-plan-sub' }, (webSourceName(call, text) ? webSourceName(call, text) + ' · ' : '') + prettyProviderKey(call.provider + ':' + call.model) + ' · ' + new Date(call.atMs).toLocaleString()),
           el(CostBreakdown, { rows: call.rows.filter(row => row.tokens > 0 && (row.bucket !== 'reasoning' || row.rate > 0)).map(row => ({ key: row.bucket, label: buckets[row.bucket] ?? row.bucket, tokens: row.tokens, value: row.cost, amount: call.priced ? money(row.cost) : text('未定价', 'Unpriced'), color: contextColors[bucketColors[row.bucket] ?? 7] })), total: call.priced ? call.cost : 0, label: text('费用占比', 'Cost share'), text }),
           el('details', { className: 'cm-cost-table', open: expanded }, el('summary', null, text('调用计费明细', 'Call billing details')), el('ul', { className: 'cm-plan-parts', style: { marginTop: 12 } }, ...call.rows.filter(row => row.bucket !== 'reasoning' || row.rate > 0).map(row => el('li', { key: row.bucket },
             el('div', { className: 'cm-plan-part-head' }, el('span', null, buckets[row.bucket] ?? row.bucket), el('span', null, call.priced ? money(row.cost) : text('未定价', 'Unpriced'))),
@@ -383,7 +392,7 @@ window.__ModuleLoader__.load({
       let active = true
       function wrap(Original) {
         return function ContextCostBridge(props) {
-          if (localeStore) React.useSyncExternalStore(localeStore.subscribe, getLocale)
+          const config = localeStore ? React.useSyncExternalStore(localeStore.subscribe, () => localeStore.getSnapshot().state?.config) : null
           const container = useRef(null), [target, setTarget] = useState(null)
           const composition = props.useProjection?.('contextBreakdown'), usage = props.useProjection?.('tokenUsage'), pressure = props.useProjection?.('contextPressure')
           const revision = JSON.stringify([composition, usage, pressure])
@@ -403,7 +412,10 @@ window.__ModuleLoader__.load({
             return () => { observer.disconnect(); node.remove() }
           }, [props.sessionId])
           const text = (zh, english) => getLocale() === 'en' ? english : zh
-          const portal = target && props.sessionId ? createPortal(el(ContextCosts, { key: props.sessionId, api, sessionId: props.sessionId, integrated: true, text, revision }), target) : null
+          const currency = ['USD','CNY','EUR'].includes(config?.currency) && (config.currency === 'USD' || Number.isFinite(config.exchangeRate) && config.exchangeRate > 0) ? config.currency : 'USD'
+          const rate = currency === 'USD' ? 1 : config.exchangeRate
+          const money = value => (currency === config?.currency && config.symbol || {USD:'$',CNY:'¥',EUR:'€'}[currency]) + (value * rate).toLocaleString(undefined, { maximumFractionDigits: 6 })
+          const portal = target && props.sessionId ? createPortal(el(ContextCosts, { key: props.sessionId, api, sessionId: props.sessionId, integrated: true, text, revision, currency, money }), target) : null
           return Original ? el('div', { ref: container, style: { display: 'contents' }, 'data-cm-context-bridge': props.sessionId }, el(Original, props), portal)
             : el(Fragment, null, el('span', { ref: container, hidden: true }), portal)
         }
@@ -544,21 +556,31 @@ window.__ModuleLoader__.load({
             el('div', { className: 'cm-context-preview-extra' }, el('p', null, text('最近一次调用', 'Latest call')), el('div', { className: 'cm-context-preview-row' }, el('span', null, text('输入 $0.012 · 输出 $0.004', 'Input $0.012 · output $0.004'))),
               el('p', { className: 'cm-context-muted' }, text('用量计费合计 $0.016', 'Usage-based total $0.016')))) : null))
     }
-    function BillionCompatibilityNotice({ meter, locale }) {
+    function BillionCompatibilityNotice({ meter, locale, config, api }) {
       const ref = useRef(null), [dismissed, setDismissed] = useState('')
       const id = meter?.noticeId ?? '', storageKey = 'dsh-cost-meter:billion-compatibility:' + id
       const text = (zh, en) => locale === 'en' ? en : zh
       let seen = dismissed === id
       try { seen ||= window.localStorage.getItem(storageKey) === 'seen' } catch {}
-      const visible = id && !seen && ['needs_update', 'changed', 'bridge_missing'].includes(meter.compatibility)
-      const dismiss = () => { try { window.localStorage.setItem(storageKey, 'seen') } catch {}; setDismissed(id) }
+      const visible = config?.billionContextNoticeEnabled !== false && !config?.billionContextNoticesSeen?.includes(id) && id && !seen && ['needs_update', 'changed', 'bridge_missing'].includes(meter.compatibility)
+      const [saving, setSaving] = useState(false), [saveError, setSaveError] = useState('')
+      const dismiss = async (mute = false) => {
+        if (saving) return
+        setSaving(true); setSaveError('')
+        try {
+          if (api?.updateConfig) await api.updateConfig({ billionContextNoticesSeen: [...new Set([...(config?.billionContextNoticesSeen ?? []), id])].slice(-32), ...(mute ? { billionContextNoticeEnabled: false } : {}) })
+          try { window.localStorage.setItem(storageKey, 'seen') } catch {}
+          setDismissed(id)
+        } catch { setSaveError(text('保存失败，请重试。', 'Could not save. Please retry.')) }
+        finally { setSaving(false) }
+      }
       useEffect(() => {
         const node = ref.current
         if (!visible || !node) return
         let opened = false, previous
         const show = () => {
           if (opened || document.hidden || [...document.querySelectorAll('dialog[open],[aria-modal="true"]')].some(other => other !== node && other.getClientRects().length)) return
-          try { previous = document.activeElement; node.showModal(); node.querySelector('button')?.focus(); opened = true } catch {}
+          try { previous = document.activeElement; node.showModal(); node.querySelector('button[data-cm-notice-ack]')?.focus(); opened = true } catch {}
         }
         let timer
         const attempt = () => { show(); if (!opened && !document.hidden) timer = setTimeout(attempt, 1000) }
@@ -577,10 +599,12 @@ window.__ModuleLoader__.load({
             ? text('检测到 billion-context 计费接口变化，内部费用尚未完整采集。请到交流群反馈，或提交 issue，以便更新接入。', 'The billion-context metering interface has changed. Internal cost coverage is incomplete. Report this in the community group or open an issue so the integration can be updated.')
             : text('原版 billion-context 的自动计费接入尚未完成。更新费用插件后请完全重启 DSH，让新启动的本地代理接入计费；仍有问题时，到交流群反馈或提交 issue。', 'Automatic billing for the original billion-context package is not connected. Fully restart DSH after updating cost-meter so its local proxy starts with metering. If the problem persists, contact the community group or open an issue.')),
         el('p', null, text('反馈时请附 billion-context、费用插件及 DSH 的版本。', 'Include the billion-context, cost-meter and DSH versions in your report.')),
+        saveError ? el('p', { role: 'alert' }, saveError) : null,
         el('footer', null,
-          el('a', { href: 'https://github.com/Han-1413141/dsh-cost-meter/blob/master/README.zh-CN.md#交流与反馈', target: '_blank', rel: 'noopener noreferrer', onClick: dismiss }, text('加入交流群', 'Community group')),
-          el('a', { href: 'https://github.com/Han-1413141/dsh-cost-meter/issues/new?template=bug_report.yml', target: '_blank', rel: 'noopener noreferrer', onClick: dismiss }, text('提交 issue', 'Open an issue')),
-          el('button', { type: 'button', autoFocus: true, onClick: dismiss }, text('知道了', 'Dismiss'))))
+          el('button', { type: 'button', disabled: saving, onClick: () => dismiss(true) }, text('不再弹出此提醒', 'Do not show this reminder again')),
+          el('a', { href: 'https://github.com/Han-1413141/dsh-cost-meter/blob/master/README.zh-CN.md#交流与反馈', target: '_blank', rel: 'noopener noreferrer', onClick: () => dismiss(false) }, text('加入交流群', 'Community group')),
+          el('a', { href: 'https://github.com/Han-1413141/dsh-cost-meter/issues/new?template=bug_report.yml', target: '_blank', rel: 'noopener noreferrer', onClick: () => dismiss(false) }, text('提交 issue', 'Open an issue')),
+          el('button', { type: 'button', autoFocus: true, disabled: saving, 'data-cm-notice-ack': true, onClick: () => dismiss(false) }, text('知道了', 'Dismiss'))))
     }
     function ContextPrompt({ manager, getLocale }) {
       const state = React.useSyncExternalStore(manager.subscribe, manager.getSnapshot), ref = useRef(null)
@@ -741,7 +765,7 @@ window.__ModuleLoader__.load({
       `),
         el('section', { className: 'cm-plan cm-call-bill', 'aria-label': text('本次计费明细', 'Call billing breakdown') },
           el('div', { className: 'cm-stat-panel-head' }, el('h3', null, call.plan ? text('Plan 等值费用', 'Plan equivalent') : text('API 费用', 'API cost')), el('strong', { className: 'cm-stat-value' }, call.priced ? money(call.cost) : '?')),
-          el('p', { className: 'cm-stat-sub' }, prettyProviderKey(call.provider + ':' + call.model) + ' · ' + new Date(call.atMs).toLocaleString()),
+          el('p', { className: 'cm-stat-sub' }, (webSourceName(call, text) ? webSourceName(call, text) + ' · ' : '') + prettyProviderKey(call.provider + ':' + call.model) + ' · ' + new Date(call.atMs).toLocaleString()),
           call.metering ? el('p', { className: 'cm-stat-note' }, 'billion-context · ' + call.metering.upstream
             + (call.metering.attempt > 1 ? text(' · 重试 ', ' · Retry ') + call.metering.attempt : '')
             + (!call.metering.complete ? text(' · 仅含已收到的用量，未知费用未估补', ' · observed usage only; unknown charges are not inferred') : '')) : null,
@@ -1115,6 +1139,11 @@ window.__ModuleLoader__.load({
       const [view, setView] = useState('summary'), [callSectionOpen, setCallSectionOpen] = useState(false), [callPopup, setCallPopup] = useState(null)
       const [expandedTurn, setExpandedTurn] = useState(null), [shareMetric, setShareMetric] = useState('cost'), [retry, setRetry] = useState(0)
       const result = useRequest(api, 'getSessionBilling', { ...query, offset, turnOffset, background: true, generation: String(revision).slice(0, 96) }, revision + ':' + retry)
+      const [stepFallback, setStepFallback] = useState('')
+      useEffect(() => {
+        const timer = setTimeout(() => setStepFallback(query.sessionId), 500)
+        return () => clearTimeout(timer)
+      }, [query.sessionId])
       const jump = useRef(false)
       useEffect(() => setCallPopup(null), [query.sessionId, query.basis])
       useEffect(() => {
@@ -1124,6 +1153,7 @@ window.__ModuleLoader__.load({
         }
       }, [result.loading, result.value, offset, selected, view])
       const waiting = overview && !result.value, basis = query.basis
+      const stepsReady = !waiting || stepFallback === query.sessionId
       const detail = result.value ?? (overview ? { found: true, rows: [], calls: [], cost: 0, apiCost: 0, totalCalls: 0, recorded: { cost: 0, apiCost: 0, calls: 0 }, agents: [], turns: [], kinds: [], totalTurns: 0, offset: 0, turnOffset: 0, stepShares: {} } : null)
       const names = { input: text('非缓存输入', 'Uncached input'), output: text('输出', 'Output'), cacheRead: text('缓存读取', 'Cache read'), cacheWrite: text('缓存写入', 'Cache write'), reasoning: text('推理', 'Reasoning'), ...requestNames(text) }
       const kinds = { model: text('模型调用', 'Model call'), compaction: text('上下文压缩', 'Compaction'), search: text('原生搜索', 'Native search'), fetch: text('网页抓取', 'Web fetch') }
@@ -1198,7 +1228,7 @@ window.__ModuleLoader__.load({
           [text('Token 用量', 'Token usage'), formatTokens(parts.reduce((n, row) => n + (row.bucket === 'reasoning' ? 0 : row.tokens), 0)), text('输入、缓存与输出', 'Input, cache and output')],
           [text('缓存命中率', 'Cache hit rate'), pct(parts.find(row => row.bucket === 'cacheRead')?.tokens ?? 0, parts.filter(row => ['input', 'cacheRead', 'cacheWrite'].includes(row.bucket)).reduce((n, row) => n + row.tokens, 0)), text('输入 Token 中的缓存读取', 'Cache reads among input tokens')],
         ].map(([label, value, sub]) => el('div', { className: 'cm-stat-metric', key: label }, el('div', { className: 'cm-stat-sub' }, label), el('div', { className: 'cm-stat-value' }, waiting ? '—' : value), el('div', { className: 'cm-stat-sub' }, waiting ? '' : sub)))) : null,
-        overview && view === 'context' ? el(StepCosts, { api, sessionId: query.sessionId, revision, money, text, basis, detailed: true }) : null,
+        overview && stepsReady && view === 'context' ? el(StepCosts, { api, sessionId: query.sessionId, revision, money, text, basis, detailed: true }) : null,
         !overview ? children : view === 'context' ? el('details', { className: 'cm-stat-secondary' }, el('summary', { style: { padding: '8px 0' } }, text('上下文费用参考', 'Context cost reference')), children) : null,
         !overview ? el('div', { className: 'cm-stat-panel-head' }, el('h3', null, overview ? text('已发生费用 · 调用明细', 'Recorded costs · call details') : text('单对话费用明细', 'Conversation cost details')), el('span', { className: 'cm-stat-sub' }, (detail.agents?.length ?? 0) > 1 ? text('包含子代理及其后代', 'Includes subagents and their descendants') : text('本会话自身的调用', 'Own conversation calls'))) : null,
         staleError,
@@ -1213,9 +1243,12 @@ window.__ModuleLoader__.load({
             detail.kinds.length > 1 ? costCard(text('各环节费用占比', 'Cost by activity'), detail.kinds.map((row, i) => ({ key: row.kind, label: kinds[row.kind] ?? row.kind,
               value: amount(row, basis), tokens: tokens(row), meta: row.calls + text(' 次调用', ' calls') + ' · ' + formatTokens(tokens(row)) + ' tok', unpriced: row.unpriced,
               amount: money(amount(row, basis)) + (row.unpriced ? ' + ?' : ''), color: contextColors[i] }))) : null)) : null,
-        overview && view === 'summary' ? el(StepCosts, { api, sessionId: query.sessionId, revision, money, text, basis, composition: waiting ? null : costCard(text('费用构成', 'Cost composition'), parts.filter(row => (row.tokens > 0 || row.requests > 0) && (row.bucket !== 'reasoning' || row.cost > 0 || row.unpriced)).map(chartPart)) }) : null,
+        // Prioritize totals on the host's single JS thread, but let categories
+        // load independently after 500 ms if the billing request is blocked.
+        overview && stepsReady && view === 'summary' ? el(StepCosts, { api, sessionId: query.sessionId, revision, money, text, basis, composition: waiting ? null : costCard(text('费用构成', 'Cost composition'), parts.filter(row => (row.tokens > 0 || row.requests > 0) && (row.bucket !== 'reasoning' || row.cost > 0 || row.unpriced)).map(chartPart)) }) : null,
         !waiting && (!overview || view === 'summary') ? el('details', { className: 'cm-call-section', open: !overview || callSectionOpen || selected >= 0, onToggle: e => { if (e.target === e.currentTarget) { setCallSectionOpen(e.currentTarget.open); if (!e.currentTarget.open) setSelected(-1) } } },
         el('summary', { style: { padding: '10px 0', fontSize: 13 } }, text('逐次调用明细', 'Individual calls') + ' · ' + detail.totalCalls),
+        !overview || callSectionOpen || selected >= 0 ? el(Fragment, null,
         overview ? el('div', { className: 'cm-plan cm-spend-grid' }, callShareCard, modelRows.length > 1 ? costCard(text('模型费用分布', 'Cost by model'), modelRows) : cacheComparison) : null,
         !overview ? el('details', { className: 'cm-stat-secondary', open: !overview }, el('summary', null, text('轮次、步骤与单价', 'Turns, steps and rates')),
         el('section', { className: 'cm-stat-breakdown' },
@@ -1241,10 +1274,10 @@ window.__ModuleLoader__.load({
         el('div', { style: { marginTop: 24 } }, el(Chart, { rows: detail.calls.map((call, i) => ({ label: '#' + (offset + i + 1), index: i, value: amount(call, basis) })), money, text,
           label: text('逐次调用费用 · 当前页', 'Cost per call · current page'), onSelect: row => { setSelected(row.index); document.getElementById('cm-stat-call-' + row.index)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } })),
         detail.calls.map((call, i) => el('details', { key: offset + i, id: 'cm-stat-call-' + i, className: 'cm-stat-call', open: selected === i, onToggle: event => { if (event.currentTarget.open) setSelected(i); else setSelected(previous => previous === i ? -1 : previous) } },
-          el('summary', null, '#' + (offset + i + 1) + ' · ' + turnLabel(call) + (call.step == null ? '' : text(' / 步骤 ', ' / step ') + call.step) + ' · ' + (kinds[call.kind] ?? call.kind) + ' · ' + prettyProviderKey(call.provider + ':' + call.model) + ' · ' + (call.plan ? 'Plan ' : 'API ') + (call.priced ? money(call.cost) : '?') + (call.longContext ? text(' · 长上下文价', ' · long-context rate') : ''),
+          el('summary', null, '#' + (offset + i + 1) + ' · ' + turnLabel(call) + (call.step == null ? '' : text(' / 步骤 ', ' / step ') + call.step) + ' · ' + (kinds[call.kind] ?? call.kind) + ' · ' + (webSourceName(call, text) ? webSourceName(call, text) + ' · ' : '') + prettyProviderKey(call.provider + ':' + call.model) + ' · ' + (call.plan ? 'Plan ' : 'API ') + (call.priced ? money(call.cost) : '?') + (call.longContext ? text(' · 长上下文价', ' · long-context rate') : ''),
             el('span', { className: 'cm-call-share' }, (call.priced ? pct(amount(call, basis), cost) : '—') + ' · ' + shareLabel)),
           selected === i ? el(CallDetail, { key: (call.sessionId || query.sessionId) + ':' + (call.logSeq ?? i), call, sessionId: query.sessionId, api, revision, money, text, names }) : null)),
-        el(Pager, { offset, count: detail.totalCalls, size: 50, onChange: n => { setOffset(n); setSelected(-1) }, text })) : null)
+        el(Pager, { offset, count: detail.totalCalls, size: 50, onChange: n => { setOffset(n); setSelected(-1) }, text })) : null) : null)
     }
 
     function compressionBillingNotice(text, status) {

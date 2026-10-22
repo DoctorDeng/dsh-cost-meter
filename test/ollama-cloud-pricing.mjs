@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { pricingSnapshot } from '../lib/billing-history.js'
 import { readFileSync, readdirSync } from 'node:fs'
 import vm from 'node:vm'
 import { AUGUST_PRICE_TABLE, DEFAULT_PRICE_TABLE, DEFAULT_PRICE_TABLE_CNY, OLLAMA_CLOUD_PEAK_EFFECTIVE_AT, providerPriceEntryFor, tierFor, costOf, usdFromCost } from '../lib/pricing.js'
@@ -183,9 +184,34 @@ const scenarios = [
     'ollama-cloud:deepseek-v4-pro': '__custom__',
   }, prices: { ...structuredClone(DEFAULT_PRICE_TABLE), custom: { 'ollama-cloud:deepseek-v4-pro': { currency: 'USD', cacheMiss: 0.5, cacheHit: 0.05, output: 1 } } } })],
   ['local override', sanitizeConfig({ currency: 'USD', priceOverrides: { 'ollama-cloud:deepseek-v4.1-flash': '__local__', 'ollama-cloud:deepseek-v4-pro': 'deepseek-v4-pro' } })],
+  ['snapshot alias', sanitizeConfig({ currency: 'USD', priceOverrides: { 'ollama-cloud:deepseek-v4.1-flash:1017': 'deepseek:deepseek-v4.1-flash' } })],
+  ['frozen v1.9.16 matching', { ...usd, prices: { ...usd.prices, snapshotTags: false, ollamaTaggedPeak: false, ollamaPeak: true } }],
+  ['frozen v1.9.16 alias', { ...usd, prices: { ...usd.prices, snapshotTags: false, ollamaTaggedPeak: false, ollamaPeak: true }, priceOverrides: { 'ollama-cloud:deepseek-v4.1-flash:1017': 'deepseek:deepseek-v4.1-flash' } }],
 ]
 const KEYS = ['ollama-cloud:deepseek-v4.1-flash', 'ollama-cloud:deepseek-v4-pro', 'llm-ollama-cloud:deepseek-v4-pro', 'deepseek-official:deepseek-v4.1-flash',
-  'opencode-go:deepseek-v4-pro', 'ollama:deepseek-v4.1-flash', 'ollama-cloud:deepseek-v4-flash', 'ollama-cloud:glm-5']
+  'opencode-go:deepseek-v4-pro', 'ollama:deepseek-v4.1-flash', 'ollama-cloud:deepseek-v4-flash', 'ollama-cloud:glm-5',
+  'ollama-cloud:deepseek-v4.1-flash:1017', 'ollama-cloud:deepseek-v4-pro:0813', 'llm-ollama-cloud:DEEPSEEK-V4.1-FLASH:1017:latest',
+  'ollama-cloud:deepseek-v4-pro:2026-08-13:latest', 'ollama-cloud:deepseek-v4.1-flash:1017:free', 'ollama-cloud:deepseek-v4.1-flash:online:1017']
+for (const [model, morning, afternoon] of [['deepseek-v4.1-flash:1017', .15, .30], ['deepseek-v4-pro:0813', .66, 1.32]]) {
+  for (const overrides of [{}, { ['ollama-cloud:' + model]: 'deepseek:' + model.split(':')[0] }]) {
+    const result = providerPriceEntryFor('ollama-cloud', model, usd.prices, { overrides })
+    assert.equal(result.priced, true)
+    near(tierFor(result.entry, at('2026-10-20T07:00:00Z'), DEEPSEEK_PEAK).cacheMiss, morning, 'issue #356 morning')
+    near(tierFor(result.entry, at('2026-10-20T13:00:00Z'), DEEPSEEK_PEAK).cacheMiss, afternoon, 'issue #356 afternoon')
+  }
+  assert.equal(providerPriceEntryFor('ollama-cloud', model, usd.prices, { mode: 'exact' }).priced, false)
+  assert.equal(providerPriceEntryFor('ollama-cloud', model, usd.prices, { overrides: { ['ollama-cloud:' + model]: '__local__' } }).priced, false)
+}
+for (const suffix of [':0000', ':1399', ':free:1017', ':online:1017', ':1017:unknown']) {
+  assert.equal(providerPriceEntryFor('ollama-cloud', 'deepseek-v4.1-flash' + suffix, usd.prices).priced, false, suffix)
+}
+{
+  const id = 'deepseek-v4.1-flash:1017'
+  const prices = { ...usd.prices, providers: { ...usd.prices.providers, 'ollama-cloud': { models: { [id]: { cacheMiss: 9, cacheHit: 1, output: 12 } } } } }
+  const exact = providerPriceEntryFor('ollama-cloud', id, prices)
+  assert.equal(exact.entry.cacheMiss, 9, 'an explicit snapshot quote wins')
+  assert.equal(exact.entry.peakSchedule, undefined, 'a flat snapshot quote keeps its own billing mode')
+}
 for (const [label, usageSplit] of clients) {
   for (const [scenario, config] of scenarios) {
     const pricesBefore = JSON.stringify(config.prices)
@@ -214,6 +240,70 @@ for (const [label, usageSplit] of clients) {
   for (const [iso, input] of [['2026-10-19T06:30:00Z', 0.30], ['2026-10-19T13:00:00Z', 0.15], ['2026-10-01T06:30:00Z', 0.15]]) {
     clock = at(iso)
     near(usageSplit({ byProviderModel: { 'deepseek-official:deepseek-v4.1-flash': { input: 1e6 } } }, usd).total, input, `${label} deepseek-official @ ${iso}`)
+  }
+}
+// Configured snapshot aliases must use the Ollama calendar, including stacked tags.
+// Literal costs catch a host/client pair that agrees on the wrong calendar.
+const snapshots = [
+  ['deepseek-v4.1-flash:1017', .15, .30],
+  ['deepseek-v4.1-flash:1017:latest', .15, .30],
+  ['deepseek-v4.1-flash-latest-1017', .15, .30],
+  ['deepseek-v4-pro:0813', .66, 1.32],
+  ['deepseek-v4-pro:0813:latest', .66, 1.32],
+]
+for (const [model, off, high] of snapshots) {
+  for (const provider of ['ollama-cloud', 'llm-ollama-cloud', ' Ollama-Cloud ']) {
+    for (const [iso, phase] of CALENDAR) {
+      clock = at(iso)
+      const want = phase === PEAK ? high : off
+      const config = { ...usd, priceOverrides: { ['ollama-cloud:' + model]: 'deepseek:' + (model.includes('flash') ? 'deepseek-v4.1-flash' : 'deepseek-v4-pro') } }
+      near(hostCost(config, `${provider}:${model}`, { input: 1e6 }, clock), want, `snapshot host ${model} ${iso}`)
+      for (const [label, split] of clients) {
+        near(split({ byProviderModel: { [`${provider}:${model}`]: { input: 1e6 } } }, config).total, want, `snapshot ${label} ${model} ${iso}`)
+      }
+    }
+  }
+}
+const taggedKey = 'ollama-cloud:deepseek-v4.1-flash:1017'
+// v1.9.17 already fixed aliased snapshot calendars, but had no automatic MMDD matching.
+// Preserve the two independent policies when decoding its saved price versions.
+for (const alias of [false, true]) {
+  const old = pricingSnapshot({ ...usd, prices: { ...usd.prices, ollamaPeak: true, ollamaTaggedPeak: true },
+    priceOverrides: alias ? { [taggedKey]: 'deepseek:deepseek-v4.1-flash' } : {} }, true)
+  assert.equal(old.prices.snapshotTags, false)
+  assert.equal(old.prices.ollamaTaggedPeak, true)
+  clock = at('2026-10-20T07:00:00Z')
+  near(hostCost(old, taggedKey, { input: 1e6 }, clock), alias ? .15 : 0, 'v1.9.17 frozen calendar and matching')
+  for (const [label, split] of clients) near(split({ byProviderModel: { [taggedKey]: { input: 1e6 } } }, old).total, alias ? .15 : 0, label + ' v1.9.17')
+}
+
+for (const [name, patch, morning, afternoon] of [
+  ['auto without override', {}, .15, .30],
+  ['exact without override', { priceMatch: 'exact' }, 0, 0],
+  ['exact alias', { priceMatch: 'exact', priceOverrides: { [taggedKey]: 'deepseek:deepseek-v4.1-flash' } }, .15, .30],
+  ['local override', { priceOverrides: { [taggedKey]: '__local__' } }, 0, 0],
+  ['custom flat price', { priceOverrides: { [taggedKey]: '__custom__' },
+    prices: { ...usd.prices, custom: { [taggedKey]: { currency: 'USD', cacheMiss: 2, cacheHit: .2, output: 3 } } } }, 2, 2],
+  ['frozen unmatched snapshot', { prices: { ...usd.prices, snapshotTags: false, ollamaTaggedPeak: false } }, 0, 0],
+  ['frozen alias calendar', { prices: { ...usd.prices, snapshotTags: false, ollamaTaggedPeak: false },
+    priceOverrides: { [taggedKey]: 'deepseek:deepseek-v4.1-flash' } }, .30, .15],
+]) {
+  const config = { ...usd, ...patch }
+  for (const [iso, want] of [['2026-10-20T07:00:00Z', morning], ['2026-10-20T13:00:00Z', afternoon]]) {
+    clock = at(iso)
+    near(hostCost(config, taggedKey, { input: 1e6 }, clock), want, name + ' host')
+    for (const [label, split] of clients) near(split({ byProviderModel: { [taggedKey]: { input: 1e6 } } }, config).total, want, name + ' ' + label)
+  }
+}
+for (const suffix of [':0000', ':1317', ':1032', ':1017:free', ':1017:online', ':1017-custom']) {
+  const key = 'ollama-cloud:deepseek-v4.1-flash' + suffix
+  near(hostCost(usd, key, { input: 1e6 }, clock), 0, `unrecognized variant ${suffix}`)
+  for (const [label, split] of clients) near(split({ byProviderModel: { [key]: { input: 1e6 } } }, usd).total, 0, `${label} unrecognized ${suffix}`)
+  const mapped = { ...usd, priceOverrides: { [key]: 'deepseek:deepseek-v4.1-flash' } }
+  for (const [iso, want] of [['2026-10-20T07:00:00Z', .30], ['2026-10-20T13:00:00Z', .15]]) {
+    clock = at(iso)
+    near(hostCost(mapped, key, { input: 1e6 }, clock), want, `unrecognized alias keeps target calendar ${suffix}`)
+    for (const [label, split] of clients) near(split({ byProviderModel: { [key]: { input: 1e6 } } }, mapped).total, want, `${label} unrecognized alias ${suffix}`)
   }
 }
 console.log('[ok] Ollama Cloud: own weekday 12:00-18:00 UTC peak calendar on host and in src/bundle usageSplit, shared DeepSeek rates, other channels unchanged')

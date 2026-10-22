@@ -8,7 +8,7 @@ let factory
 let now = Date.parse('2026-09-08T08:00:00Z')
 let updates = 0
 class Clock extends Date { static now() { return now } }
-vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { css, makeT, formatResetCountdown, miniMaxResetText, miniMaxRow, MiniMaxPlanCard, CodingPlanBox, GatewayQuotaBox, CodexPlanBox, codexQuotaCache }; exports.apply = apply'), {
+vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { css, makeT, goQuotaDetail, formatResetCountdown, miniMaxResetText, miniMaxRow, MiniMaxPlanCard, CodingPlanBox, GatewayQuotaBox, CodexPlanBox, codexQuotaCache }; exports.apply = apply'), {
   Date: Clock,
   window: { __ModuleLoader__: { load: v => { factory = v.factory } }, localStorage: { getItem: () => null } },
   navigator: { language: 'en' },
@@ -23,6 +23,9 @@ const assertNoNativeTitle = node => {
   for (const child of node.children ?? []) assertNoNativeTitle(child)
 }
 const zh = ui.makeT('zh'), en = ui.makeT('en')
+const quotaDetail = ui.goQuotaDetail({rolling:{percent:0,resetsAt:new Date(now+1000).toISOString()},weekly:{percent:35,resetsAt:new Date(now+2000).toISOString()},monthly:{percent:90,resetsAt:new Date(now+3000).toISOString()},fetchedAt:now},{},zh)
+assert.match(quotaDetail,/5.*0%/);assert.match(quotaDetail,/周.*35%/);assert.match(quotaDetail,/月.*90%/);assert.equal((quotaDetail.match(/重置/g)||[]).length,3,'all three reset times are shown')
+assert.match(ui.goQuotaDetail({rolling:null,weekly:null,monthly:null},{},zh),/—/)
 const end = new Date(now + 90 * 60000).toISOString()
 assert.equal(ui.formatResetCountdown(end, zh, now), '剩余 1小时30分')
 assert.equal(ui.formatResetCountdown(end, en, now), '1h 30m left')

@@ -177,6 +177,17 @@ try {
     await settle(() => secondMain.root.render(h(Surface, { slots: env.slots, name: 'conversation.view', sessionId: 'one', nested: true })))
     assert.equal(secondMain.container.querySelector('[data-cm-plan-session]').dataset.cmPlanSession, 'one', 'session switch never carries the previous costs')
     views.push(secondMain)
+    const beforeCurrency = JSON.stringify(data), readCount = reads.length
+    for (const [currency, exchangeRate, symbol, expected] of [['CNY', 7, '¥', '0.084'], ['EUR', .9, '€', '0.0108'], ['USD', 1, '$', '0.012']]) {
+      await settle(() => store.set({ status: 'ready', state: { config: { ...store.getSnapshot().state.config, currency, exchangeRate, symbol } } }))
+      for (const view of views) {
+        const panel = view.container.querySelector('[data-cm-plan-session]')
+        assert.ok(panel.textContent.includes('dsh-context × dsh-cost-meter · ' + currency))
+        assert.ok(panel.querySelector('.cm-context-current').textContent.includes(symbol + expected), version + ': integration follows currency and current rate')
+      }
+    }
+    assert.equal(JSON.stringify(data), beforeCurrency, 'currency presentation never changes the underlying USD reference or ledger')
+    assert.equal(reads.length, readCount, 'currency changes reuse the same USD measurement without replaying logs')
     let disposeShadow
     await settle(() => { disposeShadow = env.slots.register({ name: 'conversation.view', id: 'context', priority: -2 }, () => h('div', { 'data-lc-current': true }, 'Unrelated replacement')) })
     assert.equal(views[0].container.querySelectorAll('[data-cm-context-costs]').length, 0, 'foreign winning view is not augmented')

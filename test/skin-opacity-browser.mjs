@@ -8,13 +8,16 @@ import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 import { javascriptLiteral as literal } from '../scripts/javascript-literal.mjs'
+import { sanitizeConfig } from '../lib/store.js'
 
 const modules = resolve(process.env.DSH_TEST_UI_MODULES ?? '.tmp-context-host/node_modules')
 const req = createRequire(join(modules, '__opacity.cjs')), { chromium } = req('playwright-core')
 const executablePath = process.env.CM_TEST_BROWSER ?? ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/google-chrome', '/usr/bin/chromium'].find(existsSync)
 const baseline = process.argv[2], read = file => baseline ? execFileSync('git', ['show', baseline + ':' + file], { encoding: 'utf8' }) : readFileSync(file, 'utf8')
 const client = readdirSync('src/client').filter(n => n.endsWith('.js')).sort().map(n => read('src/client/' + n)).join('')
+  .replace('exports.apply = apply', 'exports.skinPreview={renderSidebarFooter,parseConfig};exports.apply = apply')
 const stats = read('src/statistics/index.js').replace('return { mount, prefetchStatistics,', 'return { css, introCss, FeeDialog, mount, prefetchStatistics,')
+const footerConfig = sanitizeConfig({locale:'zh',currency:'CNY',symbol:'¥',exchangeRate:1,sidebar:true,sidebarTodayMetric:'both',sidebarModels:{enabled:true},balance:{display:'sidebar',budgetCap:200},customBalances:[{enabled:true,label:'自定义余额',display:'sidebar',refreshMinutes:15,request:{url:'https://example.invalid',method:'GET'},extract:{remaining:'balance'}}],budget:{enabled:true,amount:200},codingPlans:{zai:{enabled:true,display:'sidebar'}},goQuota:{enabled:true,display:'sidebar'},peakEnabled:true,peakNotice:true,peakStyle:'classic'})
 const source = `
 import React from ${literal(req.resolve('react'))};
 import {createRoot} from ${literal(req.resolve('react-dom/client'))};
@@ -24,14 +27,23 @@ ${client}
 ${read('src/pricing/index.js')}
 ${stats}
 ${read('lib/client.display.js')}
+${read('lib/client.sidebar-order.js')}
 let skinState={config:{followSkinTransparency:false}};const skinListeners=new Set(),skinDisposers=[];
 window.chunks['client.display.js'].mount({effect:fn=>skinDisposers.push(fn())},{getSnapshot:()=>({state:skinState}),subscribe:fn=>{skinListeners.add(fn);return()=>skinListeners.delete(fn)}});
-window.setSkin=enabled=>{skinState={config:{followSkinTransparency:enabled}};for(const fn of skinListeners)fn()};
+// The ordering chunk mounts after the skin style, matching the real lazy load order.
+window.chunks['client.sidebar-order.js'].mount({effect:fn=>skinDisposers.push(fn())},{getSnapshot:()=>({state:skinState}),subscribe:fn=>{skinListeners.add(fn);return()=>skinListeners.delete(fn)}});
+window.setSkin=enabled=>{skinState={config:{...skinState.config,followSkinTransparency:enabled}};for(const fn of skinListeners)fn()};
 window.disposeSkin=()=>{for(const dispose of skinDisposers)dispose()};
 const ui=window.chunks['client.statistics.js'];
 const style=document.createElement('style');style.textContent=ui.css+ui.introCss;document.head.append(style);
 window.chunks['client.pricing.js'].mount({get:name=>name==='remote'?{$mount:async()=>()=>{}}:{},effect:fn=>fn()});
 const root=createRoot(document.getElementById('root'));
+window.renderFooter=options=>{
+  const day={input:29700000,output:0,cacheRead:0,cacheWrite:0,reasoning:0,calls:2,cost:28.5951,apiCost:28.5951,byProviderModel:{'deepseek:deepseek-v4.1-flash':{input:29700000,output:0,cost:28.5951,apiCost:28.5951}}};
+  const base=${literal(footerConfig)},config=window.chunks.main.skinPreview.parseConfig({...base,...options,balance:{...base.balance,showProgressBar:options.progress}},'config');
+  skinState={config:{...skinState.config,sidebarTodayBalanceInline:config.sidebarTodayBalanceInline}};for(const fn of skinListeners)fn();
+  root.render(window.chunks.main.skinPreview.renderSidebarFooter({config,today:day,total:day,month:day,history:[],balance:{status:'ok',totalBalance:187.92,grantedBalance:0,toppedUpBalance:187.92,currency:'CNY'},customBalances:[{status:'ok',remaining:88,spend:12,maxBudget:100,unit:'CNY'}],codingPlans:{zai:{status:'ok',windows:{'5h':{percent:7},weekly:{percent:35}}}},goQuota:{status:'ok',rolling:{percent:7},weekly:{percent:35},monthly:{percent:14}},budgetUsed:28.5951},true,undefined,true));
+};
 window.renderSpecial=name=>{root.render(name==='fee'?React.createElement(ui.FeeDialog,{title:'费用明细',text:(zh,en)=>zh,onClose:()=>{}},React.createElement('div',{className:'cm-stat'},'合成测试数据')):React.createElement(ui.BillionCompatibilityNotice,{locale:'zh',meter:{version:'0.1.180',compatibility:'needs_update',noticeId:'opacity-fixture'}}))};
 window.clear=()=>root.render(null);window.ready=true;
 `
@@ -42,7 +54,7 @@ const server = createServer((request, response) => {
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const url = 'http://127.0.0.1:' + server.address().port, browser = await chromium.launch({ executablePath, headless: true })
-const page = await browser.newPage({ viewport: { width: 960, height: 720 }, deviceScaleFactor: 1 }), errors = [], checks = []
+const page = await browser.newPage({ viewport: { width: 960, height: 720 }, deviceScaleFactor: 1 }), errors = [], checks = [], sidebarChecks = []
 const output = resolve('.tmp-skin-opacity' + (baseline ? '-before' : '-after')); mkdirSync(output, { recursive: true })
 page.on('pageerror', error => errors.push(String(error)))
 await page.route('**/*', route => new URL(route.request().url()).origin === url ? route.continue() : route.abort())
@@ -107,7 +119,7 @@ try {
         const opacity = await node.evaluate(node => {
           const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d');ctx.fillStyle=getComputedStyle(node).backgroundColor;ctx.fillRect(0,0,1,1);return ctx.getImageData(0,0,1,1).data[3]/255
         })
-        const nested = ['cm-section','cm-stat'].includes(name)
+        const nested = ['cm-section','cm-stat','cm-footer-stack simple'].includes(name)
         assert.ok(Math.abs(opacity - (nested ? 0 : Math.max(alpha, .9))) < .005, `${name} ${theme} alpha=${alpha}: ${opacity}`)
         if (name === 'cm-fee-dialog') assert.equal(await node.locator('.cm-stat').evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)', 'dialog body shares the dialog material')
         if (name === 'cm-fee-dialog' && theme === 'dark-skin-light-host' && alpha === .65) await page.screenshot({ path: join(output, 'skin-transparency-fee-dialog.png') })
@@ -116,6 +128,31 @@ try {
         else { await page.evaluate(() => window.clear()); await node.waitFor({ state: 'detached' }) }
       }
     }
+    // Real footer markup: opaque theme tokens must not leave solid islands in a glass sidebar.
+    await page.evaluate(() => {
+      const root=document.documentElement;
+      for(const key of ['bg-base','bg-layer-1','bg-layer-2'])root.style.setProperty('--dsw-alias-'+key,'rgb(252,238,243)');
+      root.style.setProperty('--dsw-alias-bg-layer-3','rgba(240,120,180,.2)');root.style.setProperty('--dsw-alias-state-business-primary','#ed64b3');
+      for(const [key,color] of Object.entries({primary:'#444',secondary:'#666',tertiary:'#777'}))root.style.setProperty('--dsw-alias-label-'+key,color);
+      document.body.style.cssText='margin:0;background:repeating-linear-gradient(115deg,#f7c4df 0 50px,#fce6ef 50px 95px);color:#444;font:12px/1.6 system-ui';
+      document.getElementById('root').style.cssText='width:280px;margin:24px';
+    });
+    for(const layout of ['standard','compact','summary','simple'])for(const progress of [false,true]){
+      await page.evaluate(({layout,progress})=>window.renderFooter({sidebarStyle:layout==='simple'?'standard':layout,sidebarSimple:layout==='simple',sidebarTodayBalanceInline:true,progress}),{layout,progress});
+      const footer=page.locator('#root>.cm-footer-stack');await footer.waitFor();
+      await page.waitForFunction(()=>document.querySelector('#root>.cm-inline-ready'));
+      const surfaces=page.locator('#root>.cm-footer-stack,#root>.cm-footer-stack :is(.cm-bbox,.cm-foot,.cm-simple-summary,.cm-peak-classic-chip)');
+      const backgrounds=()=>surfaces.evaluateAll(nodes=>nodes.map(node=>({name:node.className,color:getComputedStyle(node).backgroundColor})));
+      assert.ok((await backgrounds()).every(row=>row.color==='rgba(0, 0, 0, 0)'),layout+' all embedded surfaces follow transparency: '+JSON.stringify(await backgrounds()));
+      const restoreTarget=layout==='standard'||layout==='compact'?footer.locator('.cm-model-costs'):footer;
+      await page.evaluate(()=>window.setSkin(false));
+      assert.notEqual(await restoreTarget.evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)',layout+' restores its original card background when disabled');
+      await page.evaluate(()=>window.setSkin(true));
+      assert.ok((await backgrounds()).every(row=>row.color==='rgba(0, 0, 0, 0)'),layout+' toggles back without remounting');
+      if(!progress)await footer.screenshot({path:join(output,'sidebar-transparent-'+layout+'.png')});
+      sidebarChecks.push({layout,progress,transparent:true});
+    }
+    await page.evaluate(()=>window.clear());
     const restored = await page.evaluate(() => {
       const node=document.createElement('div');node.className='cm-section';document.body.append(node)
       window.setSkin(false);const disabled=getComputedStyle(node).backgroundColor
@@ -126,6 +163,6 @@ try {
   }
   const leaking = checks.filter(x => !x.opaque).length
   if (baseline) assert.ok(leaking > 0, 'baseline reproduces the reported transparency defect')
-  writeFileSync(join(output, 'result.json'), JSON.stringify({ baseline: baseline ?? null, checks, glass, leaking, errors }, null, 2))
-  console.log(JSON.stringify({ cases: checks.length, glassCases: glass.length, leaking, errors, output }))
+  writeFileSync(join(output, 'result.json'), JSON.stringify({ baseline: baseline ?? null, checks, glass, sidebarChecks, leaking, errors }, null, 2))
+  console.log(JSON.stringify({ cases: checks.length, glassCases: glass.length, sidebarCases: sidebarChecks.length, leaking, errors, output }))
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

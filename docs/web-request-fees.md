@@ -2,7 +2,7 @@
 
 ## 中文
 
-v1.8.35 支持官方 `POST /v1/tools/search` 和 `POST /v1/tools/fetch` 的次数费。根据 [官方指南](https://api-docs.deepseek.com/zh-cn/guides/search/)与[价格页](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)，两者均为每 1,000 次成功请求 ¥5，即每次 ¥0.005。
+v1.9.16 读取 DSH `web.searchProvider`／`web.fetchProvider`，按调用开始时的选择与实际接口区分旧版 Messages 搜索、新版 Search／Fetch API。原有官方 `POST /v1/tools/search` 和 `POST /v1/tools/fetch` 的次数费。根据 [官方指南](https://api-docs.deepseek.com/zh-cn/guides/search/)与[价格页](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)，两者均为每 1,000 次成功请求 ¥5，即每次 ¥0.005。
 
 - 只计 HTTP 200 且有结果的请求：Search 的 `results` 非空；Fetch 返回非空网页正文。搜索结果条数不影响价格。
 - 失败、空结果、无正文、超时和取消不会凭空生成费用。同一请求同时经过网络诊断与 JSON 观察时只计一次，重试则分别判断是否成功。
@@ -15,7 +15,7 @@ v1.8.35 支持官方 `POST /v1/tools/search` 和 `POST /v1/tools/fetch` 的次�
 |---|---|
 | 官方独立 Search／Fetch API | 在 DSH 网页服务或工具执行期间观察真实成功响应，按上面的规则入账。支持直接工具调用及宿主网页服务调用。 |
 | DSH 的本地 HTTP 抓取后端 | 没有官方 Fetch API 请求就不增加次数费。模型随后阅读网页的 Token 仍由正常用量记录计费。 |
-| Anthropic／Responses 接口的内置搜索 | 保留现有模型用量计费。官方公告 Claude Code／Codex 内置搜索暂免 Search 请求费，正式开始计费时间另行通知；本版不猜测截止日期、不因工具名称或 `web_search_call` 等展示项额外收费。 |
+| 旧版 Messages／服务端内置搜索 | 保留模型 Token 费用。观察到成功且有结果的服务端搜索时，按实际调用另记请求：北京时间 2026 年 11 月 1 日 00:00 前免请求费，此后每次 ¥0.005；没有成功证据时不估补。 |
 
 只有官方域名和精确端点被纳入上述固定单价，第三方渠道不会被强行套价。没有会话／工具作用域的独立进程请求不在此插件的观察范围。插件不主动发起搜索或抓取，不替换提供方，不自动重试，也不修改宿主网络策略。
 
@@ -29,4 +29,4 @@ v1.8.35 meters the official standalone Search and Fetch endpoints separately fro
 
 Request fees use their own billing rows, remain API expenses, and retain historical exchange rates. They do not add tokens or inherit model multipliers, peak discounts or subscriptions. Observations are limited to exact official endpoints in DSH web/tool execution scopes; local HTTP fetching and third-party providers are not assigned this price. Journals contain no queries, URLs, page bodies or credentials. The plugin makes no search/fetch requests itself.
 
-Existing model-token accounting remains intact. The announced Claude Code/Codex built-in search waiver is not given an invented end date, and presentation items alone do not create charges. See the [official billing rules](https://api-docs.deepseek.com/guides/search/).
+Legacy Messages search retains model-token accounting. Observed successful server-side searches have a request-fee waiver until November 1, 2026 at 00:00 Beijing time, then cost CNY 0.005 per request. Selection is read from DSH’s live web settings and snapshotted at call start; historical records retain their source and rate. Presentation items alone do not create charges. See the [official billing rules](https://api-docs.deepseek.com/guides/search/).

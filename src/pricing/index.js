@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
     let createPortal = null
     try { createPortal = require('react-dom')?.createPortal ?? null } catch {}
     const runFields = ['at', 'before', 'after', 'days', 'sessions', 'skipped']
-    const isRequestKey = key => ['deepseek-official:deepseek-web-search', 'deepseek-official:deepseek-web-fetch'].includes(key)
+    const isRequestKey = key => ['deepseek-official:deepseek-web-search', 'deepseek-official:deepseek-web-fetch', 'deepseek-official:deepseek-search-api', 'deepseek-official:deepseek-fetch-api', 'deepseek-official:deepseek-search-server'].includes(key)
     const historySchema = { parse: value => {
       if (!Array.isArray(value) || !value.every(row => runFields.every(key => Number.isFinite(row?.[key]) && row[key] >= 0) && (row.model === undefined || typeof row.model === 'string'))) throw new Error('Invalid recalculation history')
       return value
@@ -267,6 +267,21 @@ window.__ModuleLoader__.load({
       }))
     }
 
+    function OurFreeModelSettings({ state, draft, setDraft, locale }) {
+      if (state.ourFreeModel?.enabled !== true) return null
+      const en = locale === 'en', overrides = draft?.priceOverrides ?? state.config.priceOverrides ?? {}
+      const keys = ['our-free-model:*', 'our-free-model-region:*']
+      const free = keys.every(key => overrides[key] === '__free__')
+      return el('section', { className: 'cm-free-model', 'aria-label': 'dsh-our-free-model' },
+        el('label', { className: 'cm-check' }, el('input', { type: 'checkbox', role: 'switch', checked: free, onChange: event => {
+          if (!draft) return
+          const next = { ...overrides }
+          for (const key of keys) { if (event.target.checked) next[key] = '__free__'; else if (next[key] === '__free__') delete next[key] }
+          setDraft({ ...draft, priceOverrides: next })
+        } }), el('span', null, en ? 'Count dsh-our-free-model calls as free' : 'dsh-our-free-model 调用按免费计算')),
+        el('p', { className: 'cm-hint' }, en ? 'Future calls through this plugin cost 0; tokens are still counted. Historical costs and other providers stay unchanged.' : '仅此插件后续调用记为免费，Token 照常统计；历史费用和其他渠道不变。'))
+    }
+
     function Matching({ state, draft, setDraft, t, locale, resolveClientPrice, prettyProviderKey, setField, priceEditor }) {
       const [query, setQuery] = useState(''), [limit, setLimit] = useState(24)
       const [expanded, setExpanded] = useState(null), [sourceModes, setSourceModes] = useState({})
@@ -281,8 +296,14 @@ window.__ModuleLoader__.load({
           const byProvider = useMemo(() => ({ ...state.total?.byProviderModel, ...state.month?.byProviderModel, ...state.today?.byProviderModel,
             ...Object.fromEntries(Object.keys(statistics).map(key => [key, null])) }), [state.total?.byProviderModel, state.month?.byProviderModel, state.today?.byProviderModel, statistics])
           // Price-source changes never move a model between parent sections or remount its editor.
+          const availability = state.modelDirectory
           const rows = useMemo(() => [...new Set([...Object.keys(byProvider), ...Object.keys(overrides)])]
-            .filter(key => !dismissed.includes(key) && !isRequestKey(key)).sort(), [byProvider, overrides, dismissed])
+            .filter(key => {
+              if (dismissed.includes(key) || isRequestKey(key) || ['our-free-model:*', 'our-free-model-region:*'].includes(key)) return false
+              if (!Array.isArray(availability?.providers)) return true
+              const provider = key.slice(0, key.indexOf(':'))
+              return availability.providers.includes(provider) && !availability.missingModels?.includes(key)
+            }).sort(), [byProvider, overrides, dismissed, availability])
           useLayoutEffect(() => {
             const editor = rowNodes.current.get(customTarget.current)?.querySelector('.cm-custom-price')
             if (!editor) return
@@ -366,6 +387,7 @@ window.__ModuleLoader__.load({
                 automatic ? null : el('button', { type: 'button', className: 'cm-model-dismiss', title: t('removePriceMatchHint'), onClick: () => dismissMatch(key) }, t('overrideRemove'))) : null)
           }
           return el('div', { className: 'cm-model-matching' },
+            el(OurFreeModelSettings, { state, draft, setDraft, locale }),
             el('div', { className: 'cm-model-toolbar' },
               el('input', { type: 'search', className: 'cm-input', value: query, placeholder: en ? 'Find a model or channel…' : '查找模型或渠道…', 'aria-label': en ? 'Find configured models' : '查找已用模型', onChange: event => { setQuery(event.target.value); setLimit(24) }, onKeyDown: event => { if (event.key === 'Escape') { setQuery(''); setLimit(24); event.stopPropagation() } } }),
               el('span', { className: 'cm-note', role: 'status' }, en ? `${total} models` : `${total} 个模型`)),
@@ -499,6 +521,7 @@ window.__ModuleLoader__.load({
       style.textContent = '.cm-repricing-scope{display:grid;gap:8px;max-width:620px;margin:16px 0}.cm-repricing-scope>label{font-size:13px;color:var(--dsw-alias-label-secondary)}.cm-repricing-scope .cm-hint{margin:0;line-height:1.6}'
       style.textContent += '.cm-price-search{display:grid;gap:6px;min-width:0}.cm-price-search small{color:var(--dsw-alias-label-tertiary)}.cm-price-search select,.cm-price-search input{width:100%;min-width:0}.cm-repricing-warning{padding:12px;border:1px solid var(--dsw-alias-state-warn-primary,#c58a25);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}.cm-repricing-warning p{margin:8px 0 12px;line-height:1.6}.cm-repricing-history{margin-top:12px}.cm-repricing-history table{width:100%;text-align:left;font-variant-numeric:tabular-nums}.cm-repricing-history td,.cm-repricing-history th{padding:8px;border-bottom:1px solid var(--dsw-alias-border-l1)}'
       style.textContent += '.cm-repricing-history .cm-stat-scroll{overflow-x:auto;max-width:100%}.cm-repricing-history table{min-width:560px}.cm-repricing-history th{white-space:nowrap}.cm-repricing-history td:nth-child(2){min-width:150px;max-width:260px;overflow-wrap:anywhere}'
+      style.textContent += '.cm-pricing-page .cm-free-model{margin:0 0 12px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent}.cm-pricing-page .cm-free-model>.cm-check{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;line-height:20px;color:var(--dsw-alias-label-primary)}.cm-pricing-page .cm-free-model input{flex:none;width:16px;height:16px;margin:0;accent-color:var(--dsw-alias-state-business-primary)}.cm-pricing-page .cm-free-model>.cm-hint{display:block;margin:4px 0 0 24px;font-size:11px;line-height:1.5}'
       style.textContent += '.cm-custom-price{grid-column:1/-1;display:grid;gap:14px;margin:4px 0 12px;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-layer-1);min-width:0}.cm-custom-price legend{padding:0 6px;font-weight:500;font-size:13px}.cm-custom-price label{display:grid;gap:7px;font-size:12px;min-width:0;color:var(--dsw-alias-label-secondary)}.cm-custom-price .cm-input{width:100%;min-width:0}.cm-custom-head{display:flex;justify-content:space-between;align-items:center;gap:12px;color:var(--dsw-alias-label-secondary);font-size:12px}.cm-custom-head label{display:flex;align-items:center;gap:8px}.cm-custom-head select{width:auto!important}.cm-custom-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.cm-custom-amount{position:relative;display:block}.cm-custom-amount>span{position:absolute;inset-inline-start:11px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--dsw-alias-label-tertiary)}.cm-custom-amount input{padding-inline-start:28px}.cm-custom-more summary{cursor:pointer;font-size:12px;color:var(--dsw-alias-label-secondary)}.cm-custom-more .cm-custom-grid{grid-template-columns:repeat(2,minmax(0,1fr));margin:12px 0 8px}.cm-custom-price p{margin:0;line-height:1.6}@media(max-width:700px){.cm-custom-grid{grid-template-columns:1fr}.cm-custom-head{flex-wrap:wrap}}'
       document.head.appendChild(style)
       style.textContent += `

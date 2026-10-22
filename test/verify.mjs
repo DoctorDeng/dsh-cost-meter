@@ -133,7 +133,7 @@ function readClientSource() {
   const dir = new URL('../src/client/', import.meta.url)
   const parts = readdirSync(dir).filter(name => name.endsWith('.js')).sort()
   assert.ok(parts.length > 0, 'src/client/ 源码片段缺失')
-  return parts.map(name => readFileSync(new URL(name, dir), 'utf8').replace(/\r\n/g, '\n')).join('')
+  return parts.map(name => readFileSync(new URL(name, dir), 'utf8').replace(/\r\n/g, '\n')).join('') + readFileSync(new URL('../src/plan-settings/index.js', import.meta.url), 'utf8')
 }
 const displaySource = readFileSync(new URL('../src/display/index.js', import.meta.url), 'utf8')
 
@@ -238,7 +238,7 @@ console.log('[ok] 浏览器端 bundle 语法门禁(client.js vm 编译)通过')
   // 挂载:SidebarFooter 早退条件与节点插入都包含网关卡片(此前整条路径无 gateway 分支)。
   assert.ok(src96.includes('!showToday && !peakOn && gatewayNodes.length === 0) return null'), 'issue #96:SidebarFooter 早退条件纳入网关卡片与独立峰谷条')
   assert.ok(src96.includes('nodes.push(...gatewayNodes)'), 'issue #96:SidebarFooter 节点序列插入网关卡片(计划卡之后、Codex 之前)')
-  assert.ok(src96.indexOf('nodes.push(...gatewayNodes)') > src96.indexOf('MiniMaxPlanBox, { state, wide, api: api }') && src96.indexOf('nodes.push(...gatewayNodes)') < src96.indexOf('el(CodexPlanBox'), 'issue #96:网关卡片排序在计划卡之后、Codex 探测卡之前')
+  assert.ok(src96.indexOf('nodes.push(...gatewayNodes)') > src96.indexOf("MiniMaxPlanBox, { key: 'plan:' + id, state, wide, api: api }") && src96.indexOf('nodes.push(...gatewayNodes)') < src96.indexOf('el(CodexPlanBox'), 'issue #96:网关卡片排序在计划卡之后、Codex 探测卡之前')
   // 行渲染:复用 MiniMax 行(已用口径/告警阈值一致),Provider 前缀与 credits 兜底都在。
   assert.ok(/function GatewayQuotaBox[\s\S]*miniMaxRow\(name, win, direction, t\)/.test(src96), 'issue #96:网关卡片行渲染复用 miniMaxRow(与计划卡同口径)')
   assert.ok(/function GatewayQuotaBox[\s\S]*GATEWAY_PROVIDER_LABELS\[account\.provider\]/.test(src96), 'issue #96:多账号时行标签带 Provider 前缀')
@@ -1252,7 +1252,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   // 双端声明与客户端接线:typert config schema、PeakAlert 组件、浮层注册、类型过滤逻辑、设置 UI。
   const hostTypert = readFileSync(new URL('../lib/typert.host.js', import.meta.url), 'utf8')
   assert.ok(hostTypert.includes('peakAlertEnabled') && hostTypert.includes("z.enum(['peak', 'offpeak', 'both'])"), 'typert config 声明提醒字段')
-  const clientSource = readClientSource()
+  const clientSource = readClientSource() + '\n' + readFileSync(new URL('../src/peak/alert.js', import.meta.url), 'utf8')
   assert.ok(clientSource.includes('function PeakAlert('), '客户端 PeakAlert 组件存在')
   assert.ok(clientSource.includes("'cost-meter-peak-alert'"), '浮层注册 id 存在')
   assert.ok(clientSource.includes("target === 'both' || target === (view.nextIntoPeak ? 'peak' : 'offpeak')"), '提醒类型过滤逻辑存在')
@@ -1344,7 +1344,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   assert.ok(clientSource.includes('hideOfficialBalanceLabel') && clientSource.includes('hideTodayCostLabel'), '开关文案存在(zh/en)')
   assert.ok(clientSource.includes('hideOfficialBalance: v.hideOfficialBalance === true'), 'parseConfig 白名单含 hideOfficialBalance(读侧不剥离)')
   assert.ok(clientSource.includes('hideTodayCost: v.hideTodayCost === true'), 'parseConfig 白名单含 hideTodayCost(读侧不剥离)')
-  assert.ok(clientSource.includes("sidebarTodayMetric: v.sidebarTodayMetric === 'tokens'") && displaySource.includes("setField('sidebarTodayMetric'"), '今日指标双端接线')
+  assert.ok(clientSource.includes("sidebarTodayMetric: ['tokens', 'both'].includes") && displaySource.includes("setField('sidebarTodayMetric'"), '今日指标双端接线')
   assert.ok(clientSource.includes('showSessionId: v.showSessionId === true'), 'parseConfig 白名单补齐 showSessionId(既有缺陷修复)')
   // v1.5.38 的隐私模式遮罩已整体移除。
   assert.ok(!clientSource.includes('hideAmounts'), '客户端不再含 hideAmounts 隐私遮罩')
@@ -1432,7 +1432,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   // fork:宽栏首个节点是今日费用/官方余额/峰谷条合并卡 TodayBalanceCard,它同样透传 api,
   // 故比上游多一处(六类图框 + 合并卡 = 7)。
   assert.equal((footerSource.match(/api: api/g) ?? []).length, 7, '共享侧栏六类图框 + fork 合并卡透传 api')
-  assert.ok(footerSource.includes('el(CodexPlanBox, { state, wide, api, preview })') && clientSource.includes('renderSidebarFooter(state, !!props.wide, props.api)'), '实际侧栏传入 api，预览显式禁用查询')
+  assert.ok(footerSource.includes("el(CodexPlanBox, { key: 'codex', state, wide, api, preview })") && clientSource.includes('renderSidebarFooter(state, !!props.wide, props.api)'), '实际侧栏传入 api，预览显式禁用查询')
   // 可点击语义与视觉反馈:a11y(role/tabIndex/aria-busy/键盘)、CSS(cursor/hover/busy 呼吸)。
   assert.ok(clientSource.includes('const clickableRefreshProps = (busy, run) => ({'), '可点击属性 helper 存在')
   assert.ok(clientSource.includes("role: 'button'") && clientSource.includes("tabIndex: 0") && clientSource.includes("'aria-busy': busy ? 'true' : 'false'"), 'role=button + tabIndex + aria-busy')
@@ -1472,7 +1472,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
 // 新实现按切换点(nextAtMs)在模块级去重:同一切换点只发一次,且配置变化重挂组件后
 // (组件内 ref 会归零)也不会重发。
 {
-  const clientSource = readClientSource()
+  const clientSource = readClientSource() + '\n' + readFileSync(new URL('../src/peak/index.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/peak/alert.js', import.meta.url), 'utf8')
   assert.ok(!clientSource.includes('notifiedAtRef'), '已移除按 tick 时间戳防重的旧实现(每 10 秒连发)')
   assert.ok(clientSource.includes('let lastPeakNotifyAtMs = 0'), '模块级切换点去重标记存在(跨组件重挂持久)')
   assert.ok(clientSource.includes('if (lastPeakNotifyAtMs === wv.nextAtMs) return'), '同一切换点只发一次(nextAtMs 比较)')
@@ -1488,7 +1488,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
 // 不计入组件上下文;字符串与注释跳过。QuotaStripGuide 曾把 useRef 放在
 // promptSeen 提前返回之后,点击引导按钮即触发 #300。
 {
-  const hookSrc = readClientSource()
+  const hookSrc = readClientSource() + '\n' + readFileSync(new URL('../src/peak/alert.js', import.meta.url), 'utf8')
   const scanHookOrder = source => {
     const fnRe = /^[ \t]*function\s+([A-Za-z0-9_$]+)\s*\(/gm
     const out = []
@@ -1654,7 +1654,7 @@ assert.equal(gtsInvocation.result.mode, 'strict', 'getTopSessions 返回 strict 
 const clientSrc = readClientSource()
 let descriptorFactory
 vm.runInNewContext(clientSrc.replace('exports.apply = apply', 'exports.descriptors = CONTRIBUTION.descriptors; exports.apply = apply'), {
-  window: { __ModuleLoader__: { load: value => { descriptorFactory = value.factory } } }, navigator: { language: 'en' },
+  window: { __ModuleLoader__: { load: value => { if (!value.chunk) descriptorFactory = value.factory } } }, navigator: { language: 'en' },
 })
 const descriptors = descriptorFactory(() => ({})).descriptors
 let statisticsFactory
@@ -2630,13 +2630,13 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.equal(providerPriceEntryFor('foo', 'no-such-model', fullPrices, { mode: 'auto', overrides: { 'foo:no-such-model': 'no-such-model' } }).priced, false, '未知裸名保持未定价(不误套默认价)')
   const clientSource = readClientSource() + readFileSync(new URL('../src/pricing/index.js', import.meta.url), 'utf8')
   assert.ok(clientSource.includes("value: 'deepseek:' + id"), '设置页下拉框 DeepSeek 目标存带前缀的值(issue #56 根因)')
-  assert.ok(clientSource.includes("if (provider !== 'deepseek' && !provider.includes('deepseek')") && clientSource.includes("matchModelIdLocal(override, Object.keys(dsModels))"), '客户端 resolveClientPrice 同口径裸名兜底(未命中列表/徽章估算与计费一致)')
+  assert.ok(clientSource.includes("if (provider !== 'deepseek' && !provider.includes('deepseek')") && clientSource.includes("matchModelIdLocal(override, Object.keys(dsModels), override, prices?.snapshotTags !== false)"), '客户端 resolveClientPrice 同口径裸名兜底(未命中列表/徽章估算与计费一致)')
   // 客户端计费口径接线:parseConfig 白名单保留 prices.currency(CNY 价目下
   // 回退计价必须除汇率,否则展示金额放大汇率倍);跨厂商兑底 billingMode 与
   // 服务端 bestMode 对齐;数字分叉守卫双端同步。
   assert.ok(clientSource.includes("currency: typeof v.prices?.currency === 'string'"), '客户端 parseConfig 保留 prices.currency')
   assert.ok(clientSource.includes("bestMode = priceBillingMode(modelsCat[h])"), '客户端跨厂商兑底 billingMode 与服务端同口径')
-  assert.ok(clientSource.includes('const stripped = stripIdDecor(target)') && clientSource.includes('hits.length === 1 ? hits[0] : null'), '客户端安全后缀匹配与 pricing.js 同步')
+  assert.ok(clientSource.includes('const stripped = stripIdDecor(target, snapshotTags)') && clientSource.includes('hits.length === 1 ? hits[0] : null'), '客户端安全后缀匹配与 pricing.js 同步')
   console.log('[ok] 手动价格映射裸 DeepSeek 名兜底(宿主+客户端双端/语义保留/下拉框根因修复)通过')
 }
 
@@ -3848,8 +3848,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 侧边栏:按 display 门控的循环 + MiniMax 专用卡片 + 通用 CodingPlanBox。
   assert.ok(planSrc.includes('const sidebarPlanIds = CODING_PLAN_ROWS'), '侧边栏按 CODING_PLAN_ROWS 遍历厂商')
   assert.ok(planSrc.includes("entry.display !== 'sidebar' && entry.display !== 'both'"), '侧边栏门控 display=sidebar/both')
-  assert.ok(planSrc.includes('el(MiniMaxPlanBox, { state, wide, api: api })'), 'MiniMax 沿用专用 5h/7d 卡片(issue #37 起透传 api 支持点击刷新)')
-  assert.ok(planSrc.includes('el(CodingPlanBox, { id, state, wide, api: api })'), '其余厂商走通用 CodingPlanBox')
+  assert.ok(planSrc.includes("el(MiniMaxPlanBox, { key: 'plan:' + id, state, wide, api: api })"), 'MiniMax 沿用专用 5h/7d 卡片(issue #37 起透传 api 支持点击刷新)')
+  assert.ok(planSrc.includes("el(CodingPlanBox, { key: 'plan:' + id, id, state, wide, api: api })"), '其余厂商走通用 CodingPlanBox')
   assert.ok(planSrc.includes('function CodingPlanBox(props)'), '通用卡片组件定义存在')
   assert.ok(planSrc.includes('function codingPlanWindowLabel(name, t)'), '窗口名本地化(fiveHour/weekly/monthly)')
   // 通用卡片样式:宽标签与文本窗口行的 CSS。
@@ -4166,7 +4166,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const pbPatchBad = applyConfigPatch(sanitizeConfig({}), { planBilling: { providers: { minimax: 'sometimes' } } })
   assert.ok(pbPatchBad.errors.length > 0, '非法 provider 值被拒')
   const pbPatchUnknown = applyConfigPatch(sanitizeConfig({}), { planBilling: { providers: { notAPlan: 'plan' } } })
-  assert.ok(pbPatchUnknown.errors.length > 0, '未知提供商被拒')
+  assert.deepEqual(pbPatchUnknown.errors, [], '显式渠道分类不要求内置额度查询支持')
+  assert.equal(pbPatchUnknown.config.planBilling.providers.notAPlan, 'plan', '自定义渠道分类保留')
   const pbPatchOk = applyConfigPatch(sanitizeConfig({}), { planBilling: { providers: { minimax: 'api' }, models: { 'kimi:k2': 'plan' } } })
   assert.equal(pbPatchOk.errors.length, 0, '合法 planBilling 补丁通过')
   assert.equal(pbPatchOk.config.planBilling.providers.minimax, 'api', 'provider 配置生效')
@@ -4624,7 +4625,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(clientSrcV16.includes('function displayCostOf'), 'displayCostOf 辅助存在')
   assert.ok(clientSrcV16.includes('displayCostOf(state.today, config)'), '概览卡片走展示口径')
   assert.ok(!clientSrcV16.includes("moneyCostOf(state.today)"), '旧 moneyCostOf 卡片消费点已全部替换')
-  assert.ok(clientSrcV16.includes("showTotalWithPlan: v.showTotalWithPlan === true"), '读侧白名单')
+  assert.ok(clientSrcV16.includes("'showTotalWithPlan'"), '读侧白名单')
   assert.ok(clientSrcV16.includes("setField('showTotalWithPlan'") === false, '设置页旧勾选已移除')
   assert.ok(clientSrcV16.includes('cm-cards-toggle') && clientSrcV16.includes("setDraft({ ...base, showTotalWithPlan"), '概览卡片下快捷开关写回(自动保存即时生效)')
   assert.ok(clientSrcV16.includes('cardsTogglePlanTotal'), '开关中英文案存在')
@@ -6937,6 +6938,7 @@ await import('./pricing-model-matching.mjs')
 await import('./provider-pricing-coverage.mjs')
 await import('./ollama-cloud-pricing.mjs')
 await import('./ollama-cloud-upgrade.mjs')
+await import('./ollama-snapshot-upgrade.mjs')
 await import('./subagent-billing.mjs')
 await import('./billing-integrity.mjs')
 await import('./session-restart.mjs')
@@ -6955,12 +6957,18 @@ await import('./billing-statistics-client.mjs')
 await import('./client-style-injection.mjs')
 await import('./native-search-history.mjs')
 await import('./web-request-billing.mjs')
+await import('./search-versions.mjs')
+await import('./our-free-model.mjs')
 await import('./versioned-session-logs.mjs')
 await import('./session-log-repair.mjs')
 await import('./client-issues-127-129.mjs')
 await import('./model-quota-cards.mjs')
 await import('./mimo-quota.mjs')
 await import('./workbuddy-quota.mjs')
+await import('./workbuddy-billing.mjs')
+await import('./workbuddy-connect.mjs')
+await import('./workbuddy-accounts.mjs')
+await import('./workbuddy-host.mjs')
 await import('./mimo-enable-flow.mjs')
 await import('./mimo-v26-pricing.mjs')
 await import('./host-locale.mjs')

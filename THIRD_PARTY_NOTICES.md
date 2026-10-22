@@ -31,6 +31,8 @@ SOFTWARE.
 
 Adapted from [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect), `src/auth.ts` and `src/upstream.ts`. Local credentials are read only; this plugin does not refresh tokens.
 
+The additional usage-route compatibility is based on the public API of [dingminhua/dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy/tree/2c1626b8dc46e16561924b76ac6cd86b4272e45d) 4.13.1 (`src/status-paths.ts`, `src/web-status.ts`; MIT, Copyright (c) 2026 LaoDing). Tests execute its published route with synthetic dependencies; its credential and account-management implementation is not included in this package.
+
 MIT License
 
 Copyright (c) 2026 Corrine Hu

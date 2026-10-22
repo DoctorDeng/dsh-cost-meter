@@ -58,7 +58,7 @@ export async function checkDisplayPreview(page, output) {
     await page.getByRole('tab', { name: '概览', exact: true }).click()
     await page.getByRole('tab', { name: '显示', exact: true }).click(); await choose('models')
     assert.equal(await page.getByRole('switch', { name: '显示此组件', exact: true }).isChecked(), false, 'off state survives leaving settings')
-    await page.locator('.cm-inspector-layout').click(); await page.getByRole('button', { name: '简洁', exact: true }).click()
+    if (await page.locator('.cm-inspector-layout').getAttribute('aria-expanded') !== 'true') await page.locator('.cm-inspector-layout').click(); await page.getByRole('button', { name: '简洁', exact: true }).click()
     await page.locator('.cm-preview-supplement [data-display-part=models-tokens]').first().waitFor()
     assert.equal(await page.locator('.cm-preview-supplement').getAttribute('data-preview-hidden'), 'true')
     await page.locator('.cm-display').screenshot({ path: join(output, 'nested-simple.png') })
@@ -94,11 +94,12 @@ export async function checkDisplayPreview(page, output) {
             await choose(key)
             const geometry = await page.locator('.cm-preview-workspace').evaluate(n => {
               const scene = n.querySelector('.cm-preview-scene').getBoundingClientRect(), panel = n.querySelector('aside').getBoundingClientRect()
-              return { side: panel.left >= scene.right - 1, top: Math.abs(panel.top - scene.top), height: panel.height, overflow: n.scrollWidth > n.clientWidth + 2,
+              const layoutHeight = [...n.querySelectorAll('.cm-inspector-layout,.cm-preview-style-options')].reduce((height, node) => height + node.getBoundingClientRect().height + parseFloat(getComputedStyle(node).marginTop), 0)
+              return { layoutHeight, side: panel.left >= scene.right - 1, top: Math.abs(panel.top - scene.top), height: panel.height, overflow: n.scrollWidth > n.clientWidth + 2,
                 switchHeight: n.querySelector('.cm-inspector-visibility').getBoundingClientRect().height }
             })
             assert.ok(geometry.side && geometry.top < 4 && !geometry.overflow, `${theme}/${width}/${name}/${key} stays in two bounded columns: ${JSON.stringify(geometry)}`)
-            assert.ok(geometry.switchHeight <= 40 && geometry.height < 600, 'compact controls fit the settings screen')
+            assert.ok(geometry.switchHeight <= 40 && geometry.height - geometry.layoutHeight < 600, 'component controls stay compact with the additional layout picker expanded')
           }
         }
       }

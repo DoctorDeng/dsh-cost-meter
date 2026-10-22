@@ -184,7 +184,7 @@ console.log('✓ lib/client.js within DSH STORE per-file bound (262144)')
 
 // DSH 0.2.0-rc.2 package-local chunks use the host's require.async contract.
 // Each on-demand screen has readable source and a bounded runtime asset.
-for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak', 'session-list']) {
+for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak', 'session-list', 'sidebar-order', 'plan-settings']) {
   let source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
   if (chunk === 'display') {
     source = source.replace('/* DISPLAY_NATIVE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/native.js'), 'utf8'))
@@ -195,6 +195,7 @@ for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'displa
   }
   if (chunk === 'peak') {
     source = source.replace('/* PEAK_COMPONENT_SOURCE */', readFileSync(resolve(projectRoot, 'src/peak/component.js'), 'utf8'))
+    source = source.replace('/* PEAK_ALERT_SOURCE */', readFileSync(resolve(projectRoot, 'src/peak/alert.js'), 'utf8'))
     const styles = await transform(readFileSync(resolve(projectRoot, 'src/peak/style.css'), 'utf8'), { loader: 'css', minify: true })
     source = source.replace("'PEAK_STYLE_SOURCE'", () => javascriptLiteral(styles.code))
   }

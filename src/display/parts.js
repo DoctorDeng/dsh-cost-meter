@@ -4,6 +4,7 @@ function sidebarPreviewConfig(config, selected) {
     balance: { ...config.balance, display: 'both', ...(['balance', 'customBalance'].includes(selected) ? { showProgressBar: true } : {}) },
     goQuota: { ...config.goQuota, ...(selected === 'go' ? { detail: true } : {}) },
     budget: { ...config.budget, ...(selected === 'budget' ? { detail: true } : {}) },
+    ...(selected === 'today' ? { sidebarTodayMetric: 'both' } : {}),
     sidebarModels: { ...config.sidebarModels, ...(selected === 'models' ? { defaultOpen: true, remember: false, tokens: true, shares: true } : {}) },
     ...(selected === 'peak' && config.peakStyle === 'progress' ? { peakTimeDisplay: 'both' } : {}) }
   return next
@@ -15,6 +16,10 @@ function sidebarPreviewParts(config, selected, text) {
   if (selected === 'balance' || selected === 'customBalance') return [part('balance-progress', text('余额进度条', 'Balance progress'), '.cm-bbox-bar.segments', config.balance?.showProgressBar === true, '[data-display-option="balance-progress"]')]
   if (selected === 'budget') return [part('budget-detail', text('预算明细', 'Budget details'), '.cm-bbox-line', normal && config.budget?.detail !== false, '[data-display-option="budget-detail"]')]
   if (selected === 'go') return [part('go-detail', text('其他时段与重置时间', 'Other windows and reset time'), '.cm-bbox-line', normal && config.goQuota?.detail !== false, '[data-display-option="go-detail"]')]
+  if (selected === 'today') return [
+    part('today-cost', text('今日费用', 'Today’s cost'), '[data-cm-today=cost]', config.sidebarTodayMetric !== 'tokens', 'input[data-display-option=today-cost]'),
+    part('today-tokens', 'Token', '[data-cm-today=tokens]', config.sidebarTodayMetric !== 'cost', 'input[data-display-option=today-tokens]'),
+  ]
   if (selected === 'models') return [
     part('models-expanded', text('展开的模型明细', 'Expanded model details'), ':scope > .cm-buttons, :scope > div:has(.cm-bbox-head)', normal && config.sidebarModels?.defaultOpen === true, '[data-model-field="defaultOpen"] input'),
     part('models-tokens', 'Token', '.cm-mstats-note', normal && config.sidebarModels?.tokens === true, '[data-model-field="tokens"] input'),

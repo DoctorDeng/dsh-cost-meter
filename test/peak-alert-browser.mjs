@@ -17,9 +17,11 @@ const state = { config: sanitizeConfig({ locale: 'zh', peakEnabled: true, peakAl
   sidebarSimplePromptSeen: true, quotaStrip: { promptSeen: true }, balance: { display: 'off' } }),
 today: zeroDay(), month: zeroDay(), total: zeroDay(), history: [] }
 const code = `
-import React from ${JSON.stringify(req.resolve('react'))};import{createRoot}from ${JSON.stringify(req.resolve('react-dom/client'))};
-const disposers=[];window.__ModuleLoader__={load:m=>window.costUI=m.factory(n=>n==='react'?React:{Tooltip:({children})=>children})};
+import * as ReactDOMPortal from ${JSON.stringify(req.resolve('react-dom'))};import React from ${JSON.stringify(req.resolve('react'))};import{createRoot}from ${JSON.stringify(req.resolve('react-dom/client'))};
+const disposers=[];const mainRequire=n=>n==='react'?React:{Tooltip:({children})=>children};mainRequire.async=async()=>window.peakUI;window.__ModuleLoader__={load:m=>window.costUI=m.factory(mainRequire)};
 ${readFileSync('lib/client.js', 'utf8')}
+window.__ModuleLoader__={load:m=>window.peakUI=m.factory(name=>name==='react-dom'?ReactDOMPortal:React)};
+${readFileSync('lib/client.peak.js', 'utf8')}
 let state=${JSON.stringify(state)};const entries=new Map(),services={};window.saves=0;
 services['remote.costMeter']={getLocalState:async()=>({ok:true,value:state}),getState:async()=>({ok:true,value:state}),updateConfig:async patch=>{window.saves++;state={...state,config:{...state.config,...patch}};return{ok:true,value:state}}};
 services.slots={entries:()=>[],inject:(name,fn)=>fn(),register:(o,c)=>{entries.set(o.id,{o,c});return()=>{}}};

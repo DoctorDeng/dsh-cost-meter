@@ -37,6 +37,7 @@ window.__ModuleLoader__.load({
     // ── 样式 ────────────────────────────────────────────────────────────────
 
     const css = [
+      '.cm-section .cm-tabs>.cm-tab{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:32px;padding:6px 10px;margin:0;font:inherit;font-size:13px;line-height:20px;vertical-align:middle}.cm-peak-alert{z-index:2147483647;max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain}.cm-peak-alert,.cm-peak-alert *{-webkit-app-region:no-drag}.cm-peak-alert .cm-peak-alert-actions{position:relative;flex:none}.cm-peak-alert .cm-peak-alert-actions button{pointer-events:auto}',
       '/* dsh-cost-meter: 会话费用徽章与设置页 */',
       // 插件定制主题色(浅蓝):余额/费用/Coding Plan 进度条统一引用宿主语义槽
       // --dsw-alias-state-business-primary,但宿主/主题给该槽的默认蓝偏深,故在这里
@@ -398,7 +399,7 @@ window.__ModuleLoader__.load({
       '.cm-tb-pop-hint{color:var(--dsw-alias-label-tertiary)}',
       '.cm-footer-stack.compact .cm-bbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:12px;row-gap:2px;align-items:center}',
       '.cm-footer-stack.compact .cm-bbox>*{grid-column:1/-1}',
-      '.cm-footer-stack.compact .cm-bbox>.cm-mm-row{grid-column:auto}',
+      '.cm-footer-stack.compact .cm-bbox>.cm-mm-row:not(.cm-mm-title){grid-column:auto}',
       '.cm-footer-stack.compact .cm-mm-row{min-width:0;gap:4px;flex-wrap:nowrap}',
       '.cm-footer-stack.compact .cm-mm-row .cm-bbox-label{flex:0 1 auto;min-width:0;max-width:45%;width:auto}',
       '.cm-footer-stack.compact .cm-mm-row .cm-bbox-bar{min-width:0;flex:1 1 0}',
@@ -432,6 +433,7 @@ window.__ModuleLoader__.load({
       // Theme backgrounds may carry alpha. Flatten owned surfaces without changing host tokens.
       'body{--cm-opaque-base:#fff}body[data-ds-dark-theme],body[data-theme=dark],html[data-theme=dark] body{--cm-opaque-base:#151517}',
       '.cm-section,.cm-stat-dialog,.cm-qguide,.cm-peak-alert,.cm-footer-stack.simple{background:var(--cm-opaque-base,#fff);background:rgb(from var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff)) r g b / 1)}',
+      '.cm-today-values{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 8px;min-width:0;max-width:100%}.cm-today-values>span{white-space:nowrap}.cm-today-values[data-both=true]>[data-cm-today=tokens]{font-size:11px;color:var(--dsw-alias-label-secondary)}',
       '.cm-simple-summary{background:var(--cm-opaque-base,#fff);background:rgb(from var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff)) r g b / 1)}',
     ].join('\n')
     // 样式表注入。**按内容比对,不按 id 去重**:客户端插件热更新(DSH 的 client HMR,不刷新
@@ -640,6 +642,7 @@ window.__ModuleLoader__.load({
         codingPlanRemain7d: '7d',
         balanceRechargeLink: '打开 DeepSeek 充值页(platform.deepseek.com/usage)',
         codexQuotaTitle: 'ChatGPT (Codex) 额度',
+        codexQuotaEnable: 'Codex 额度未开启 · 点此开启',
         codexQuotaFive: '5h 额度',
         codexQuotaWeek: '周额度',
         codexQuotaReset: '{time} 重置',
@@ -850,7 +853,7 @@ window.__ModuleLoader__.load({
         codingPlanVolcengine: '火山方舟 Volcano Ark Coding Plan',
         codingPlanQwen: '千问 Qwen Token Plan',
         codingPlanMimo: '小米 MiMo Token Plan',
-        wbT: 'WorkBuddy 积分', wbH: '自动读取 WorkBuddy 本地登录文件；登录失效时请重新登录。',
+        wbT: 'WorkBuddy 积分', wbH: '支持 dsh-workbuddy-connect / dsh-connect-workbuddy。',
         codingPlanFactory: 'Factory (Droid)',
         codingPlanOpendesign: 'OpenDesign',
         opendesignWorkspace: 'OpenDesign 工作区 ID',
@@ -1198,6 +1201,7 @@ window.__ModuleLoader__.load({
         codingPlanRemain7d: '7d',
         balanceRechargeLink: 'Open DeepSeek top-up page (platform.deepseek.com/usage)',
         codexQuotaTitle: 'ChatGPT (Codex) quota',
+        codexQuotaEnable: 'Codex quota is disabled · click to enable',
         codexQuotaFive: '5h quota',
         codexQuotaWeek: 'Weekly quota',
         codexQuotaReset: 'resets {time}',
@@ -1407,7 +1411,7 @@ window.__ModuleLoader__.load({
         codingPlanVolcengine: 'Volcano Ark Coding Plan',
         codingPlanQwen: 'Qwen Token Plan (qianwenai.com)',
         codingPlanMimo: 'Xiaomi MiMo Token Plan',
-        wbT: 'WorkBuddy', wbH: 'Reads local WorkBuddy sign-in files. Sign in again if expired.',
+        wbT: 'WorkBuddy', wbH: 'Supports dsh-workbuddy-connect / dsh-connect-workbuddy.',
         codingPlanFactory: 'Factory (Droid)',
         codingPlanOpendesign: 'OpenDesign',
         opendesignWorkspace: 'OpenDesign workspace ID',

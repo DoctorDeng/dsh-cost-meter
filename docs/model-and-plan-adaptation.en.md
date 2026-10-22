@@ -121,17 +121,20 @@ If any of the above releases an API-key-based endpoint, it can be added cheaply 
 
 ## 2.5 Plan/API dual-track billing classification (issue #64, since v1.5.51)
 
-The ledger records both the total equivalent cost (cost) and the real-money portion (apiCost) at day / session / byProviderModel level; budget, today-cost and overview cards count only the API portion, while subscription-quota consumption is presented as equivalents. Priority: **per-model override (planBilling.models[provider:model]) > per-vendor config (planBilling.providers) > auto** (plan when that vendor's quota query is enabled, otherwise api).
+The ledger records both the total equivalent cost (cost) and the real-money portion (apiCost) at day / session / byProviderModel level; budget, today-cost and overview cards count only the API portion, while subscription-quota consumption is presented as equivalents. Priority: **per-model override (planBilling.models[provider:model]) > raw-provider config (planBilling.providers[provider]) > Plan-family config > auto** (plan when that vendor's quota query is enabled, otherwise api). Raw-provider keys match the request provider exactly and can explicitly classify a custom route as plan/api. An auto value defers to the family configuration and enabled state. Official DeepSeek search and fetch request fees always remain API charges.
 
 | Vendor | Default (auto) | Notes |
 |---|---|---|
 | anthropic / zai / minimax / commandcode / clinepass / scnet / volcengine | plan while enabled | percent-based subscription windows |
 | kimi | plan while enabled | subscription windows; override models to api for PAYG balance scenarios |
+| workbuddy / workbuddy-ai / workbuddy-global | plan while WorkBuddy credits query is enabled | Domestic and international routes from both WorkBuddy connectors share the workbuddy family configuration; providers.workbuddy=plan also works explicitly |
 | openrouter / siliconflow | api | credits/balance are real money |
 | OpenCode Go (zen/opencode routes) | plan while Go enabled | Go-subscription models; Zen PAYG users should override to api |
 | Codex (ChatGPT subscription) | api (manual) | no API-key quota endpoint; mark provider:model as plan in settings |
 
 Per-1% quota and full-window token/equivalent-cost estimates are derived by diffing a **sampled percent history** (one sample per successful refresh, capped at 400 per vendor×window over 90 days); with insufficient samples they fall back to "current-period actual ÷ current used %". SCNet is a local credits self-estimate and does not participate in sampling.
+
+The WorkBuddy international correction runs once at startup after upgrading. It updates historical daily and session API attribution using existing classification settings, preserving recorded amounts, prices, tokens and calls. Plan equivalents compare model usage; they do not represent credits actually charged by WorkBuddy. A free model can still have a nonzero API-equivalent amount.
 
 ## 3. Availability & compatibility guarantees
 

@@ -8,6 +8,10 @@ import { build } from 'esbuild'
 import { sanitizeConfig, applyConfigPatch, zeroDay } from '../lib/store.js'
 import { stateSchema } from '../lib/typert.host.js'
 import { javascriptLiteral as literal } from '../scripts/javascript-literal.mjs'
+import { checkSidebarUpdates } from './sidebar-updates-checks.mjs'
+import { checkSidebarAlignment } from './sidebar-alignment-checks.mjs'
+import { checkInlineBalance } from './inline-balance-checks.mjs'
+import { checkTodayAndOrder } from './today-sidebar-order-checks.mjs'
 import { checkDisplayPreview } from './display-preview-checks.mjs'
 
 const modules = resolve(process.env.DSH_TEST_UI_MODULES ?? '.tmp-pr240-host/node_modules')
@@ -18,29 +22,35 @@ const output = resolve('.tmp-display-review'); mkdirSync(output, { recursive: tr
 let saved = sanitizeConfig({ locale: 'zh', exchangeRate: 1, currency: 'CNY', symbol: '¥', sidebarSimple: false, budget: { enabled: true, amount: 100 },
   sidebarModels: { enabled: true }, goQuota: { enabled: false }, quotaStrip: { enabled: true, budget: true, go: false, plans: true }, peakEnabled: true, peakNotice: true, position: 'off' })
 const client = readdirSync('src/client').filter(n => n.endsWith('.js')).sort().map(n => readFileSync('src/client/' + n, 'utf8')).join('')
-  .replace('exports.apply = apply', 'exports.preview = { CostSection, parseConfig, SidebarFooter }; exports.apply = apply')
+  .replace('exports.apply = apply', 'exports.preview = { CostSection, parseConfig, SidebarFooter, SidebarSummaryGuide, renderSidebarFooter }; exports.apply = apply')
 const day = { ...zeroDay(), cost: 1.28, apiCost: 1.28 }
 const state = { config: saved, today: day, month: day, total: day, history: [], balance: { status: 'error', message: 'Synthetic balance error' }, codingPlans: {}, budgetUsed: 32 }
 const code = `
-import React from ${literal(req.resolve('react'))};import{createRoot}from ${literal(req.resolve('react-dom/client'))};
+import * as ReactDOMPortal from ${literal(req.resolve('react-dom'))};import React from ${literal(req.resolve('react'))};import{createRoot}from ${literal(req.resolve('react-dom/client'))};
 const h=React.createElement;
-const mainRequire=name=>name==='react'?React:{Tooltip:({children})=>children};mainRequire.async=async()=>window.peakUI;
+const mainRequire=name=>name==='react'?React:{Tooltip:({children,label})=>React.cloneElement(children,{'data-test-tooltip':typeof label==='string'?label:''})};mainRequire.async=async()=>window.peakUI;
 window.__ModuleLoader__={load:mod=>window.mainUI=mod.factory(mainRequire)};
 ${client}
-window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(()=>React)};
+window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(name=>name==='react-dom'?ReactDOMPortal:React)};
 ${readFileSync('lib/client.peak.js', 'utf8')}
 window.__ModuleLoader__={load:mod=>window.displayUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.display.js', 'utf8')}
+window.__ModuleLoader__={load:mod=>window.orderUI=mod.factory(()=>React)};
+${readFileSync('lib/client.sidebar-order.js', 'utf8')}
 const {CostSection,parseConfig,SidebarFooter}=window.mainUI.preview;
 let state=${literal(state)};state.config=parseConfig(state.config,'config');window.patches=[];window.listeners=new Set();window.failSave=false;window.mounts=0;
 const Display=window.displayUI.mount({effect:()=>{}},{getSnapshot:()=>({state}),subscribe:fn=>{window.listeners.add(fn);return()=>window.listeners.delete(fn)}});
 const publish=()=>{for(const fn of window.listeners)fn({...state});return state};
 window.current=()=>state.config;window.setConfig=patch=>{state={...state,config:parseConfig({...state.config,...patch},'config')};publish()};
-window.changeLocale=locale=>window.setConfig({locale});
-const api={loadDisplay:async()=>Display,loadCommunity:async()=>()=>null,loadStatistics:async()=>()=>null,updateConfig:async patch=>{
+window.changeLocale=locale=>window.setConfig({locale});window.setFixtureState=patch=>{state={...state,...patch};publish()};
+const api={refreshBalance:async()=>{window.balanceRefreshes=(window.balanceRefreshes??0)+1;await new Promise(done=>setTimeout(done,50))},loadDisplay:async()=>Display,loadCommunity:async()=>()=>null,loadStatistics:async()=>()=>null,updateConfig:async patch=>{
   if(window.failSave)throw Error('synthetic save failure');const config=await window.saveConfig(patch);window.patches.push(patch);state={...state,config:parseConfig(config,'config')};return publish()}};
+window.configure=patch=>api.updateConfig(patch);
+window.orderUI.mount({effect:()=>{}},{getSnapshot:()=>({state}),subscribe:fn=>{window.listeners.add(fn);return()=>window.listeners.delete(fn)}},config=>config?.locale??'zh',{updateConfig:patch=>api.updateConfig(patch)});
 function useCost(){const[value,setValue]=React.useState(state);React.useEffect(()=>{window.listeners.add(setValue);return()=>window.listeners.delete(setValue)},[]);return{state:value,status:'ready'}}
-window.attachFixtureSidebar=container=>createRoot(container).render(h(SidebarFooter,{useCost,api,wide:true}));
+let guideRoot;window.showSummaryGuide=()=>{const host=document.createElement('div');document.body.append(host);guideRoot=createRoot(host);guideRoot.render(h(window.mainUI.preview.SidebarSummaryGuide,{useCost,api}))};window.disposeSummaryGuide=()=>guideRoot?.unmount();
+function FixturePreview(){return window.mainUI.preview.renderSidebarFooter(useCost().state,true,undefined,true)}
+window.attachFixtureSidebar=(container,preview=false)=>createRoot(container).render(preview?h(FixturePreview):h(SidebarFooter,{useCost,api,wide:true}));
 function App(){return h(React.Fragment,null,h(CostSection,{useCost,api}),h('div',{id:'actual-sidebar',style:{position:'fixed',left:-2000,width:352,fontSize:14,lineHeight:1.6}},h(SidebarFooter,{useCost,api,wide:true})))}
 const root=createRoot(document.getElementById('root'));window.remount=()=>root.render(h(App,{key:++window.mounts}));window.remount();
 `
@@ -93,12 +103,20 @@ try {
     window.MutationObserver=class extends Observe{active=false;observe(...args){if(args[1]?.attributeFilter?.includes('data-theme')&&!this.active){window.previewObservers++;this.active=true}return super.observe(...args)}disconnect(){if(this.active){window.previewObservers--;this.active=false}return super.disconnect()}}
   })
   await page.getByRole('tab',{name:'显示',exact:true}).click();await page.locator('.cm-display').waitFor()
+  const previewTop = await page.locator('.cm-display').evaluate(n => n.querySelector('.cm-region-preview').getBoundingClientRect().top - n.getBoundingClientRect().top)
+  assert.ok(previewTop < 115, 'preview is directly below the compact heading and toolbar: ' + previewTop)
+  await page.locator('.cm-display-general summary').click()
   const skinSwitch = page.getByRole('checkbox', { name: '跟随皮肤透明度', exact: true })
   await skinSwitch.check()
   await page.waitForFunction(() => window.current().followSkinTransparency === true && getComputedStyle(document.querySelector('.cm-section')).backgroundColor === 'rgba(0, 0, 0, 0)')
   await page.screenshot({ path: join(output, 'skin-transparency-zh.png'), fullPage: true })
   await skinSwitch.uncheck()
   await page.waitForFunction(() => window.current().followSkinTransparency === false && getComputedStyle(document.querySelector('.cm-section')).backgroundColor !== 'rgba(0, 0, 0, 0)')
+  await page.locator('.cm-display-general summary').click()
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.screenshot({ path: join(output, 'display-compact-header.png') })
+  await checkInlineBalance(page, output)
+  await checkTodayAndOrder(page, output)
   const region=async name=>page.getByRole('tab',{name,exact:true}).click()
   const item=key=>page.locator('.cm-preview [data-display="'+key+'"]')
   const selectStyle=async label=>{if(['标准','紧凑','简洁'].includes(label)&&await page.locator('.cm-style-thumbnail').count()===0)await page.locator('.cm-inspector-layout').click();await page.getByRole('button',{name:label,exact:true}).click()}
@@ -112,13 +130,14 @@ try {
   assert.equal(await page.locator('.cm-preview-sidebar').evaluate(n=>getComputedStyle(n).borderRadius),'19px','current skin surface is reused')
   assert.equal(await page.locator('.cm-sidebar-live').evaluate(n=>Math.round(n.getBoundingClientRect().width)),324,'preview follows the actual footer width')
   assert.equal(await page.locator('.cm-display-toggles').count(),0,'visibility controls are only in the right inspector')
-  await page.locator('.cm-inspector-layout').click()
+  assert.equal(await page.locator('.cm-inspector-layout').getAttribute('aria-expanded'), 'true', 'sidebar layouts start expanded and remain open when selecting components')
   const previews=page.locator('.cm-style-thumbnail')
-  assert.equal(await previews.count(),3)
+  assert.equal(await previews.count(),4)
   for(const preview of await previews.all()) assert.equal(await preview.locator('.cm-mm-row .cm-bbox-bar').count(),2,'each style preview uses real quota progress rows')
   const progressRows=await page.evaluate(()=>['standard','compact'].map(mode=>[...document.querySelectorAll('.cm-style-thumbnail .cm-footer-stack'+(mode==='compact'?'.compact':':not(.simple):not(.compact)')+' .cm-mm-row')].map(n=>n.getBoundingClientRect().y)))
   assert.ok(progressRows[0][1]>progressRows[0][0],'standard rows stack vertically')
   assert.ok(Math.abs(progressRows[1][1]-progressRows[1][0])<1,'compact rows sit side by side')
+  assert.deepEqual(previewQueries,[],'preview samples never start account or Codex discovery requests')
   assert.ok((await page.locator('.cm-sidebar-live').innerText()).includes('3 模型'),'example model costs are populated')
   assert.equal(await page.locator('.cm-sidebar-live .cm-bal-err').count(),0,'examples show the balance effect instead of a live error')
   assert.equal(await page.evaluate(()=>window.current().goQuota.enabled),false,'showing an example does not enable queries')
@@ -134,7 +153,7 @@ try {
   const parity=async()=>{
     await page.evaluate(()=>{document.getElementById('actual-sidebar').style.width=document.querySelector('.cm-sidebar-live').getBoundingClientRect().width+'px'})
     const values=await page.evaluate(()=>{
-      const snapshot=hostRoot=>{const root=hostRoot.querySelector(':scope > .cm-footer-stack')??hostRoot;const host=root.getBoundingClientRect();return [...root.querySelectorAll('.cm-footer-stack > *,[data-cm-display],.cm-bbox-head,.cm-bbox-line,.cm-bbox-bar')].map(n=>{const r=n.getBoundingClientRect();return{class:n.className,text:n.dataset.cmDisplay==='peak'?n.textContent.replace(/\d+/g,'#'):n.textContent,x:Math.round(r.x-host.x),y:Math.round(r.y-host.y),w:Math.round(r.width),h:Math.round(r.height)}})}
+      const snapshot=hostRoot=>{const root=hostRoot.querySelector(':scope > .cm-footer-stack')??hostRoot;const host=root.getBoundingClientRect();return [...root.querySelectorAll('.cm-footer-stack > *,[data-cm-display],.cm-bbox-head,.cm-bbox-line,.cm-bbox-bar')].filter(n=>!n.matches('.cm-order-handle,.cm-order-status')).map(n=>{const r=n.getBoundingClientRect();return{class:n.className,text:n.dataset.cmDisplay==='peak'?n.textContent.replace(/\d+/g,'#'):n.textContent,x:Math.round(r.x-host.x),y:Math.round(r.y-host.y),w:Math.round(r.width),h:Math.round(r.height)}})}
       return[snapshot(document.querySelector('.cm-sidebar-live')),snapshot(document.getElementById('actual-sidebar'))]
     })
     assert.deepEqual(values[0],values[1],'preview and real sidebar share exact card layout')
@@ -210,15 +229,19 @@ try {
   await examples.check();await region('侧栏')
   await page.getByLabel('调整组件',{exact:true}).selectOption('codex')
   await page.locator('.cm-sidebar-live [data-cm-display=codex]').waitFor()
+  await page.locator('input[data-display-option=codex-enabled]').uncheck();await page.waitForFunction(()=>window.current().codexQuotaEnabled===false)
   assert.equal(await page.evaluate(()=>window.current().codexQuotaEnabled),false,'Codex example uses a supplied snapshot without enabling discovery')
+  const codexSidebarBefore=await page.evaluate(()=>window.current().codexQuotaSidebar)
   await region('输入区')
   await page.getByLabel('调整组件',{exact:true}).selectOption('strip-codex')
   assert.equal(await page.getByRole('switch',{name:'显示此组件',exact:true}).count(),1,'Codex uses the same single master switch as every component')
   await page.locator('[data-display=strip-codex]').waitFor()
+  await page.getByRole('switch',{name:'显示此组件',exact:true}).check()
+  await page.waitForFunction(()=>window.current().codexQuotaEnabled===true&&window.current().codexQuotaStrip===true)
   await page.getByRole('switch',{name:'显示此组件',exact:true}).uncheck()
   await page.waitForFunction(()=>window.current().codexQuotaStrip===false)
-  assert.equal(await page.evaluate(()=>window.current().codexQuotaSidebar),true,'composer visibility keeps the sidebar preference')
-  assert.equal(await page.evaluate(()=>window.current().codexQuotaEnabled),false,'display controls never enable discovery')
+  assert.equal(await page.evaluate(()=>window.current().codexQuotaSidebar),codexSidebarBefore,'composer visibility keeps the sidebar preference')
+  assert.equal(await page.evaluate(()=>window.current().codexQuotaEnabled),true,'hiding composer quota keeps explicitly enabled queries')
   await page.locator('.cm-display').screenshot({path:join(output,'codex-composer-inspector.png')})
   await page.getByRole('switch',{name:'显示此组件',exact:true}).check()
   await page.waitForFunction(()=>window.current().codexQuotaStrip===true)
@@ -306,8 +329,11 @@ try {
   assert.ok(contrast([active.color,active.background])>=4.5,'#258 selected Today remains readable without hover')
   await page.screenshot({path:join(output,'issue258-midnight-controls.png'),fullPage:true})
   await picker.click();await page.screenshot({path:join(output,'issue258-midnight-native-popup.png')});await picker.press('Escape')
-  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.deepEqual(previewQueries,[],'preview never starts account or Codex discovery requests')
-  const result={themes:2,widths:[1100,720,390],regions:3,normalFontSize:true,skinSurfaces:true,autosave:true,keyboard:true,...previewChecks,reopenCount:25,hostConversationNodes:20000,cpuThrottle:4,openMedianMs:Math.round(sorted[Math.floor(sorted.length/2)]),openP95Ms:Math.round(p95),...metrics,externalRequests:external.length,browserErrors:errors.length}
+  assert.deepEqual(errors,[]);assert.deepEqual(external,[])
+  assert.ok(previewQueries.every(url=>new URL(url).pathname==='/plugins/dsh-openai-codex/auth/status'),'only the explicitly enabled Codex component starts its account query')
+  const sidebarUpdates=await checkSidebarUpdates(page,output);assert.deepEqual(errors,[]);
+  const sidebarAlignment=await checkSidebarAlignment(page,output);assert.deepEqual(errors,[]);
+  const result={sidebarUpdates,sidebarAlignment,themes:2,widths:[1100,720,390],regions:3,normalFontSize:true,skinSurfaces:true,autosave:true,keyboard:true,...previewChecks,reopenCount:25,hostConversationNodes:20000,cpuThrottle:4,openMedianMs:Math.round(sorted[Math.floor(sorted.length/2)]),openP95Ms:Math.round(p95),...metrics,externalRequests:external.length,browserErrors:errors.length}
   writeFileSync(join(output,'result.json'),JSON.stringify(result,null,2));console.log('[ok] '+JSON.stringify(result))
 } catch(error){await page.screenshot({path:join(output,'failure.png'),fullPage:true});console.error(errors);throw error}
 finally{await browser.close();await new Promise(resolve=>server.close(resolve))}

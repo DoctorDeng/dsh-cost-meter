@@ -19,11 +19,11 @@ assert.equal(sanitizeConfig({ peakStyle: 'classic' }).peakStyle, 'classic')
 const client = readdirSync('src/client').filter(n => n.endsWith('.js')).sort().map(n => readFileSync('src/client/' + n, 'utf8')).join('')
   .replace('exports.apply = apply', 'exports.peakTest = { PeakProgress, PeakProgressGuide, parseConfig, peakPhaseAt, makeT, css }; exports.apply = apply')
 const code = `
-import React from ${literal(req.resolve('react'))};import{createRoot}from ${literal(req.resolve('react-dom/client'))};
+import * as ReactDOMPortal from ${literal(req.resolve('react-dom'))};import React from ${literal(req.resolve('react'))};import{createRoot}from ${literal(req.resolve('react-dom/client'))};
 const h=React.createElement;let imports=0;const mainRequire=name=>name==='react'?React:{Tooltip:({children})=>children};mainRequire.async=async path=>{if(path!=='./client.peak.js')throw Error(path);imports++;return window.peakUI};
 window.__ModuleLoader__={load:mod=>window.mainUI=mod.factory(mainRequire)};
 ${client}
-window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(()=>React)};
+window.__ModuleLoader__={load:mod=>window.peakUI=mod.factory(name=>name==='react-dom'?ReactDOMPortal:React)};
 ${readFileSync('lib/client.peak.js','utf8')}
 const {PeakProgress,PeakProgressGuide,parseConfig,peakPhaseAt,makeT,css}=window.mainUI.peakTest;let config=parseConfig(window.__initial,'config');let listeners=new Set(),now=Date.parse('2026-10-19T08:40:00Z');
 window.snapshot=()=>config;window.imports=()=>imports;window.phase=(at)=>peakPhaseAt(at,config.peakWindows,config.peakHolidays);window.failSave=false;window.deferSave=false;window.saveCalls=0;

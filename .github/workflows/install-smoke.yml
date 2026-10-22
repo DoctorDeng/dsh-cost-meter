@@ -29,11 +29,11 @@ jobs:
           npm install -g pnpm
           pnpm install --frozen-lockfile
           mkdir -p .tmp-billion-matrix
-          npm pack billion-context@0.1.181 billion-context@0.1.190 billion-context@0.1.197 billion-context@0.1.201 --ignore-scripts --pack-destination .tmp-billion-matrix
+          npm pack billion-context@0.1.181 billion-context@0.1.190 billion-context@0.1.197 billion-context@0.1.201 billion-context@0.1.202 --ignore-scripts --pack-destination .tmp-billion-matrix
       - name: Verify automatic interface compatibility and actual native/proxy billing
         run: |
           node test/billion-context-compatibility.mjs
-          for version in 0.1.181 0.1.190 0.1.197 0.1.201; do
+          for version in 0.1.181 0.1.190 0.1.197 0.1.201 0.1.202; do
             DSH_TEST_BILLION_PACKAGE="$PWD/.tmp-billion-matrix/billion-context-$version.tgz" node test/billion-context-billing.mjs
             DSH_TEST_BILLION_PACKAGE="$PWD/.tmp-billion-matrix/billion-context-$version.tgz" node test/billion-context-auto.mjs
           done
@@ -41,6 +41,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Load the reported Claude skin version
+        uses: actions/checkout@v7
+        with:
+          repository: Nwflower/dsh-claude-style
+          ref: 3f1a5aaf5cb11e64e07020fc08372466652155c8
+          path: .tmp/claude-style
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -66,10 +73,18 @@ jobs:
           export CM_TEST_BROWSER=/usr/bin/google-chrome
           test -x "$CM_TEST_BROWSER" || (sudo apt-get update && sudo apt-get install -y google-chrome-stable)
           mkdir -p .tmp-billion-matrix
-          npm pack dsh-codex-subscription@3.1.1 --ignore-scripts --pack-destination .tmp-billion-matrix
-          DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.1.tgz" node test/codex-subscription-published.mjs
+          npm pack dsh-codex-subscription@3.1.2 --ignore-scripts --pack-destination .tmp-billion-matrix
+          DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.2.tgz" node test/codex-subscription-published.mjs
           npm pack @eddyskywalker/dsh-chatgpt-subscription@0.29.0 --ignore-scripts --pack-destination .tmp-billion-matrix
           DSH_TEST_CHATGPT_PACKAGE="$PWD/.tmp-billion-matrix/eddyskywalker-dsh-chatgpt-subscription-0.29.0.tgz" node test/chatgpt-subscription-quota.mjs
+          mkdir -p .tmp-our-free-model
+          npm pack dsh-our-free-model@2.1.0 --ignore-scripts --pack-destination .tmp-our-free-model
+          tar -xzf .tmp-our-free-model/dsh-our-free-model-2.1.0.tgz -C .tmp-our-free-model
+          DSH_TEST_FREE_MODEL_DIR="$PWD/.tmp-our-free-model/package" node test/our-free-model.mjs
+          mkdir -p .tmp-connect-workbuddy-published
+          npm pack dsh-connect-workbuddy@4.14.1 --ignore-scripts --pack-destination .tmp-connect-workbuddy-published
+          tar -xzf .tmp-connect-workbuddy-published/dsh-connect-workbuddy-4.14.1.tgz -C .tmp-connect-workbuddy-published
+          node test/connect-workbuddy-published.mjs
           node test/context-costs.mjs --host
           node test/context-costs-client.mjs
           node test/context-costs-lifecycle.mjs
@@ -95,6 +110,9 @@ jobs:
           node test/sidebar-guide-browser.mjs
           node test/peak-alert-browser.mjs
           node test/peak-progress-browser.mjs
+          node test/update-notice-skin-browser.mjs
+          node test/notice-layer-browser.mjs
+          node test/workbuddy-settings-browser.mjs
           node test/peak-style-picker-browser.mjs
           git fetch --depth=1 origin tag v1.8.29
           node test/idle-performance-browser.mjs
@@ -127,6 +145,9 @@ jobs:
             .tmp-codex-quota-browser/*
             .tmp-session-list-browser/*
             .tmp-peak-progress-preview/
+            .tmp-notice-skin/
+            .tmp-workbuddy-settings/
+            .tmp-notice-layer/
           if-no-files-found: ignore
           retention-days: 7
           include-hidden-files: true
@@ -207,6 +228,8 @@ jobs:
           export DSH_TEST_NODE_MODULES="$PWD/.tmp-native-search-host/node_modules"
           node test/native-search-host.mjs
           node test/web-request-host.mjs
+          node scripts/fetch-search-api-fixture.mjs
+          node test/search-api-host.mjs
           node test/native-search-proxy.mjs
           mkdir -p .tmp-native-package
           npm pack --pack-destination .tmp-native-package
@@ -270,12 +293,14 @@ jobs:
           npm pack dsh-context@0.68.1 --ignore-scripts --pack-destination .tmp-context-068
           tar -xzf .tmp-context-068/dsh-context-0.68.1.tgz -C .tmp-context-068
           mkdir -p .tmp-billion-matrix
-          npm pack dsh-codex-subscription@3.1.1 --ignore-scripts --pack-destination .tmp-billion-matrix
-          DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.1.tgz" node test/codex-subscription-published.mjs
+          npm pack dsh-codex-subscription@3.1.2 --ignore-scripts --pack-destination .tmp-billion-matrix
+          DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.2.tgz" node test/codex-subscription-published.mjs
           node test/context-costs.mjs --host
           node test/context-costs-regression-browser.mjs
           node test/native-search-host.mjs
           node test/web-request-host.mjs
+          node scripts/fetch-search-api-fixture.mjs
+          node test/search-api-host.mjs
           node test/codex-quota-browser.mjs
       - name: Install the packed plugin and start the real Web host
         run: |

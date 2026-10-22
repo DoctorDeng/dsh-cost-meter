@@ -26,28 +26,34 @@ async function run() {
   await scenario('versioned', data => data)
   await scenario('missing history', ({ pricingHistory, ...data }) => data)
   await scenario('invalid history', data => ({ ...data, pricingHistory: { ...data.pricingHistory, changes: {} } }))
+  for (const automatic of [false, true]) {
+    await scenario('v1.9.16 snapshots', data => data, { automatic })
+    await scenario('v1.9.16 snapshots missing history', ({ pricingHistory, ...data }) => data, { automatic })
+    await scenario('v1.9.16 snapshots invalid history', data => ({ ...data, pricingHistory: { ...data.pricingHistory, changes: {} } }), { automatic })
+  }
   await freshLedger()
 }
 
-async function scenario(variant, edit) {
+async function scenario(variant, edit, snapshots = null) {
   const { Ledger, localDayKey } = await import('../lib/store.js')
   const { apply, __testProjection } = await import('../lib/index.js')
   const { replaySessionRecords, recomputeLedgerPricingBasis } = await import('../lib/backfill.js')
   const { turnCostFromRecords } = await import('../lib/turn-cost.js')
   const { pricingConfigAt } = await import('../lib/billing-history.js')
-  const fixture = new URL('./fixtures/ollama-cloud-upgrade-1.9.12/', import.meta.url)
+  const fixture = new URL(snapshots ? './fixtures/ollama-snapshots-1.9.16/' : './fixtures/ollama-cloud-upgrade-1.9.12/', import.meta.url)
   const sessions = JSON.parse(readFileSync(new URL('sessions.json', fixture), 'utf8'))
   const root = mkdtempSync(join(tmpdir(), 'cm-ollama-upgrade-')), home = process.env.DSH_HOME
   const path = join(root, 'storages', 'cost-meter', 'ledger.json'), sessionsRoot = join(root, 'sessions')
   const oldFetch = globalThis.fetch, oldTimer = globalThis.setTimeout, oldNow = Date.now, disposers = []
-  const flash = 'ollama-cloud:deepseek-v4.1-flash', pro = 'ollama-cloud:deepseek-v4-pro', official = 'deepseek-official:deepseek-v4.1-flash'
+  const flashId = 'deepseek-v4.1-flash' + (snapshots ? ':1017' : ''), proId = 'deepseek-v4-pro' + (snapshots ? ':0813' : '')
+  const flash = 'ollama-cloud:' + flashId, pro = 'ollama-cloud:' + proId, official = 'deepseek-official:deepseek-v4.1-flash'
   const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 1e-10, `${variant}: ${label}: ${actual} != ${expected}`)
-  const oldDay = '2026-10-19', newDay = '2026-10-20'
+  const oldDay = '2026-10-19', newDay = '2026-10-20', originalRate = snapshots ? 7.2 : 7
   // v1.9.12 amounts: DeepSeek's windows (06:30 UTC Monday peak, 13:00 off-peak).
-  const OLD = { morning: { [flash]: .30, [pro]: 1.32, [official]: .30 }, afternoon: { [flash]: .15 } }
+  const OLD = { morning: { [flash]: snapshots?.automatic ? 0 : .30, [pro]: snapshots?.automatic ? 0 : 1.32, [official]: .30 }, afternoon: { [flash]: snapshots?.automatic ? 0 : .15 } }
   // Tuesday after the upgrade: Ollama's calendar.
-  sessions.upgraded = [{ at: `${newDay}T06:30:00.000Z`, provider: 'ollama-cloud', model: 'deepseek-v4.1-flash', input: 1e6 },
-    { at: `${newDay}T13:00:00.000Z`, provider: 'ollama-cloud', model: 'deepseek-v4.1-flash', input: 1e6 }]
+  sessions.upgraded = [{ at: `${newDay}T06:30:00.000Z`, provider: 'ollama-cloud', model: flashId, input: 1e6 },
+    { at: `${newDay}T13:00:00.000Z`, provider: 'ollama-cloud', model: flashId, input: 1e6 }]
   const records = {}
   for (const [id, calls] of Object.entries(sessions)) {
     const rows = records[id] = [{ type: 'session', id, version: 0, createdAt: Date.parse(calls[0].at) - 1000 }, { type: 'turn/start', seq: 0, time: Date.parse(calls[0].at) - 1, data: { turn: 1 } }]
@@ -83,7 +89,7 @@ async function scenario(variant, edit) {
     process.env.DSH_HOME = root
     Date.now = () => clock
     mkdirSync(join(root, 'storages', 'cost-meter'), { recursive: true })
-    const saved = JSON.parse(readFileSync(new URL('ledger.json', fixture), 'utf8'))
+    const saved = JSON.parse(readFileSync(new URL(snapshots ? (snapshots.automatic ? 'automatic.json' : 'aliased.json') : 'ledger.json', fixture), 'utf8'))
     assert.equal(saved.version !== undefined && Object.keys(saved.pricingHistory.versions).length, 1, 'fixture holds one v1.9.12 price version')
     writeFileSync(path, JSON.stringify(edit(saved)))
     const original = JSON.parse(readFileSync(path, 'utf8'))
@@ -92,12 +98,14 @@ async function scenario(variant, edit) {
     // Load (upgrade at 2026-10-20 00:00 UTC): the old version keeps DeepSeek's calendar.
     let ledger = Ledger.load(path)
     const [initial] = Object.values(ledger.pricingHistory.changes).filter(row => row.at === 0)
-    assert.equal(ledger.pricingHistory.versions[initial.version].prices.ollamaPeak, false, `${variant}: v1.9.12 table keeps its calendar policy`)
+    assert.equal(ledger.pricingHistory.versions[initial.version].prices.snapshotTags, false, `${variant}: saved matching policy is frozen`)
+    if (!snapshots) assert.equal(ledger.pricingHistory.versions[initial.version].prices.ollamaPeak, false)
+    assert.equal(pricingConfigAt(ledger.config, clock + 1).prices.snapshotTags, true, 'new calls use snapshot matching')
     assert.equal(pricingConfigAt(ledger.config, clock + 1).prices.ollamaPeak, true, 'calls after the upgrade use Ollama\'s calendar')
     assert.deepEqual(ledger.pricingHistory.runs, {})
     for (const [id, models] of Object.entries(OLD)) for (const [key, cost] of Object.entries(models)) near(replayed(ledger.config, id)[key].cost, cost, `first-load replay ${id} ${key}`)
-    ledger.account({ input: 1e6 }, 'deepseek-v4.1-flash', 'upgraded', Date.parse(sessions.upgraded[0].at), 'ollama-cloud')
-    ledger.account({ input: 1e6 }, 'deepseek-v4.1-flash', 'upgraded', Date.parse(sessions.upgraded[1].at), 'ollama-cloud')
+    ledger.account({ input: 1e6 }, flashId, 'upgraded', Date.parse(sessions.upgraded[0].at), 'ollama-cloud')
+    ledger.account({ input: 1e6 }, flashId, 'upgraded', Date.parse(sessions.upgraded[1].at), 'ollama-cloud')
     clock = Date.parse(`${newDay}T20:00:00Z`)
     // Automatic (non-explicit) repricing replays with the frozen versions and changes nothing.
     await recomputeLedgerPricingBasis(ledger, sessionsRoot, null)
@@ -117,16 +125,16 @@ async function scenario(variant, edit) {
     await service.updateConfig({ exchangeRate: 9 })
     assert.equal((await service.repriceModelHistory(true, flash)).ok, true)
     for (const dispose of disposers.splice(0).reverse()) await dispose()
-    const REPRICED = { morning: { [flash]: .15, [pro]: 1.32, [official]: .30 }, afternoon: { [flash]: .30 } }
+    const REPRICED = { morning: { [flash]: .15, [pro]: OLD.morning[pro], [official]: .30 }, afternoon: { [flash]: .30 } }
     const repriced = JSON.parse(readFileSync(path, 'utf8'))
-    near(cells(repriced, oldDay, 'morning')[flash].costCny, .15 * 7, 'original FX')
-    near(cells(repriced, oldDay, 'afternoon')[flash].costCny, .30 * 7, 'original FX')
+    near(cells(repriced, oldDay, 'morning')[flash].costCny, .15 * originalRate, 'original FX')
+    near(cells(repriced, oldDay, 'afternoon')[flash].costCny, .30 * originalRate, 'original FX')
     for (const key of [pro, official]) assert.deepEqual(cells(repriced, oldDay, 'morning')[key], cells(original, oldDay, 'morning')[key], `${key} untouched`)
 
     // Restart keeps the opted-in calls, untouched siblings, other providers and new calls.
     ledger = Ledger.load(path)
     expectAll(ledger, { ...REPRICED, ...NEW }, 'after reprice and restart')
-    assert.equal(pricingConfigAt(ledger.config, Date.parse(sessions.morning[0].at), 'morning', flash).fxRates.CNY, 7)
+    assert.equal(pricingConfigAt(ledger.config, Date.parse(sessions.morning[0].at), 'morning', flash).fxRates.CNY, originalRate)
     assert.equal(Object.values(ledger.pricingHistory.runs).filter(row => row.model === flash).length, 1)
     ledger.close()
   } finally {
@@ -135,7 +143,7 @@ async function scenario(variant, edit) {
     if (home === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = home
     rmSync(root, { recursive: true, force: true })
   }
-  console.log(`[ok] Ollama Cloud upgrade (${variant}): v1.9.12 amounts kept on load/replay/detail/projection; new calls on Ollama's calendar; explicit model repricing opts in with original FX; restart`)
+  console.log(`[ok] Ollama Cloud upgrade (${variant}): saved amounts kept on load/replay/detail/projection; new calls on Ollama's calendar; explicit model repricing opts in with original FX; restart`)
 }
 
 /** No ledger yet (or one that cannot be read): history starts on Ollama's calendar at time zero. */

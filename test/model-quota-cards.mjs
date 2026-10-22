@@ -10,7 +10,7 @@ const sourceDir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(sourceDir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, sourceDir), 'utf8')).join('')
 const expose = ['SidebarModelCosts', 'sidebarModelRows', 'modelStatsRows', 'MODEL_SIDEBAR_DEFAULTS', 'MODEL_OPEN_KEY', 'QuotaCard', 'useQuotaRefresh', 'QuotasSection', 'PlanQuotaCard', 'GatewayQuotaCard', 'GoQuotaCard', 'GoQuotaSettings', 'CustomBalanceEntryPanel', 'SidebarFooter', 'CornerChips', 'parseConfig', 'makeT', 'CODING_PLAN_ROWS']
 expose.push('CostSection', 'MiniMaxPlanCard')
-expose.push('BalancePanel', 'CredentialField', 'parseBalance')
+expose.push('BalancePanel', 'CredentialField', 'parseBalance', 'miniMaxWindowsOf', 'barDirectionOf', 'quotaWindowRow', 'codingPlanWindowLabel', 'numInput', 'resolveLocale', 'formatMoneyUsd')
 const element = (type, props, ...children) => ({ type, props: props ?? {}, children })
 const nodes = value => Array.isArray(value) ? value.flatMap(nodes) : value && typeof value === 'object' ? [value, ...nodes(value.children)] : []
 const textOf = value => Array.isArray(value) ? value.map(textOf).join(' ') : value && typeof value === 'object' ? textOf(value.children) : typeof value === 'string' || typeof value === 'number' ? String(value) : ''
@@ -56,6 +56,9 @@ function environment(fetchImpl = async () => ({ ok: false })) {
   })
   const module = factory(name => name === 'react' ? React : { Tooltip: 'tooltip' })
   const ui = module.test
+  let plansFactory
+  vm.runInNewContext(readFileSync(new URL('../src/plan-settings/index.js', import.meta.url), 'utf8'), { window: { __ModuleLoader__: { load: value => { plansFactory = value.factory } } } })
+  ui.PlanQuotaCard = plansFactory(() => React).mount(ui)
   const instances = []
   const mount = (render, props = {}) => {
     const owner = { hooks: [], cursor: 0, effects: [], dirty: false, disposed: false, props, tree: null }

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync,
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
-import { parseQwenSummary, parseQwenSubscription, queryQwenCli, resolveQwenCli, QWEN_CLI_ARGS, QWEN_SUBSCRIPTION_ARGS } from '../lib/qwen-cli.js'
+import { parseQwenSummary, parseQwenSubscription, queryQwenCli, resolveQwenCli, QWEN_CLI_ARGS, QWEN_SUBSCRIPTION_ARGS, QWEN_CLI_TIMEOUT_MS, QWEN_SUBSCRIPTION_TIMEOUT_MS } from '../lib/qwen-cli.js'
 import { applyConfigPatch, sanitizeConfig } from '../lib/store.js'
 import { TYPERT } from '../lib/typert.host.js'
 import { apply } from '../lib/index.js'
@@ -100,6 +100,8 @@ process.stdout.write(config.raw ?? JSON.stringify(config.payload));
   setResponse({ payload: { token_plan: { subscribed: false } }, subscription: { payload: subscription } })
   assert.deepEqual((await queryQwenCli('en', options)).windows, personal)
   assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n').slice(-2).map(JSON.parse), [QWEN_CLI_ARGS, QWEN_SUBSCRIPTION_ARGS])
+  setResponse({ payload: { token_plan: { subscribed: false } }, subscription: { wait: 15500, payload: subscription } })
+  assert.deepEqual((await queryQwenCli('en', options)).windows, personal, 'default fallback accepts a real command beyond 15 seconds (#349)')
   for (const [response, expected] of [[{ exit: 2, stderr: 'SECRET_AUTH' }, 'auth'], [{ raw: 'SECRET_INVALID' }, 'invalid'], [{ payload: { individual: { status: 'expired' } } }, 'unavailable'], [{ wait: 4000 }, 'timeout']]) {
     setResponse({ payload: { token_plan: { subscribed: false } }, subscription: response })
     await assert.rejects(queryQwenCli('en', { ...options, timeoutMs: response.wait ? 2000 : 15000 }), e => e.code === expected && !e.message.includes('SECRET'))
@@ -115,6 +117,19 @@ process.stdout.write(config.raw ?? JSON.stringify(config.payload));
   }
   setResponse({ wait: 1000 })
   await assert.rejects(queryQwenCli('en', { ...options, timeoutMs: 100 }), { code: 'timeout' })
+  // CLI 1.10 subscription status takes 30–36 s; the fallback must not inherit
+  // the 15 s summary budget, and a timeout must not blame the network.
+  assert.ok(QWEN_SUBSCRIPTION_TIMEOUT_MS >= 60000 && QWEN_CLI_TIMEOUT_MS <= QWEN_SUBSCRIPTION_TIMEOUT_MS)
+  const budgets = []
+  const runJson = async ({ args, timeoutMs }) => {
+    budgets.push([args.at(-3) === 'summary' ? 'summary' : 'subscription', timeoutMs])
+    return args.includes('subscription') ? subscription : { token_plan: { subscribed: false } }
+  }
+  assert.deepEqual((await queryQwenCli('en', { ...options, runJson })).windows, personal)
+  assert.deepEqual(budgets, [['summary', QWEN_CLI_TIMEOUT_MS], ['subscription', QWEN_SUBSCRIPTION_TIMEOUT_MS]])
+  setResponse({ payload: { token_plan: { subscribed: false } }, subscription: { wait: 1000 } })
+  await assert.rejects(queryQwenCli('en', { ...options, timeoutMs: 300 }), e => e.code === 'timeout' && /too slowly/.test(e.message) && !/Check the network/.test(e.message))
+  await assert.rejects(queryQwenCli('zh', { ...options, timeoutMs: 300 }), e => e.code === 'timeout' && /响应超时/.test(e.message) && !/请检查网络/.test(e.message))
   const controller = new AbortController()
   const cancellation = queryQwenCli('en', { ...options, signal: controller.signal })
   controller.abort()

@@ -82,7 +82,7 @@ try {
     const chunks={};const require=name=>name==='react'?React:{Tooltip:({children})=>children};require.async=async name=>chunks[name];
     window.__ModuleLoader__={load:mod=>window.mainUI=mod.factory(require)};
     ${readFileSync('lib/client.js', 'utf8')}
-    ${['display', 'peak'].map(name => `window.__ModuleLoader__={load:mod=>chunks['./client.${name}.js']=mod.factory(()=>React)};\n${readFileSync('lib/client.' + name + '.js', 'utf8')}`).join('\n')}
+    ${['display', 'peak', 'sidebar-order'].map(name => `window.__ModuleLoader__={load:mod=>chunks['./client.${name}.js']=mod.factory(()=>React)};\n${readFileSync('lib/client.' + name + '.js', 'utf8')}`).join('\n')}
     const entries=new Map(),disposers=[],services={};
     services['remote.costMeter']=new Proxy({},{get:(_,method)=>(...args)=>fetch('/rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,args})}).then(r=>r.json())});
     services.slots={entries:()=>[],inject:(name,fn)=>fn(),register:(options,component)=>{const id=options.name+':'+options.id;const entry={options,component};entries.set(id,entry);return()=>{if(entries.get(id)===entry)entries.delete(id)}}};
@@ -175,6 +175,14 @@ try {
   assert.equal(await page.getByLabel('Base URL', { exact: true }).inputValue(), baseURL)
   assert.equal(await page.getByRole('checkbox', { name: /允许非回环 HTTP/ }).isChecked(), true)
   await page.locator('#settings').screenshot({ path: join(output, 'lan-gateway.png') })
+  await display()
+  await page.getByLabel('调整组件', { exact: true }).selectOption('codex')
+  await page.getByRole('switch', { name: '显示此组件', exact: true }).check()
+  await page.waitForFunction(() => window.current().config.codexQuotaEnabled === true && window.current().config.codexQuotaSidebar === true)
+  for (let retry = 0; retry < 30 && JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8')).config.codexQuotaEnabled !== true; retry++) await new Promise(done => setTimeout(done, 50))
+  assert.equal(JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8')).config.codexQuotaEnabled, true, '#350 writes the master switch to the real ledger')
+  await page.reload(); await display(); await page.getByLabel('调整组件', { exact: true }).selectOption('codex')
+  assert.equal(await page.getByRole('switch', { name: '显示此组件', exact: true }).isChecked(), true, '#350 survives client reload')
   assert.deepEqual(errors, []); assert.deepEqual(external, [])
   assert.ok(saves.length > 0); assert.ok(!JSON.stringify(state).includes('TEST_LOCAL_GATEWAY_KEY'))
   const result = { balanceReopenWithoutRestart: true, balanceQueries: balanceCalls, realLanGatewayRequests: gatewayCalls.length, sourcePermissionsIsolated: true, unauthorizedRequests: 0, darkChipBackground: chip.background, browserErrors: errors.length, externalRequests: external.length }

@@ -1,5 +1,139 @@
 # Changelog
 
+## [Unreleased]
+
+- 修复独立复现的 WorkBuddy 紧凑侧栏标题只占半行、余额无法靠右及被截断的问题，标题保持横跨整张卡片。[@SternChiri](https://github.com/SternChiri) 的 [#377](https://github.com/Han-1413141/dsh-cost-meter/issues/377) 反馈触发了排查；报告者随后撤回了原有“文字左对齐”定位，本修复依据实际浏览器中的标题宽度与余额位置验证。
+- Keep the WorkBuddy heading across both compact sidebar columns so its balance reaches the card's right edge.
+
+## [1.9.26] - 2026-10-21
+
+- 修复 OpenDesign 的 5 小时与每周额度标签颠倒：按接口窗口时长识别，18,000 秒对应 5h，604,800 秒对应每周，额度百分比与重置时间保持配对。覆盖侧栏、设置页和输入区额度条。
+- Fix reversed OpenDesign 5-hour and weekly quota labels by mapping each API duration to its matching window, preserving the usage percentage and reset time together across quota displays.
+
+[更新说明 / Release notes](docs/update-notes-1.9.26.md)
+
+## [1.9.25] - 2026-10-21
+
+- WorkBuddy 新增当前账号、全部账号和勾选账号统计，显示剩余积分及今日、近 7 天、启用以来观测到的积分减少；保留全部调用的 API 等值费用。
+- 接入独立多账号接口，本地查询绕开全局网络代理；查询失败保留未知状态，旧接口保留单账号兼容，不把部分数据当作完整总额。
+- 修复旧配置缺少新字段导致保存失败，以及旧宿主不支持新增侧栏字段时的兼容问题。已有价格、历史金额和非法值校验保持有效。
+- 将峰谷与合并侧栏引导挂到页面顶层，保留非模态行为，修复被会话遮挡后无法点击的问题。
+- 修复本轮费用强制显示至少 8 位小数的问题，金额遵循显示设置，单价保留精度；感谢 @mzjqwq 的 #374 报告。
+- 感谢 @picklerick422（#371）、@hua0424（#372）和 @paperclip476-sys（#373）的报告、定位与复现，详细署名见更新说明。
+
+- Add WorkBuddy account selection and observed credit changes, with explicit unknown/partial results and separate API-equivalent values.
+- Fix legacy configuration saves and sidebar update notices hidden behind the composer. Load subscription settings on demand.
+
+[更新说明 / Release notes](docs/update-notes-1.9.25.md)
+
+## [1.9.24] - 2026-10-21
+
+- WorkBuddy 积分新增兼容 `dsh-connect-workbuddy`，读取当前 DSH 的国内、国际版 usage 接口，显示已选账号的积分及最近到期时间；保留 `dsh-workbuddy-connect` 兼容。
+- 跳过未登录或已关闭的区域，积分为零正常显示；登录被拒绝、账号选择失效或积分查询失败时显示错误，不误报为零，也不回退到其他账号的旧凭据。
+- 国际渠道 `workbuddy-global` 沿用 WorkBuddy 套餐分类，升级时修正历史 API 归属，保留原金额、各币种记录、Token 和调用数。
+
+- Read selected-account credits and nearest expiry from dsh-connect-workbuddy's CN/global usage routes while retaining dsh-workbuddy-connect support.
+- Skip signed-out or disabled regions, preserve valid zero balances, and report rejected credentials, lost selections or unavailable credits without stale credential fallback.
+- Classify workbuddy-global under the WorkBuddy Plan family and correct historical API attribution without changing recorded amounts, currencies, tokens or calls.
+
+[更新说明 / Release notes](docs/update-notes-1.9.24.md)
+
+## [1.9.23] - 2026-10-21
+
+- 智能体团队的主代理窗口自动汇总团队成员及其子代理的费用、Token 和调用明细，保留逐代理明细；父子会话仍分别入账，普通分叉会话不归并。
+- 价格配置按宿主当前供应商和模型目录过滤，已删除的渠道、模型不再残留在待定价列表；历史费用、保存的价格和统计设置保留，目录读取失败时沿用原列表。
+- 修复上下文洞察联动区固定显示 USD 的问题，跟随显示币种和当前显示汇率即时更新，并保留非缓存参考价说明。
+- 感谢 [@Theicecold](https://github.com/Theicecold) 在 [issue #367](https://github.com/Han-1413141/dsh-cost-meter/issues/367) 报告币种不一致并建议统一显示。
+
+- Include team members and their subagents in the lead's session costs, token totals and call details automatically, retaining per-agent records and separate ledger entries. Ordinary conversation forks stay separate.
+- Filter the pricing list against the host's current provider/model directory. Removed routes and models no longer remain in the unpriced list; keep historical costs, saved prices and preferences, and retain the previous list when directory metadata is unavailable.
+- Make the dsh-context integration follow the configured display currency and current display exchange rate, preserving the uncached reference-price explanation.
+
+[更新说明 / Release notes](docs/update-notes-1.9.23.md)
+
+## [1.9.22] - 2026-10-20
+
+- 修复 WorkBuddy 国际版 `workbuddy-ai` 未沿用套餐分类的问题。启用 WorkBuddy 积分查询或显式选择 Plan 后，国际版调用的等值金额不再计入 API 支出，服务端账本与界面统计保持一致。
+- 升级启动时一次性修正历史日账本、单会话和模型明细中的 API 金额，保留原金额、各币种记录、历史价格、Token 和调用数。
+- 自定义渠道的显式 plan/api 配置可正常保存并生效，模型级覆盖仍优先；DeepSeek 官方搜索和抓取请求费继续归 API。
+- 费用明细优先显示包含子代理的完整汇总，再加载步骤图表；收起的逐次调用列表延后至展开时渲染，减少首次打开的等待。
+- 感谢 [@pcs801](https://github.com/pcs801) 在 [issue #364](https://github.com/Han-1413141/dsh-cost-meter/issues/364) 提供复现数据、原因定位和修复建议。
+
+- Recognize `workbuddy-ai` as a WorkBuddy route in server and client billing. When WorkBuddy credits querying is enabled or its classification is explicitly Plan, international calls no longer count toward API spend.
+- Correct historical daily, session and model API attribution once after upgrading, preserving recorded amounts in each currency, prices, tokens and calls.
+- Honor explicit custom-provider plan/api settings, with model overrides taking priority. Official DeepSeek search and fetch request fees remain API charges.
+- Prioritize full session totals before step-chart replay and defer collapsed call rows until expansion, reducing first-open latency.
+
+[更新说明 / Release notes](docs/update-notes-1.9.22.md)
+
+## [1.9.21] - 2026-10-20
+
+- 修复侧栏合并卡片、简洁卡片和模型费用等组件未跟随透明度设置的问题。开启“跟随皮肤透明度”后，侧栏卡片不再叠加独立底色，关闭后恢复原样。
+- 覆盖标准、紧凑、简洁和合并四种布局，以及今日与余额同行、余额进度条和套餐卡片；弹窗继续保留至少 90% 不透明度。
+
+- Fix sidebar cards that kept a solid background with Follow skin transparency enabled, including Combined, Simple and model-cost cards. Disabling the option restores the original surfaces.
+- Cover all four sidebar layouts, inline today/balance rows, balance progress and plan cards. Floating dialogs retain at least 90% opacity.
+
+## [1.9.20] - 2026-10-20
+
+- 修正 OpenDesign 的 5 小时与周额度对应关系，使用量百分比和重置时间跟随同一窗口对调，设置卡片、侧栏和额度横条使用统一结果。
+- Correct the swapped OpenDesign 5-hour and weekly allowances. Keep each usage percentage paired with its reset time across settings, the sidebar and the quota strip.
+
+[更新说明](docs/update-notes-1.9.20.md)
+
+## [1.9.19] - 2026-10-20
+
+- 统一侧栏峰谷条、余额、今日用量、模型费用、预算、Coding Plan、Codex 与网关额度的内容边线；标题靠左，金额与比例靠右，模型卡片展开箭头移到标题后。
+- 标准、紧凑、简洁和合并卡片沿用各自的留白，兼容“今日消费与余额同行”；长标题在窄侧栏内换行或省略，避免挤出金额。
+- 显示设置顶部缩小留白，“使用示例数据”并入区域切换工具栏；透明度与 billion-context 兼容提醒移入右侧默认收起的“通用设置”。侧栏布局继续默认展开。
+- 简洁卡片隐藏右侧滚动条和上下箭头，内容较多时仍可通过滚轮、触控和键盘滚动查看。
+
+- Align sidebar content edges across peak indicators, balances, daily usage, model costs, budgets, Coding Plans, Codex and gateway quotas. Place the model disclosure arrow after its heading and keep amounts right-aligned.
+- Preserve spacing in Standard, Compact, Simple and Combined layouts, including the optional inline today/balance row. Keep long headings inside narrow sidebars.
+- Bring the Display preview closer to the tabs. Put example data in the preview toolbar and move transparency and compatibility notices into the collapsed General settings. Sidebar layout choices remain expanded by default.
+- Hide the Simple card scrollbar and its arrow buttons while preserving wheel, touch and keyboard scrolling.
+
+## [1.9.18] - 2026-10-20
+
+- WorkBuddy 积分优先读取连接插件的本地状态接口，兼容加密登录文件；移除“重新登录生成明文副本”的错误提示，同一条刷新错误只显示一次。已用真实加密登录文件验证查询值与上游一致。
+- 更新公告改为非模态窗口，补齐皮肤兼容标记；被隐藏时不再让宿主进入 inert 状态。感谢 [@SherUnlocked-4869](https://github.com/SherUnlocked-4869) 在 [issue #355](https://github.com/Han-1413141/dsh-cost-meter/issues/355) 提供环境、A/B 复现和原因定位。
+- Ollama Cloud 的 `deepseek-v4.1-flash:1017`、`deepseek-v4-pro:0813` 等快照与连续安全后缀可自动匹配，显式映射同样使用 Ollama 峰谷日历。冻结历史匹配策略，旧账本加载、回放和重启不自动改价；手动模型重算保留原汇率。感谢 [@LetterXbox](https://github.com/LetterXbox) 在 [issue #356](https://github.com/Han-1413141/dsh-cost-meter/issues/356) 提供复现、定位及历史保护要求。
+
+- UI 设置增加“今日消费与余额同行”独立开关，保留现有布局、悬停详情和余额进度条。感谢 [@zhuwnq](https://github.com/zhuwnq) 在 [issue #359](https://github.com/Han-1413141/dsh-cost-meter/issues/359) 提出需求。
+- 整合 [@LetterXbox](https://github.com/LetterXbox) 在 [PR #358](https://github.com/Han-1413141/dsh-cost-meter/pull/358) 提交的历史时间线恢复与升级测试，扩展自动匹配时继续保留原账单和策略切换时间。
+
+[更新说明](docs/update-notes-1.9.18.md)
+
+## [1.9.17] - 2026-10-20
+
+- 主页侧栏恢复普通展示，移除六点拖动手柄、额外左侧留白和保存提示；拖动与方向键排序仅保留在“费用 → 显示”的预览中。
+- 修复网关卡片拖动遗漏来源 ID 导致排序保存失败的问题；无效排序标识在提交前过滤，保存失败后仍可继续修改组件显示。
+- “侧栏布局”默认展开，切换组件时保持用户的展开选择；四种布局缩略图在窄面板中排为两列。
+- 合并卡片使用对称内边距和紧凑行高，统一简洁卡片的今日行背景；移除拖动造成的多余空间，三行卡片不再出现内部滚动条。
+- `dsh-our-free-model` 免费计费选项改为同一行的开关与文字，说明缩短；仅该插件后续调用记为免费，Token、历史费用与其他渠道规则不变。
+- 修复皮肤隐藏更新公告却留下模态锁定的问题：为公告补齐 dialog 语义与显示样式，无法显示时关闭模态，避免锁住整页。感谢 [@SherUnlocked-4869](https://github.com/SherUnlocked-4869) 在 [#355](https://github.com/Han-1413141/dsh-cost-meter/issues/355) 提供复现和定位。
+- 纳入 [@LetterXbox](https://github.com/LetterXbox) 在 [PR #358](https://github.com/Han-1413141/dsh-cost-meter/pull/358) 提供的 Ollama Cloud 快照模型日历修复，问题来源 [#356](https://github.com/Han-1413141/dsh-cost-meter/issues/356)。带标签模型仍需已有价格或手动映射，历史金额保留原规则。
+
+- Keep drag and keyboard reordering inside Display settings. The home sidebar no longer adds handles, padding or save-status nodes.
+- Preserve gateway source IDs when ordering cards; a failed save no longer blocks subsequent display changes. Sidebar layout choices start expanded.
+- Balance combined-card spacing, share the Simple card background with its Today row, and avoid an inner scrollbar for the three-row card.
+- Align the free-model checkbox with its label and shorten the explanation without changing billing behavior.
+- Keep update guides visible under skin dialog rules and close an invisible modal instead of blocking DSH (#355, reported and diagnosed by @SherUnlocked-4869).
+- Include @LetterXbox’s reviewed PR #358: configured Ollama Cloud snapshot models use its own calendar; historical prices are preserved and automatic price matching is unchanged.
+
+## [1.9.16] - 2026-10-20
+
+- 读取 DSH `web.searchProvider`／`web.fetchProvider`，在调用开始时保存所选提供方，并结合实际接口区分旧版 Messages 搜索与新版 Search／Fetch API。新版独立接口按成功请求每千次 ¥5 计费；旧版保留模型 Token 费用，已观察到的服务端成功搜索在北京时间 2026 年 11 月 1 日 00:00 前免请求费，此后按次收费。历史记录保持调用时的版本、单价与汇率。
+- “今日”支持仅费用、仅 Token、同时显示；预览费用与 Token 子项各有独立虚线和开关，窄侧栏自动换行。
+- 显示设置预览与实际主侧栏支持拖动排序和方向键移动；不同套餐卡片独立排序，Go 与预算分开显示。自动保存顺序，保存失败保留原顺序，隐藏再显示后仍恢复已保存的位置。[更新说明](docs/update-notes-1.9.16.md)
+
+- 新增“合并卡片”侧栏样式，将今日 Token 与费用、余额和峰谷进度放在同一张卡片中，提供一次性介绍与可选启用入口；原有布局、组件开关和拖动排序继续可用。
+- 检测当前宿主已启用的 `dsh-our-free-model` 后，可在“价格 → 按模型设置”选择将其两个渠道之后的所有调用按零费用统计；保留真实 Token，不影响其他渠道和已保存的历史单价。
+- 修复 Codex 显示开关只改变侧栏位置、没有启用额度查询的问题；查询开关可直接设置并保存，未开启时提供入口，页签统一对齐。感谢 [@forkhala](https://github.com/forkhala) 在 [issue #350](https://github.com/Han-1413141/dsh-cost-meter/issues/350) 提供重启和手改账本的对照复现。
+- Go 悬浮详情同时显示 5 小时、周和月用量，以及三个窗口各自的重置时间；峰价浮层使用浏览器顶层显示和页面级后备挂载，限制低高度窗口中的弹窗高度。
+- `billion-context` 兼容提醒的确认记录保存到账本；增加“不再弹出此提醒”及“费用 → 显示”设置开关，切换地址、重启及兼容状态往返变化后保留选择。
+- 千问 CLI 的普通查询保留 15 秒超时，订阅兜底查询使用 60 秒，提示说明 CLI 响应耗时。感谢 [@forkhala](https://github.com/forkhala) 在 [issue #349](https://github.com/Han-1413141/dsh-cost-meter/issues/349) 提供计时与复现，感谢 [@orshih6](https://github.com/orshih6) 在 [PR #351](https://github.com/Han-1413141/dsh-cost-meter/pull/351) 提供分命令超时实现和回归测试。
+
 ## [1.9.15] - 2026-10-19
 
 - 新增默认关闭的“跟随皮肤透明度”：费用页复用设置窗口背景，统计正文共用弹窗背景；浮层保留至少 90% 不透明度。关闭后恢复现有遮挡效果。感谢 [@MuFeng262](https://github.com/MuFeng262) 在 [issue #345](https://github.com/Han-1413141/dsh-cost-meter/issues/345) 报告液态玻璃色块问题、定位强制 alpha 的原因并提出可选开关。

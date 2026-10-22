@@ -43,6 +43,7 @@ await new Promise(resolve=>setTimeout(resolve,0));
 const slot=entries.get('sidebar.footer.action:cost-meter'),stripSlot=entries.get('conversation.input.dock:cost-meter-qstrip'),injected=slot.options.inject(),store=injected.hooks.cost;
 function useCost(pick){return pick(React.useSyncExternalStore(store.subscribe,store.getSnapshot))}
 window.configure=patch=>injected.api.updateConfig(patch);
+window.setWorkBuddyBalance=text=>{state={...state,codingPlans:{...state.codingPlans,workbuddy:{...state.codingPlans.workbuddy,windows:{balance:{text,resetsAt:''}}}}}};
 window.dispose=()=>{root.unmount();for(const fn of disposers.reverse())fn()};
 function App(){const[wide,setWide]=React.useState(true);window.setWide=setWide;return React.createElement(React.Fragment,null,React.createElement(slot.component,{...injected,useCost,wide}),React.createElement('div',{id:'composer'},React.createElement(stripSlot.component,{...injected,useCost})))}
 const root=createRoot(document.getElementById('root'));root.render(React.createElement(App));
@@ -173,6 +174,39 @@ try {
   await page.evaluate(() => window.configure({ locale: 'zh' }))
   assert.match(await workbuddy.innerText(), /WorkBuddy 积分/)
   await workbuddy.screenshot({ path: join(output, 'workbuddy-balance.png') })
+  const workbuddyLayouts = []
+  for (const balance of ['1,117', '363', '0', '123,456,789.1234']) for (const locale of ['zh', 'en']) for (const mode of ['standard', 'compact', 'summary', 'simple']) for (const theme of ['light', 'dark']) for (const width of [324, 280, 200]) {
+    await page.evaluate(({ balance, locale, mode, theme, width }) => {
+      window.setWorkBuddyBalance(balance)
+      document.documentElement.dataset.theme = theme
+      document.getElementById('root').style.width = width + 'px'
+      return window.configure({ locale, sidebarSimple: mode === 'simple', sidebarStyle: mode === 'simple' ? 'standard' : mode })
+    }, { balance, locale, mode, theme, width })
+    assert.equal((await workbuddy.innerText()).split(balance).length - 1, 1, 'WorkBuddy balance remains present exactly once')
+    const geometry = await workbuddy.evaluate(node => {
+      const box = node.getBoundingClientRect(), style = getComputedStyle(node)
+      const title = node.querySelector('.cm-mm-title'), value = title.querySelector('.cm-mm-text')
+      const range = document.createRange(); range.selectNodeContents(value)
+      const edge = box.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth)
+      const valueBox = value.getBoundingClientRect()
+      return { rightGap: edge - valueBox.right, textAlign: getComputedStyle(value).textAlign,
+        overflow: node.scrollWidth > node.clientWidth, textRightGap: edge - range.getBoundingClientRect().right,
+        valueFits: value.scrollWidth <= value.clientWidth, titleWidth: title.getBoundingClientRect().width }
+    })
+    const context = [balance, locale, mode, theme, width].join('/')
+    if (Math.abs(geometry.rightGap) > 1 || geometry.overflow) await workbuddy.screenshot({ path: join(output, 'workbuddy-alignment-failure.png') })
+    assert.ok(Math.abs(geometry.rightGap) <= 1, context + ' WorkBuddy balance reaches the card content edge: ' + JSON.stringify(geometry))
+    assert.equal(geometry.textAlign, 'right', context + ' WorkBuddy text is right aligned')
+    assert.equal(geometry.overflow, false, context + ' WorkBuddy card fits without horizontal overflow')
+    if (geometry.valueFits) assert.ok(Math.abs(geometry.textRightGap) <= 1, context + ' visible balance text reaches the right edge')
+    workbuddyLayouts.push({ balance, locale, mode, theme, width })
+    if (balance === '363' && locale === 'zh' && width === 280) await workbuddy.screenshot({ path: join(output, 'workbuddy-' + mode + '-' + theme + '.png') })
+  }
+  await page.evaluate(() => {
+    document.getElementById('root').style.width = '280px'
+    window.setWorkBuddyBalance('1,117')
+    return window.configure({ locale: 'zh', sidebarSimple: false, sidebarStyle: 'standard' })
+  })
   await page.evaluate(() => window.configure({ codingPlans: { workbuddy: { enabled: false, display: 'sidebar' } } }))
   await workbuddy.waitFor({ state: 'detached' })
   const oldCalls = calls.length
@@ -210,7 +244,7 @@ try {
   await page.clock.fastForward(360_000)
   assert.equal(chatgptCalls.length, stopped, 'hiding both ChatGPT quota positions stops reads')
   assert.deepEqual(errors, []); assert.deepEqual(external, [])
-  writeFileSync(join(output, 'result.json'), JSON.stringify({ passed: true, calls: calls.length, chatgptCalls, layouts, remainingBars: true, resetTopRight: true, weeklyOnly: true, missingReset: true, externalRequests: 0, browserErrors: errors }, null, 2))
+  writeFileSync(join(output, 'result.json'), JSON.stringify({ passed: true, calls: calls.length, chatgptCalls, layouts, workbuddyLayouts, remainingBars: true, resetTopRight: true, weeklyOnly: true, missingReset: true, externalRequests: 0, browserErrors: errors }, null, 2))
   await page.evaluate(() => window.dispose())
   console.log('[ok] Codex quota: shipped assets, DSH Connection RPC and ChatGPT HTTP, login recovery, both windows, source fallback and disable cleanup')
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

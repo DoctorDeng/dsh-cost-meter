@@ -1,8 +1,8 @@
 {
-  "recordedAt": "2026-10-19T05:21:17.948Z",
+  "recordedAt": "2026-10-20T05:12:11.519Z",
   "plugins": {
     "billion-context": {
-      "version": "0.1.201",
+      "version": "0.1.202",
       "signature": {
         "main": "dist/index.js",
         "exports": {
@@ -34,10 +34,10 @@
         }
       },
       "interfaceHash": "54a8210ced5de02934cba6187c0c7e5405ebc26f7c2ed1c9e3bd48b425a1531a",
-      "integrity": "sha512-vIce42Jnx4ioHghVPfGuktNg6aLhIWsRbWRlIbdMzt0jzG5kT6I7xK77HS2yPUAxtx+snD/qtlNT4kuV4kX9AA=="
+      "integrity": "sha512-vCouVcX40Qbo+RdO8vo8F+cV/cutbuoflBpLu0aFpZRxJtygSN743GGQET7jqRCLoT4KzqaQQqQOywjOaBDx0Q=="
     },
     "dsh-codex-subscription": {
-      "version": "3.1.1",
+      "version": "3.1.2",
       "signature": {
         "main": "./lib/index.js",
         "exports": {
@@ -82,7 +82,7 @@
         }
       },
       "interfaceHash": "2aaece2f9bd680fae05fc6f15cb6879db06016d2ba8c7b692c8dd3ba96f5fa57",
-      "integrity": "sha512-f1FdJ5Ea89B5UFATyapQuOSD2Ho5c2RglmpU6wJ1Yk3syQkQ2mb0pW4ERxOtPAP3EhJWV5I+evaX6Jl6SLD/tQ=="
+      "integrity": "sha512-YRokBnwPT5cO0meB6fQQ7EVA7w9AeG4NLNv7VQ+Rs/9Is194lhu6dDUZt7l3/LnPUP17XSY5BNc8iJOXLMcMeQ=="
     },
     "dsh-codex-connect": {
       "version": "0.2.0-alpha.1",

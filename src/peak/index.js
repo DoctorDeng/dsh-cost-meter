@@ -3,44 +3,52 @@ window.__ModuleLoader__.load({
   id: 'dsh-cost-meter', chunk: 'client.peak.js',
   factory: require => {
     const React = require('react')
+    const { createPortal } = require('react-dom')
     const { createElement: el, useState, useEffect, useRef, Fragment } = React
     const css = 'PEAK_STYLE_SOURCE'
     const SEEN_KEY = 'dsh-cost-meter:peak-progress-intro-v1'
     const dismissalListeners = new Set()
-    let dismissed = false, guideOwner = null
-    const wasSeen = () => {
-      if (dismissed) return true
-      try { return window.localStorage.getItem(SEEN_KEY) === '1' } catch { return false }
+    const dismissed = new Set()
+    let guideOwner = null
+    const PEAK_ALERT_PREVIEW_EVENT = 'cm-peak-alert-preview'
+    let lastPeakNotifyAtMs = 0
+    const wasSeen = (key = SEEN_KEY) => {
+      if (dismissed.has(key)) return true
+      try { return window.localStorage.getItem(key) === '1' } catch { return false }
     }
-    const remember = () => {
-      dismissed = true
-      try { window.localStorage.setItem(SEEN_KEY, '1') } catch { /* Config is the other persistence channel. */ }
-      for (const update of dismissalListeners) update(true)
+    const remember = (key = SEEN_KEY) => {
+      dismissed.add(key)
+      try { window.localStorage.setItem(key, '1') } catch { /* Config is the other persistence channel. */ }
+      for (const entry of dismissalListeners) if (entry.key === key) entry.update(true)
     }
 
     function mount(helpers) {
-      const { peakView, peakPhaseAt, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip } = helpers
+      const { peakView, peakPhaseAt, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip, FloatingCard, renderSidebarFooter } = helpers
       let style = document.getElementById('dsh-cost-meter-peak-style')
       if (!style) { style = document.createElement('style'); style.id = 'dsh-cost-meter-peak-style'; document.head.appendChild(style) }
       style.textContent = css
       /* PEAK_COMPONENT_SOURCE */
+      /* PEAK_ALERT_SOURCE */
 
-      function PeakProgressGuide({ config, api }) {
+      function PeakProgressGuide({ config, api, summary = false, state }) {
+        const seenKey = summary ? 'dsh-cost-meter:sidebar-summary-intro-v1' : SEEN_KEY
         const dialog = useRef(null), pending = useRef(false)
-        const [closed, setClosed] = useState(wasSeen), [busy, setBusy] = useState(false), [error, setError] = useState(false)
+        const [closed, setClosed] = useState(() => wasSeen(seenKey)), [busy, setBusy] = useState(false), [error, setError] = useState(false)
         const [mode, setMode] = useState(config.peakTimeDisplay ?? 'both'), [stamp] = useState(Date.now)
         const en = resolveLocale(config) === 'en', text = (zh, english) => en ? english : zh
-        const eligible = config.peakEnabled === true && config.peakNotice !== false && config.peakProgressPromptSeen !== true && config.peakWindows?.length > 0
+        const eligible = summary ? config.sidebarSummaryPromptSeen !== true : config.peakEnabled === true && config.peakNotice !== false && config.peakProgressPromptSeen !== true && config.peakWindows?.length > 0
+        const title = summary ? text('新增合并侧栏样式', 'New combined sidebar card') : text('峰谷时段新增进度条', 'New peak-period progress bar')
         const show = eligible && !closed
-        useEffect(() => { dismissalListeners.add(setClosed); return () => dismissalListeners.delete(setClosed) }, [])
+        useEffect(() => { const entry = { key: seenKey, update: setClosed }; dismissalListeners.add(entry); return () => dismissalListeners.delete(entry) }, [seenKey])
         useEffect(() => {
           if (!show) return
           const token = {}, previous = document.activeElement, node = dialog.current
-          // Wait for existing update guides/dialogs; never stack several modals.
+          // Update notices are non-modal: a skin hiding one must never make the host inert.
           const observer = new MutationObserver(() => attempt())
           const attempt = () => {
-            if (guideOwner || wasSeen() || document.querySelector('dialog[open], .cm-qguide')) return
-            guideOwner = token; observer.disconnect(); node?.showModal()
+            if (guideOwner || wasSeen(seenKey) || document.querySelector('dialog[open], .cm-qguide')) return
+            guideOwner = token; observer.disconnect(); node?.show()
+            if (node && (!node.getClientRects().length || getComputedStyle(node).visibility === 'hidden')) setClosed(true)
           }
           observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['open'] })
           attempt()
@@ -51,29 +59,32 @@ window.__ModuleLoader__.load({
         }, [show])
         if (!show) return null
         const dismiss = () => {
-          remember(); setClosed(true)
-          Promise.resolve().then(() => api.updateConfig({ peakProgressPromptSeen: true })).catch(() => {})
+          remember(seenKey); setClosed(true)
+          const key = summary ? 'sidebarSummaryPromptSeen' : 'peakProgressPromptSeen'
+          if (Object.hasOwn(config, key)) Promise.resolve().then(() => api.updateConfig({ [key]: true })).catch(() => {})
         }
         const choose = async () => {
           if (pending.current) return
           pending.current = true; setBusy(true); setError(false)
           try {
-            const saved = await api.updateConfig({ peakStyle: 'progress', peakTimeDisplay: mode, peakProgressPromptSeen: true })
-            if (saved?.config?.peakStyle !== 'progress' || saved.config.peakTimeDisplay !== mode) throw new Error('save failed')
-            remember(); setClosed(true)
+            const saved = await api.updateConfig({ peakStyle: 'progress', peakTimeDisplay: mode, peakProgressPromptSeen: true, ...(summary ? { ...(Object.hasOwn(config, 'sidebarSummaryPromptSeen') ? { sidebarSummaryPromptSeen: true } : {}), sidebarSimplePromptSeen: true, sidebarSimple: false, sidebarStyle: 'summary', sidebarTodayMetric: 'both', ...(Object.hasOwn(config, 'sidebarOrder') ? { sidebarOrder: ['today', 'balance', 'peak', ...(config.sidebarOrder ?? []).filter(key => !['today', 'balance', 'peak'].includes(key))] } : {}) } : {}) })
+            if (saved?.config?.peakStyle !== 'progress' || saved.config.peakTimeDisplay !== mode || summary && saved.config.sidebarStyle !== 'summary') throw new Error('save failed')
+            remember(seenKey); setClosed(true)
           } catch { setError(true) }
           finally { pending.current = false; setBusy(false) }
         }
         const preview = { ...config, peakEnabled: true, peakNotice: true, peakEffectiveAt: '', peakTimeDisplay: mode }
-        return el('dialog', { ref: dialog, className: 'cm-stat-dialog cm-peak-intro', 'aria-label': text('峰谷时段新增进度条', 'New peak-period progress bar'), onCancel: event => { event.preventDefault(); dismiss() } },
-          el('header', { className: 'cm-stat-dialog-head' }, el('strong', null, text('峰谷时段新增进度条', 'New peak-period progress bar')),
+        // The sidebar slot establishes a stacking context below the composer.
+        // A non-modal dialog must escape that ancestor without making DSH inert.
+        return createPortal(el('dialog', { ref: dialog, role: 'dialog', className: 'cm-stat-dialog cm-peak-intro', 'aria-label': title, onKeyDown: event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss() } }, onCancel: event => { event.preventDefault(); dismiss() } },
+          el('header', { className: 'cm-stat-dialog-head' }, el('strong', null, title),
             el('button', { type: 'button', className: 'cm-btn', 'aria-label': text('关闭', 'Close'), onClick: dismiss }, '×')),
           el('div', { className: 'cm-stat-dialog-body' },
-            el('p', { className: 'cm-peak-intro-description' }, text('显示时段进度、剩余时长和切换时间。简洁两行，紧凑单行；周末和节假日也能看清下一次切换。', 'See time progress, time remaining and the next switch. Simple uses two lines; compact uses one, including weekends and holidays.')),
+            el('p', { className: 'cm-peak-intro-description' }, summary ? text('将今日 Token、费用、余额和峰谷进度放进一张卡片。在“显示”设置中可隐藏组件和拖动排序。', 'Combine today’s tokens, cost, balance and pricing-period progress in one card. Hide and reorder components in Display settings.') : text('显示时段进度、剩余时长和切换时间。简洁两行，紧凑单行；周末和节假日也能看清下一次切换。', 'See time progress, time remaining and the next switch. Simple uses two lines; compact uses one, including weekends and holidays.')),
             el('label', { className: 'cm-peak-intro-field' }, text('显示时间', 'Time display'),
               el('select', { className: 'cm-input', value: mode, onChange: event => setMode(event.target.value) },
                 ...[['both', text('倒计时 + 切换时间', 'Countdown + switch time')], ['countdown', text('只看倒计时', 'Countdown')], ['switch', text('只看切换时间', 'Switch time')]].map(([id, label]) => el('option', { key: id, value: id }, label)))),
-            el('div', { className: 'cm-peak-intro-previews', 'aria-label': text('当前时段预览', 'Current period preview') },
+            summary && state ? el('div', { className: 'cm-peak-intro-summary', inert: '', 'aria-label': text('合并卡片预览', 'Combined card preview') }, renderSidebarFooter({ ...state, config: { ...config, sidebarSimple: false, sidebarStyle: 'summary', sidebarTodayMetric: 'both', peakStyle: 'progress', peakTimeDisplay: mode } }, true, undefined, true)) : el('div', { className: 'cm-peak-intro-previews', 'aria-label': text('当前时段预览', 'Current period preview') },
               ...[['full', text('标准', 'Standard')], ['simple', text('简洁 · 两行', 'Simple · two lines')], ['compact', text('紧凑 · 单行', 'Compact · one line')]].map(([id, label]) =>
                 el('section', { key: id, className: 'cm-peak-intro-sample' }, el('span', { className: 'cm-peak-intro-label' }, label),
                   el(PeakProgress, { config: { ...preview, peakProgressVariant: id }, t: makeT(resolveLocale(config)), now: stamp })))),
@@ -81,9 +92,9 @@ window.__ModuleLoader__.load({
             error ? el('p', { className: 'cm-msg err', role: 'alert' }, text('保存失败，请重试；也可以先关闭预览。', 'Could not save. Retry or close the preview.')) : null,
             el('div', { className: 'cm-buttons' },
               el('button', { type: 'button', className: 'cm-btn', onClick: dismiss }, text('保留原样', 'Keep current style')),
-              el('button', { type: 'button', className: 'cm-btn primary', disabled: busy, onClick: choose }, busy ? text('正在保存…', 'Saving…') : text('使用进度条', 'Use progress bar')))))
+              el('button', { type: 'button', className: 'cm-btn primary', disabled: busy, onClick: choose }, busy ? text('正在保存…', 'Saving…') : summary ? text('使用合并卡片', 'Use combined card') : text('使用进度条', 'Use progress bar'))))), document.body)
       }
-      return props => el(props.view === 'guide' ? PeakProgressGuide : PeakProgress, props)
+      return props => el(props.view === 'alert' ? PeakAlert : props.view === 'guide' || props.view === 'summary-guide' ? PeakProgressGuide : PeakProgress, { ...props, summary: props.view === 'summary-guide' })
     }
     return { mount }
   },

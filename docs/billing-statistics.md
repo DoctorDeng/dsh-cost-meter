@@ -41,7 +41,7 @@ From 1.8.10, the ledger retains every conversation instead of pruning details af
 
 API costs are **estimates from reported usage and configured rates**, not provider invoices. Plan costs are the API-equivalent value of subscription usage, not an extra charge. External usage snapshots remain separately visible in Overview; this page analyzes DSH's own ledger.
 
-With **Include subagents in session cost** enabled, the conversation badge, selected-conversation statistics and details include all continuous subagent descendants. The detail view lists each agent's recorded costs and identifies the owning conversation for every call, turn and step. Expanding a child turn reads that child's input and tools. Ordinary forks are excluded and inherited history is not billed twice. Disabling the setting limits the selection to the main conversation.
+With **Include subagents in session cost** enabled, the conversation badge, selected-conversation statistics and details include all continuous subagent descendants. The detail view lists each agent's recorded costs and identifies the owning conversation for every call, turn and step. Expanding a child turn reads that child's input and tools. Ordinary forks are excluded and inherited history is not billed twice. Disabling the setting limits ordinary conversations to their own costs. From 1.9.23, a live agent-team lead automatically includes its team members and their descendants even with this setting disabled. The host's public team roster identifies membership; agents retain separate ledger entries.
 
 Call details use the price version recorded for the call time, including peak/off-peak and long-context tiers. Editing rates, mappings or price currency affects subsequent calls. Older installations keep their existing ledger amounts and use the pre-upgrade price configuration as the baseline for available call logs; prices that were never recorded cannot be recovered. Missing logs and missing prices do not mean zero cost.
 
@@ -88,7 +88,7 @@ The statistics screen uses DSH's package-local asynchronous module loader. Since
 
 汇总读取 DSH 账本，打开页面会同步其他进程已写入的记录，不重新定价或修改历史金额。全局日、周及全部统计中，跨天对话合并成一行，开启子代理费用合计时，排行把子代理及其后代归入所属主会话，点击后的明细与排行金额一致；关闭时各会话分别列出。每笔费用只计一次。历史中未归属模型或对话的金额会单独提示。从 1.8.10 起，账本保留全部对话记录，不再按每日 200 个裁剪。若已记录的全部 Token 与调用次数完整覆盖一个日期，旧日总额会按这些对话已记录的金额修复；匿名调用和旧版裁剪留下的金额保留。此修复不重新定价。
 
-开启设置中的“本会话费用包含子代理”后，会话费用徽章、单对话汇总和费用明细均包含该会话的子代理及全部子代理后代。明细单列主会话与各子代理的账本费用，逐次调用、轮次和步骤标注所属会话，展开子代理轮次可查看它自己的输入与工具调用。普通分叉会话不归入父会话，子代理继承的历史消息不重复收费。关闭开关时只显示主会话自身费用。
+开启设置中的“本会话费用包含子代理”后，会话费用徽章、单对话汇总和费用明细均包含该会话的子代理及全部子代理后代。明细单列主会话与各子代理的账本费用，逐次调用、轮次和步骤标注所属会话，展开子代理轮次可查看它自己的输入与工具调用。普通分叉会话不归入父会话，子代理继承的历史消息不重复收费。关闭开关时，普通对话只显示自身费用。从 1.9.23 起，正在运行的智能体团队主代理会根据宿主公开的团队名册自动包含成员及其后代，不受此开关影响；各代理继续分别入账。
 
 API 费用是按上报用量和配置单价计算的估算，不是厂商账单；Plan 费用是订阅用量的 API 等值，不代表额外扣款。外部用量快照仍在原概览中单列，这个页面统计 DSH 自身账本。
 

@@ -111,3 +111,18 @@ body[data-dsh-pocket-layout=mobile] .cm-display-inspector.cm-inspector-unified{b
 
 .cm-preview-part{display:inline-flex;align-items:center;gap:4px;max-width:100%;min-width:0;flex-wrap:wrap}.cm-preview-part[data-preview-hidden=true]{opacity:.42;filter:grayscale(1);background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 7%,transparent);border-radius:3px}.cm-display-item[data-visible=false] .cm-preview-part[data-preview-hidden=true]{opacity:1}.cm-preview-corner{display:flex;flex-wrap:wrap;gap:6px}.cm-preview .cm-corner{position:static;max-width:100%;padding:0}.cm-preview .cm-corner-chip{max-width:100%;height:auto;min-height:20px;white-space:normal}
 .cm-preview [data-placeholder]:empty:before{content:attr(data-placeholder);color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 7%,transparent);border-radius:4px;padding:1px 5px}
+
+/* Four layout choices use balanced rows when the inspector is narrow. */
+.cm-inspector-unified .cm-preview-style-options{grid-template-columns:repeat(2,minmax(0,1fr))}@container cm-inspector (min-width:300px){.cm-inspector-unified .cm-preview-style-options{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+/* Keep the editable scene near the tabs; secondary preferences live in the inspector. */
+.cm-section:has(>.cm-display){gap:10px}.cm-section:has(>.cm-display)>.cm-tabs-row{padding-bottom:6px}
+.cm-display-heading{margin:0 0 8px;gap:12px}.cm-display-heading h3{margin-bottom:2px}.cm-display-heading p{font-size:11px}
+.cm-display-preview-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin-bottom:10px}
+.cm-display-preview-toolbar .cm-display-region-tabs,.cm-display-preview-toolbar .cm-display-preview-options{margin:0}
+.cm-display-preview-options .cm-check{white-space:nowrap;display:inline-flex;align-items:center}.cm-display-preview-options input{margin:0}
+.cm-display .cm-region-preview{padding:16px}.cm-preview-region-head{margin-bottom:8px}.cm-preview-history{padding:4px 3px 8px}
+.cm-display-preferences{display:grid;gap:10px;padding:4px 0 10px;border-bottom:1px solid var(--dsw-alias-border-l3)}
+.cm-display-preferences .cm-hint,.cm-display-preferences .cm-note{font-size:11px;line-height:1.6}
+.cm-sidebar-canvas{max-height:clamp(240px,calc(100dvh - 250px),520px)}
+@container cm-display (max-width:419px){.cm-display .cm-region-preview{padding:10px}.cm-display-preview-toolbar{gap:6px}.cm-display-preview-options{margin-left:auto}}

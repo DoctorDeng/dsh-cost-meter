@@ -146,6 +146,19 @@ try {
   detailLedger.config.includeSubagentCost = false
   assert.equal((await getSessionBilling(detailLedger, treeCtx, query)).totalCalls, 1)
   assert.equal(billingStatistics(detailLedger, query, await sessionCostIds(detailLedger, treeCtx, 'root')).totals.cost, on.own.cost)
+  const teamCtx = { get: name => name === 'sessionProjections' ? { snapshot: (_session, keys) => {
+    assert.deepEqual(keys, ['agentTeam'])
+    return { values: { agentTeam: { members: [{ id: 'root', role: 'lead' }, { id: 'child', role: 'teammate' }, { id: 'child', role: 'teammate' }] } } }
+  } } : treeCtx.get(name) }
+  assert.deepEqual([...await sessionCostIds(detailLedger, teamCtx, 'root')].sort(), ['child', 'nested', 'root'], 'team roster includes its child and descendants even when ordinary aggregation is off')
+  const teamCosts = await getSessionCost(detailLedger, teamCtx, 'root')
+  assert.equal(teamCosts.subagents.cost, on.subagents.cost)
+  assert.equal(teamCosts.subagentCount, 2)
+  const teamDetail = await getSessionBilling(detailLedger, teamCtx, query)
+  assert.equal(teamDetail.totalCalls, 53)
+  assert.equal(teamDetail.agents.length, 3, 'main detail retains per-agent ledger rows')
+  const forkRoster = { get: name => name === 'sessionProjections' ? { snapshot: () => ({ values: { agentTeam: { members: [{ id: 'root', role: 'lead' }, { id: 'fork', role: 'teammate' }] } } }) } : treeCtx.get(name) }
+  assert.deepEqual([...await sessionCostIds(detailLedger, forkRoster, 'root')], ['root'], 'an ordinary fork cannot be included by a stale team roster')
   assert.deepEqual(days, before, 'Tree statistics and details do not write child costs into the parent ledger')
 
   const disk = new Ledger(sanitizeConfig({ includeSubagentCost: true, codexQuotaEnabled: true }), structuredClone(days), join(temp, 'ledger.json'))

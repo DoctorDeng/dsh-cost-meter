@@ -58,6 +58,8 @@
         el('span', { className: 'cm-peak-progress-fill', style: { [rail ? 'height' : 'width']: view.progress + '%' } }))
       const compactTime = mode === 'countdown' ? shortDuration : mode === 'switch' ? view.switchTime + ' → ' + next : view.switchTime + ' · ' + shortDuration
       const content = rail ? el(Fragment, null, track, el('span', { className: 'cm-peak-progress-rail-label' }, shortPhase))
+        : variant === 'summary' ? el(Fragment, null,
+            el('div', { className: 'cm-peak-progress-head' }, el('span', { className: 'cm-peak-summary-left' }, phase(shortPhase), mode !== 'switch' ? el('span', { className: 'cm-peak-summary-countdown' }, (en ? 'In ' : '剩余 ') + shortDuration) : null), mode !== 'countdown' ? el('span', { className: 'cm-peak-progress-time' }, change) : null), track)
         : variant === 'compact' ? el(Fragment, null, phase(shortPhase), track, el('span', { className: 'cm-peak-progress-time' }, compactTime))
         : variant === 'simple' ? el(Fragment, null,
             el('div', { className: 'cm-peak-progress-head' }, phase(view.holiday || view.weekend ? shortPhase + (en ? ' · off-peak' : '谷价') : shortPhase), el('span', { className: 'cm-peak-progress-time' }, mode === 'switch' ? change : remaining)),

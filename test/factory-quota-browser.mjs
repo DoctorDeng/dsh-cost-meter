@@ -32,8 +32,10 @@ const initialState = { config:sanitizeConfig({ locale:'zh', balance:{display:'of
 const code = `
 import React from ${literal(req.resolve('react'))};
 import {createRoot} from ${literal(req.resolve('react-dom/client'))};
-window.__ModuleLoader__={load:mod=>window.costUI=mod.factory(name=>name==='react'?React:{Tooltip:({children})=>children})};
+const require=name=>name==='react'?React:{Tooltip:({children})=>children};require.async=async()=>window.planUI;window.__ModuleLoader__={load:mod=>window.costUI=mod.factory(require)};
 ${client}
+window.__ModuleLoader__={load:mod=>window.planUI=mod.factory(require)};
+${readFileSync('lib/client.plan-settings.js','utf8')}
 window.__ModuleLoader__={load:mod=>window.displayUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.display.js','utf8')}
 const Display=window.displayUI.mount({effect:()=>{}});

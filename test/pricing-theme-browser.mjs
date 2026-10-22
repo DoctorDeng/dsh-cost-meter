@@ -30,7 +30,7 @@ const day = { ...zeroDay('2026-10-12'), byProviderModel: {
   'fixture:unknown': { input: 1, output: 1, calls: 1, cost: 0 },
   'deepseek:deepseek-v4-flash': { input: 1, output: 1, calls: 1, cost: .001 },
 } }
-const initialState = { config: sanitizeConfig({ locale: 'zh' }), today: day, month: day, total: day, history: [], balance: {} }
+const initialState = { ourFreeModel: { enabled: true }, config: sanitizeConfig({ locale: 'zh' }), today: day, month: day, total: day, history: [], balance: {} }
 const code = `
 import React from ${literal(req.resolve('react'))};
 import {createRoot} from ${literal(req.resolve('react-dom/client'))};
@@ -44,7 +44,8 @@ if(new URLSearchParams(location.search).has('many'))state.today.byProviderModel=
 window.patches=[];window.reprices=[];window.historyReads=0;
 const pricing=window.priceUI.mount({effect:fn=>fn(),get:key=>key==='remote'?{$mount:async()=>()=>{}}:{getRepricingHistory:async()=>{window.historyReads++;return ({ok:true,value:window.reprices.map((item,i)=>({at:1792050000000+i,before:1,after:2,days:1,sessions:1,skipped:0,...(typeof item==='object'?{model:item.model}:{})}))})},repriceHistory:async confirmed=>{window.reprices.push(confirmed);return {ok:true,value:{ok:true,message:'已重算，原金额已保留。'}}},repriceModelHistory:async (confirmed,model)=>{window.reprices.push({confirmed,model});return {ok:true,value:{ok:true,message:'单模型重算完成，其他模型保持不变。'}}}}});
 const api={reload:async()=>{},loadPricing:()=>pricing,loadOpenRouter:async()=>()=>null,updateConfig:async patch=>{window.patches.push(patch)}};
-createRoot(document.getElementById('root')).render(React.createElement(CostSection,{useCost:()=>({state,status:'ready'}),api}));
+const root=createRoot(document.getElementById('root')),render=()=>root.render(React.createElement(CostSection,{useCost:()=>({state,status:'ready'}),api}));
+window.updateAvailability=value=>{state.modelDirectory=value;render()};render();
 window.fixtureReady=true;
 `
 const compiled = await build({ stdin: { contents: code, resolveDir: process.cwd(), loader: 'js' }, bundle: true, write: false, format: 'iife', platform: 'browser' })
@@ -254,6 +255,32 @@ try {
   assert.ok((await page.locator('.cm-model-identity').textContent()).includes('model-499'))
   assert.ok(await page.evaluate(before => window.priceResolutions - before < 24, beforeFilter), 'typing a filter reuses matching results instead of resolving all 500 models again')
   assert.equal(await page.evaluate(() => window.patches.length), 0)
+  await page.getByRole('searchbox', { name: '查找已用模型' }).fill('')
+  for (const width of [1100, 390]) {
+    await page.setViewportSize({ width, height: 950 })
+    const option = page.locator('.cm-free-model')
+    const layout = await option.evaluate(node => {
+      const input = node.querySelector('input').getBoundingClientRect(), label = node.querySelector('label>span').getBoundingClientRect()
+      return { height: node.getBoundingClientRect().height, center: Math.abs(input.y + input.height/2 - label.y - label.height/2), overflow: node.scrollWidth > node.clientWidth }
+    })
+    assert.ok(layout.height < 115, 'free-model option uses a compact layout')
+    assert.ok(layout.center < 2, 'checkbox and its label share a center line')
+    assert.equal(layout.overflow, false)
+    await option.screenshot({ path: join(output, 'free-model-' + width + '.png') })
+  }
+  await page.locator('.cm-free-model input').check()
+  await page.waitForFunction(() => window.patches.some(patch => patch.priceOverrides?.['our-free-model:*'] === '__free__' && patch.priceOverrides?.['our-free-model-region:*'] === '__free__'))
+  await page.goto(url)
+  await page.getByRole('tab', { name: '价格', exact: true }).click()
+  await page.locator('.cm-match-row').first().waitFor()
+  assert.equal(await page.locator('.cm-match-row').count(), 2)
+  await page.evaluate(() => window.updateAvailability({ providers: ['deepseek'], missingModels: [] }))
+  await page.waitForFunction(() => document.querySelectorAll('.cm-match-row').length === 1)
+  assert.equal(await page.locator('.cm-match-row').getAttribute('data-model-key'), 'deepseek:deepseek-v4-flash', 'deleted provider leaves the active pricing list')
+  await page.evaluate(() => window.updateAvailability({ providers: ['deepseek'], missingModels: ['deepseek:deepseek-v4-flash'] }))
+  await page.waitForFunction(() => document.querySelectorAll('.cm-match-row').length === 0)
+  await page.evaluate(() => window.updateAvailability(undefined))
+  await page.waitForFunction(() => document.querySelectorAll('.cm-match-row').length === 2)
   assert.deepEqual(external, [], 'theme test sends no external requests')
   assert.deepEqual(errors, [], 'settings render without browser errors')
   writeFileSync(join(output, 'report.json'), JSON.stringify({ checks, baseline, errors, external }, null, 2) + '\n')

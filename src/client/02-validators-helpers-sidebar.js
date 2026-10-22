@@ -137,32 +137,25 @@
         // showSessionId 曾遗漏于本白名单:checkbox 能保存但读侧恒 undefined,
         // 会话列表附显 ID 自上线以来实际从未生效(v1.5.38 起一并修复)。
         showSessionId: v.showSessionId === true,
-        sessionListCosts: v.sessionListCosts === true,
-        sessionListCostPeriod: v.sessionListCostPeriod === 'today' ? 'today' : 'total',
         hideOfficialBalance: v.hideOfficialBalance === true,
-        hideBudget: v.hideBudget === true,
         hideTodayCost: v.hideTodayCost === true,
+        sessionListCostPeriod: v.sessionListCostPeriod === 'today' ? 'today' : 'total',
         modelStatistics: v.modelStatistics ?? {},
-        ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'followSkinTransparency'], value => value === true),
-        sessionCostCompact: v.sessionCostCompact === true,
-        contextCostsEnabled: v.contextCostsEnabled === true,
-        contextCostsPromptSeen: v.contextCostsPromptSeen === true,
-        sidebarTodayMetric: v.sidebarTodayMetric === 'tokens' ? 'tokens' : 'cost',
+        ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'followSkinTransparency', 'sidebarTodayBalanceInline', 'sessionListCosts', 'hideBudget', 'sessionCostCompact', 'contextCostsEnabled', 'contextCostsPromptSeen', 'showTotalWithPlan', 'sidebarSimple', 'sidebarSimplePromptSeen', 'codexQuotaEnabled', 'codexCompatPromptDismissed', 'includeSubagentCost', 'peakEnabled', 'peakAlertWebNotify', 'peakProgressPromptSeen'], value => value === true),
+        sidebarTodayMetric: ['tokens', 'both'].includes(v.sidebarTodayMetric) ? v.sidebarTodayMetric : 'cost',
+        ...(Object.hasOwn(v, 'sidebarOrder') ? { sidebarOrder: Array.isArray(v.sidebarOrder) ? v.sidebarOrder : [] } : {}),
         statisticsBasis: v.statisticsBasis,
-        showTotalWithPlan: v.showTotalWithPlan === true,
-        sidebarSimple: v.sidebarSimple === true,
-        sidebarSimplePromptSeen: v.sidebarSimplePromptSeen === true,
         sidebarModels: Object.fromEntries(Object.entries(MODEL_SIDEBAR_DEFAULTS).map(([k, v0]) => [k, v.sidebarModels?.[k] ?? v0])),
-        codexQuotaEnabled: v.codexQuotaEnabled === true,
         codexQuotaSidebar: v.codexQuotaSidebar !== false,
         codexQuotaStrip: v.codexQuotaStrip !== false,
         codexQuotaSource: ['connect', 'subscription', 'chatgpt'].includes(v.codexQuotaSource) ? v.codexQuotaSource : 'auto',
         // Codex 订阅兼容(契约 B-5):用户已关闭一次性提示 / 已应用历史归类的时点。
         // 直通白名单缺失会导致关闭后重开页面又弹提示,或应用后状态行回落「未应用」。
-        codexCompatPromptDismissed: v.codexCompatPromptDismissed === true,
         codexCompatHistoryAppliedAt: num0(v.codexCompatHistoryAppliedAt),
-        includeSubagentCost: v.includeSubagentCost === true,
-        sidebarStyle: v.sidebarStyle === 'compact' ? 'compact' : 'standard',
+        sidebarStyle: oneOf(v.sidebarStyle, ['standard', 'compact', 'summary'], 'standard'),
+        ...(Object.hasOwn(v, 'sidebarSummaryPromptSeen') ? { sidebarSummaryPromptSeen: v.sidebarSummaryPromptSeen === true } : {}),
+        billionContextNoticeEnabled: v.billionContextNoticeEnabled !== false,
+        billionContextNoticesSeen: Array.isArray(v.billionContextNoticesSeen) ? v.billionContextNoticesSeen.filter(value => typeof value === 'string').slice(-32) : [],
         priceMatchDismissed: Array.isArray(v.priceMatchDismissed) ? v.priceMatchDismissed.filter(key => typeof key === 'string') : [],
         // 官方价格币种(issue #47):读侧白名单缺失会导致下拉选择保存后读不回。
         pricingCurrency: v.pricingCurrency === 'CNY' ? 'CNY' : 'USD',
@@ -172,7 +165,6 @@
         exchangeRate: needNum(v.exchangeRate, path + '.exchangeRate'),
         exchangeRateAuto: v.exchangeRateAuto !== false,
         fxRates: v.fxRates, exchangeRateDate: v.exchangeRateDate ?? '', exchangeRateCheckedAt: v.exchangeRateCheckedAt ?? 0,
-        peakEnabled: v.peakEnabled === true,
         peakEffectiveAt: typeof v.peakEffectiveAt === 'string' ? v.peakEffectiveAt : '',
         peakWindows: Array.isArray(v.peakWindows)
           ? v.peakWindows.map((w, i) => ({ start: needNum(w.start, path + '.peakWindows[' + i + '].start'), end: needNum(w.end, path + '.peakWindows[' + i + '].end') }))
@@ -187,7 +179,6 @@
         // fork 的 dot 与上游的 progress 并存(两者语义不同:圆点状态 vs 时间进度条)。
         peakStyle: ['classic', 'dot', 'progress'].includes(v.peakStyle) ? v.peakStyle : 'compact',
         peakTimeDisplay: ['countdown', 'switch'].includes(v.peakTimeDisplay) ? v.peakTimeDisplay : 'both',
-        peakProgressPromptSeen: v.peakProgressPromptSeen === true,
         priceMatch: v.priceMatch === 'exact' ? 'exact' : 'auto',
         priceOverrides: (() => {
           const out = {}
@@ -217,6 +208,7 @@
                 apiKey: typeof e.apiKey === 'string' ? e.apiKey : '',
                 ...(id === 'minimax' ? { baseUrl: typeof e.baseUrl === 'string' ? e.baseUrl : '' } : {}),
                 ...(id === 'factory' ? { orgId: typeof e.orgId === 'string' ? e.orgId : '', factoryPool: ['core', 'both'].includes(e.factoryPool) ? e.factoryPool : 'standard' } : {}),
+                ...(id === 'workbuddy' ? { accountScope: e.accountScope ?? 'current', accountIds: Array.isArray(e.accountIds) ? e.accountIds : [] } : {}),
                 ...(id === 'opendesign' ? { workspaceId: typeof e.workspaceId === 'string' ? e.workspaceId : '' } : {}),
                 ...(id === 'qwen' ? { quotaSource: ['cli', 'bailian'].includes(e.quotaSource) ? e.quotaSource : 'local' } : {}),
                 // SCNet / 千问本地计量字段(issue #26/#78):其余厂商无此键,缺省剔除。
@@ -473,6 +465,7 @@
         planStats: parsePlanStats(v.planStats),
         // Codex 订阅兼容(契约 C):宿主未检出插件/旧宿主时无此键,回落 undefined。
         codexCompat: parseCodexCompat(v.codexCompat),
+        ourFreeModel: v.ourFreeModel?.enabled === true ? { enabled: true, version: typeof v.ourFreeModel.version === 'string' ? v.ourFreeModel.version : '' } : undefined,
         history: Array.isArray(v.history) ? v.history.map((d, i) => parseDay(d, path + '.history[' + i + ']')) : [],
         billionContext: v.billionContext?.protocol === 1 ? { protocol: 1, connected: v.billionContext.connected === true, failed: v.billionContext.failed === true,
           requests: Number(v.billionContext.requests) || 0, unreported: Number(v.billionContext.unreported) || 0, partial: Number(v.billionContext.partial) || 0, uncovered: Number(v.billionContext.uncovered) || 0,
@@ -490,6 +483,7 @@
         // 客户端据此沿用上一份,并按同一版本号回传以避免重复下发。
         pricesRev: typeof v.pricesRev === 'string' ? v.pricesRev : undefined,
         modelLabels: Object.fromEntries(Object.entries(v.modelLabels ?? {}).filter(([, label]) => typeof label === 'string')),
+        modelDirectory: v.modelDirectory,
         reconcile: v.reconcile === null || v.reconcile === undefined ? undefined : { ok: v.reconcile.ok === true, message: typeof v.reconcile.message === 'string' ? v.reconcile.message : '' },
         // 手改过价格的 OpenRouter 模型 id(缺失/畸形回落空表:不显示任何锁定标记)。
         priceLockIds: Array.isArray(v.priceLockIds) ? v.priceLockIds.filter(id => typeof id === 'string') : [],
@@ -880,13 +874,15 @@
      * 模型名自动匹配(与 lib/pricing.js 的 matchModelId 同逻辑;bundle 无法导入,修改时两处同步)。
      * 精确 → 归一化等价 → 去日期/版本后缀 → 安全后缀。
      */
-    function stripIdDecor(id) {
+    function stripIdDecor(id, snapshotTags = true) {
       // Strip request decorations one at a time; candidate snapshots keep their identity.
-      return modelNameText(id).replace(/[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest)$/, '')
+      const text = modelNameText(id)
+      if (snapshotTags && /[-_./:@](?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])$/.test(text)) return text.slice(0, -5)
+      return text.replace(/[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest)$/, '')
     }
 
     /** Exact IDs precede unique punctuation aliases and request-only safe decorations. */
-    function matchModelIdLocal(modelId, candidates, exactId = modelId) {
+    function matchModelIdLocal(modelId, candidates, exactId = modelId, snapshotTags = true) {
       if (typeof modelId !== 'string' || modelId.length === 0) return null
       const list = Array.isArray(candidates) ? candidates.filter(c => typeof c === 'string' && c.length > 0) : []
       const exact = list.find(c => c === exactId)
@@ -898,7 +894,7 @@
         if (canon.length === 0) return null
         const hits = list.filter(c => canonModelIdLocal(c) === canon)
         if (hits.length > 0) return hits.length === 1 ? hits[0] : null
-        const stripped = stripIdDecor(target)
+        const stripped = stripIdDecor(target, snapshotTags)
         if (stripped === target.toLowerCase()) return null
         target = stripped
       }
@@ -929,11 +925,11 @@
         if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)
           && (vendor === provider || (provider === 'opencode-zen' || provider === 'opencode-go')
             && (MODEL_VENDOR_PREFIXES[vendor].test(bare)
-              || matchModelIdLocal(bare, Object.keys(vendor === 'deepseek' ? prices?.models ?? {} : prices?.providers?.[vendor]?.models ?? {})) !== null))) target = bare
+              || matchModelIdLocal(bare, Object.keys(vendor === 'deepseek' ? prices?.models ?? {} : prices?.providers?.[vendor]?.models ?? {}), bare, prices?.snapshotTags !== false) !== null))) target = bare
         else if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)) return null
       }
       // Formatting a request must not create a literal hit that bypasses alias collisions.
-      return matchModelIdLocal(target, Object.keys(models), modelId)
+      return matchModelIdLocal(target, Object.keys(models), modelId, prices?.snapshotTags !== false)
     }
     /**
      * 客户端价格解析(与 pricing.js providerPriceEntryFor 同口径):手动覆盖 → 精确 → 自动匹配。
@@ -964,7 +960,7 @@
         && typeof override === 'string' && override.length > 0 && override !== '__local__' && !override.includes(':')) {
         const dsModels = prices.models ?? {}
         const retryHit = Object.hasOwn(dsModels, override) ? override
-          : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels)) : null)
+          : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels), override, prices?.snapshotTags !== false) : null)
         if (retryHit !== null && dsModels[retryHit]?.unpriced !== true) return { entry: dsModels[retryHit], priced: true, billingMode: 'deepseek-peak', matched: true }
       }
       return null
@@ -976,6 +972,7 @@
       let provider = String(providerRaw ?? '').trim().toLowerCase()
       if (provider.startsWith('llm-')) provider = provider.slice(4)
       if (provider === '') provider = 'deepseek'
+      if (['our-free-model', 'our-free-model-region'].includes(provider) && overrides[provider + ':*'] === '__free__') return { entry: { cacheHit: 0, cacheMiss: 0, cacheWrite: 0, output: 0, reasoning: 0 }, priced: true, currency: 'USD', billingMode: 'flat', matched: true }
       let targetProvider = provider
       let targetModel = modelId
       const override = overrides[provider + ':' + modelId]
@@ -1148,7 +1145,7 @@
       kimi: ['kimi', 'kimi-code'],
       commandcode: ['commandcode', 'command-code'],
       clinepass: ['clinepass', 'cline-pass'],
-      workbuddy: ['workbuddy', 'workbuddy-subscription'],
+      workbuddy: ['workbuddy', 'workbuddy-subscription', 'workbuddy-ai', 'workbuddy-global'],
       antigravity: ['antigravity'],
       stepfun: ['stepfun', 'step-code'],
       'volcengine-agent': ['volcengine-agent', 'ark-agent-plan', 'volcengine-agent-plan'],
@@ -1232,6 +1229,7 @@
       return false
     }
     function billingClassOfLocal(provider, modelId, config) {
+      if (provider === 'deepseek-official' && /^deepseek-(web-(search|fetch)|(search|fetch)-api|search-server)$/.test(modelId)) return 'api'
       let planId = planProviderIdOfLocal(provider, config, modelId)
       if (planId === null && isRoutedThirdPartyCallLocal(provider, modelId, config)) planId = 'go'
       const models = config?.planBilling?.models
@@ -1243,9 +1241,12 @@
           if (canonical === 'plan' || canonical === 'api') return canonical
         }
       }
+      for (const id of [provider, planId]) {
+        if (id == null) continue
+        const configured = config?.planBilling?.providers?.[id]
+        if (configured === 'plan' || configured === 'api') return configured
+      }
       if (planId === null) return 'api'
-      const configured = config?.planBilling?.providers?.[planId]
-      if (configured === 'plan' || configured === 'api') return configured
       return enabledPlanSetOfLocal(config).has(planId) ? 'plan' : 'api'
     }
     /**
@@ -1274,8 +1275,9 @@
           const entry = normalizeClientPrice(resolved.entry)
           // Ollama Cloud 的 DeepSeek 模型使用自有峰谷日历;provider/model 归一化与 lib/pricing.js
           // providerPriceEntryFor 的 peakSchedule 标记同口径(trim、小写、剥离 llm- 前缀)。
-          if (entry && resolved.billingMode === 'deepseek-peak'
-            && /^\s*(llm-)?ollama-cloud\s*:\s*deepseek-v4(\.1-flash|-pro)\s*$/.test(providerKey.toLowerCase())) entry.peakSchedule = 'ollama'
+          if (entry && resolved.billingMode === 'deepseek-peak' && config.prices?.ollamaPeak !== false
+            && provider.trim().toLowerCase().replace(/^llm-/, '') === 'ollama-cloud'
+            && (config.prices?.ollamaTaggedPeak === false ? ['deepseek-v4.1-flash', 'deepseek-v4-pro'].includes(modelId.trim().toLowerCase()) : matchModelIdLocal(modelId, ['deepseek-v4.1-flash', 'deepseek-v4-pro']) !== null)) entry.peakSchedule = 'ollama'
           const c = costOfBuckets(byModel[providerKey], tierFor(entry, now, { ...peak, enabled: ['deepseek-peak', 'utc-peak'].includes(resolved.billingMode) && peak.enabled }))
           const billed = usdFromCostLocal(c, resolved.currency, cnyRate)
           total += billed
@@ -1578,9 +1580,9 @@
       }, [props.sessionId, state?.meta?.now, projectionRevision, config?.includeSubagentCost])
       const current = snapshot && snapshot.id === props.sessionId && snapshot.include === (config?.includeSubagentCost === true) ? snapshot : null
       const saved = current?.value
-      return { usage: mergeSessionUsage(projection, saved, config?.includeSubagentCost === true, config), config,
+      return { usage: mergeSessionUsage(projection, saved, config?.includeSubagentCost || saved && saved.subagentCount > 0, config), config,
         pending: !!props.sessionId && !!props.api?.getSessionCost && !current,
-        unrecorded: saved?.found === false && (!config?.includeSubagentCost || !saved.subagentCount) }
+        unrecorded: !!saved && !saved.found && !saved.subagentCount }
     }
 
     function sessionCostStatus(state) {
@@ -1628,10 +1630,17 @@
       if (!config || config.hideTurnCost || start == null || end == null) return null
       const en = resolveLocale(config) === 'en'
       const names = en ? { input: 'Input', output: 'Output', cacheRead: 'Cache read', cacheWrite: 'Cache write', reasoning: 'Reasoning' } : { input: '输入', output: '输出', cacheRead: '缓存读取', cacheWrite: '缓存写入', reasoning: '推理' }
-      const money = n => formatMoneyUsd(n, { ...config, decimals: Math.max(8, config.decimals ?? 2) })
+      const money = n => {
+        const rate = Number(config.exchangeRate), value = n * (Number.isFinite(rate) && rate > 0 ? rate : 1)
+        const decimals = config.decimals ?? 2
+        // Preserve the existing tiny-charge visibility without forcing ordinary
+        // amounts to eight decimals. The shared formatter already adds two places.
+        return formatMoneyUsd(n, value > 0 && value < 10 ** -(decimals + 2) ? { ...config, decimals: Math.max(8, decimals) } : config)
+      }
+      const unitPrice = n => formatMoneyUsd(n, { ...config, decimals: Math.max(8, config.decimals ?? 2) })
       const kinds = en ? { model: 'Model call', compaction: 'Context compaction', search: 'Native search', fetch: 'Web fetch' } : { model: '模型调用', compaction: '上下文压缩', search: '原生搜索', fetch: '网页抓取' }
       const rowView = (row, i) => el('div', { key: i, style: { marginBottom: 4, overflowWrap: 'anywhere' } },
-        prettyProviderKey(row.provider + ':' + row.model) + ' · ' + (names[row.bucket] || (row.bucket === 'fetchRequests' ? (en ? 'Fetch requests' : '抓取请求') : (en ? 'Search requests' : '搜索请求'))) + (row.plan ? ' (Plan)' : '') + ': ' + (row.requests ? row.requests + (en ? ' requests' : ' 次') : row.tokens.toLocaleString()) + ' × ' + (row.priced ? money(row.rate) : '?') + (row.requests ? ' ≈ ' : ' / 1,000,000 ≈ ') + (row.priced ? money(row.cost) : '?'),
+        prettyProviderKey(row.provider + ':' + row.model) + ' · ' + (names[row.bucket] || (row.bucket === 'fetchRequests' ? (en ? 'Fetch requests' : '抓取请求') : (en ? 'Search requests' : '搜索请求'))) + (row.plan ? ' (Plan)' : '') + ': ' + (row.requests ? row.requests + (en ? ' requests' : ' 次') : row.tokens.toLocaleString()) + ' × ' + (row.priced ? unitPrice(row.rate) : '?') + (row.requests ? ' ≈ ' : ' / 1,000,000 ≈ ') + (row.priced ? money(row.cost) : '?'),
         !row.priced ? (en ? ' (price unavailable)' : '（未配置价格）') : row.bucket === 'reasoning' && row.rate === 0 ? (en ? ' (no separate charge)' : '（不单独收费）') : '')
       return el('details', { className: 'cm-note', style: { fontSize: 12, marginTop: 6 } },
         el('summary', { style: { cursor: 'pointer' }, title: en ? 'Log estimate at configured prices; session cost uses recorded ledger amounts.' : '本轮按日志和配置价格估算，本会话按账本已入账金额汇总。' }, en ? 'Turn cost' : '本轮费用', value?.found ? ' ≈ ' + money(displayCostOf(value, config)) + (value.rows.some(r => !r.priced) ? (en ? ' + unpriced usage' : ' + 未定价用量') : '') : value?.inherited ? (en ? ' · inherited history' : ' · 继承历史') : error ? ' ⚠' : ''),
@@ -2267,7 +2276,9 @@
         }
       }, [])
       const { actions, children, ...attributes } = props
-      return el('div', { ...attributes, ref: cardRef, popover: 'manual' }, children)
+      const card = el('div', { ...attributes, ref: cardRef, popover: 'manual' }, children)
+      let portal; try { portal = require('react-dom')?.createPortal } catch {}
+      return typeof portal === 'function' ? portal(card, document.body) : card
     }
 
     // 预览通道事件名:设置页按钮/控制台经 window.cmPeakAlertPreview(kind) 触发真实组件。
@@ -2276,7 +2287,6 @@
     // 峰谷 Web 通知去重:记录最近一次已通知的切换点时刻(nextAtMs)。
     // 必须放模块级——配置变化会重挂 PeakAlert(内部 ref 归零),若用组件内状态,
     // 重挂后同一切换点会再发一条;切换点时刻单调递增,存单值即可。
-    let lastPeakNotifyAtMs = 0
 
     /**
      * 峰/谷切换前弹窗提醒:距下次相位切换不足配置提前量(默认 2 分钟)时弹浮层,
@@ -2287,98 +2297,8 @@
      * 渲染一次弹窗(峰谷计价启用时常驻监听,提醒开关关闭也可预览)。
      */
     function PeakAlert(props) {
-      const costStore = props.useCost ? props.useCost(s => s) : undefined
-      const config = costStore?.state?.config
-      const [now, setNow] = useState(Date.now())
-      const [dismissedAt, setDismissedAt] = useState(null)
-      const [preview, setPreview] = useState(null)
-      useEffect(() => {
-        const timer = window.setInterval(() => setNow(Date.now()), 10000)
-        return () => window.clearInterval(timer)
-      }, [])
-      // 预览通道:监听自定义事件(事件由 activate 顶层的 window.cmPeakAlertPreview 派发),
-      // 组件挂载期间置在线标志,供 API 判断弹窗宿主是否可用。
-      useEffect(() => {
-        const onPreview = event => {
-          const kind = event.detail?.kind === 'offpeak' ? 'offpeak' : 'peak'
-          setPreview(kind)
-          // 预览系统通知:遵循 Web 通知开关与授权,标题加预览标记。
-          const cfg = costStore?.state?.config
-          if (cfg?.peakAlertWebNotify === true && window.Notification && Notification.permission === 'granted') {
-            const pt = makeT(resolveLocale(cfg))
-            try {
-              new Notification(pt(kind === 'peak' ? 'peakAlertTitlePeak' : 'peakAlertTitleOffPeak') + pt('peakAlertPreviewTag'),
-                { body: pt('peakAlertBody', { time: pt('countdownMinute', { m: 2 }), phase: pt(kind === 'peak' ? 'peakAlertPhasePeak' : 'peakAlertPhaseOffPeak') }) })
-            } catch (_) { /* 通知被系统拒绝时静默 */ }
-          }
-        }
-        window.addEventListener(PEAK_ALERT_PREVIEW_EVENT, onPreview)
-        window.__cmPeakAlertLive = true
-        return () => {
-          window.removeEventListener(PEAK_ALERT_PREVIEW_EVENT, onPreview)
-          window.__cmPeakAlertLive = false
-        }
-      }, []) // eslint-disable-line react-hooks/exhaustive-deps
-      useEffect(() => {
-        // Web 通知:每次 tick 自包含重算切换点,按切换点(nextAtMs)在模块级去重,
-        // 同一切换点只发一次(旧实现比较 tick 时间戳,每 10 秒都"未通知过",会连发)。
-        if (!config || config.peakAlertEnabled !== true || config.peakEnabled !== true) return
-        if (config.peakAlertWebNotify !== true || !window.Notification || Notification.permission !== 'granted') return
-        const wv = peakPhaseAt(now, Array.isArray(config.peakWindows) ? config.peakWindows : [], config.peakHolidays)
-        if (wv === null) return
-        const tgt = config.peakAlertTarget === 'peak' || config.peakAlertTarget === 'offpeak' ? config.peakAlertTarget : 'both'
-        const intoPeak = wv.nextIntoPeak === true
-        if (tgt !== 'both' && tgt !== (intoPeak ? 'peak' : 'offpeak')) return
-        const mins = Number(config.peakAlertAhead)
-        const aheadMs = (Number.isFinite(mins) && mins >= 1 ? mins : 2) * 60000
-        if (now < wv.nextAtMs - aheadMs || now >= wv.nextAtMs) return
-        if (lastPeakNotifyAtMs === wv.nextAtMs) return
-        const t = makeT(resolveLocale(config))
-        lastPeakNotifyAtMs = wv.nextAtMs
-        try {
-          new Notification(
-            t(intoPeak ? 'peakAlertTitlePeak' : 'peakAlertTitleOffPeak'),
-            { body: t('peakAlertBody', { time: countdownText(wv, now, t), phase: t(intoPeak ? 'peakAlertPhasePeak' : 'peakAlertPhaseOffPeak') }) })
-        } catch (_) { /* 通知被系统拒绝时静默 */ }
-      }, [now]) // eslint-disable-line react-hooks/exhaustive-deps
-      if (!config || config.peakEnabled !== true) return null
-      // 真实弹窗判定:提醒开关开启 + 已生效 + 相位/类型/提前量窗口内 + 未手动关闭。
-      let real = null
-      if (config.peakAlertEnabled === true) {
-        const effectiveAtMs = Date.parse(config.peakEffectiveAt || '')
-        if (!(Number.isFinite(effectiveAtMs) && now < effectiveAtMs)) {
-          const view = peakPhaseAt(now, Array.isArray(config.peakWindows) ? config.peakWindows : [], config.peakHolidays)
-          if (view !== null) {
-            const target = config.peakAlertTarget === 'peak' || config.peakAlertTarget === 'offpeak' ? config.peakAlertTarget : 'both'
-            const aheadMinutes = Number(config.peakAlertAhead)
-            const aheadMs = (Number.isFinite(aheadMinutes) && aheadMinutes >= 1 ? aheadMinutes : 2) * 60000
-            if ((target === 'both' || target === (view.nextIntoPeak ? 'peak' : 'offpeak'))
-              && now >= view.nextAtMs - aheadMs && now < view.nextAtMs && dismissedAt !== view.nextAtMs) real = view
-          }
-        }
-      }
-      // 渲染:真实窗口激活用真实切换点;否则若有预览请求,用虚拟切换点(2 分钟后)。
-      let view = null, intoPeak = false, dismiss = null
-      if (real !== null) {
-        view = real
-        intoPeak = real.nextIntoPeak === true
-        dismiss = () => setDismissedAt(real.nextAtMs)
-      } else if (preview !== null) {
-        view = { nextAtMs: now + 2 * 60000, nextIntoPeak: preview === 'peak' }
-        intoPeak = preview === 'peak'
-        dismiss = () => setPreview(null)
-      } else return null
-      const t = makeT(resolveLocale(config))
-      const position = config.peakAlertPosition === 'center' ? 'cm-peak-alert-center' : 'cm-peak-alert-corner'
-      return el(FloatingCard, { actions: { dismiss }, className: 'cm-peak-alert ' + position + ' ' + (intoPeak ? 'cm-peak-alert-peak' : 'cm-peak-alert-offpeak'), role: 'alert' },
-        el('div', { className: 'cm-peak-alert-badge' }, t(intoPeak ? 'peakAlertBadgePeak' : 'peakAlertBadgeOffPeak')),
-        el('div', { className: 'cm-peak-alert-title' }, t(intoPeak ? 'peakAlertTitlePeak' : 'peakAlertTitleOffPeak')),
-        el('div', { className: 'cm-peak-alert-body' }, t('peakAlertBody', {
-          time: countdownText(view, now, t),
-          phase: t(intoPeak ? 'peakAlertPhasePeak' : 'peakAlertPhaseOffPeak'),
-        })),
-        el('div', { className: 'cm-peak-alert-actions' },
-          el('button', { type: 'button', className: 'cm-btn', 'data-cm-action': 'dismiss', onClick: dismiss }, t('peakAlertBtn'))))
+      const state = props.useCost?.(s => s)?.state
+      return state?.config?.peakEnabled === true ? el(PeakProgress, { ...props, view: 'alert' }) : null
     }
 
     /** 展开态简洁样式:单行紧凑时段条——细轨道(左橙右蓝,非当前段淡化)+ 标记线 + 右侧倒计时文本。 */
@@ -2453,11 +2373,15 @@
     // 进度条与首次介绍共用按需模块，不增加旧样式的定时器和主包体积。
     let peakPage
     function loadPeakPage() {
-      return peakPage ??= require.async('./client.peak.js').then(module => module.mount({ peakView, peakPhaseAt, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip }))
+      return peakPage ??= require.async('./client.peak.js').then(module => module.mount({ peakView, peakPhaseAt, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip, FloatingCard, renderSidebarFooter }))
         .catch(error => { peakPage = null; throw error })
     }
     function PeakProgress(props) {
       return el(BillingStatistics, { ...props, load: loadPeakPage, quiet: true })
+    }
+    function SidebarSummaryGuide(props) {
+      const state = props.useCost?.(s => s)?.state
+      return state && state.config.sidebar !== false && !state.config.sidebarSummaryPromptSeen ? el(PeakProgress, { ...props, state, config: state.config, view: 'summary-guide' }) : null
     }
     function PeakProgressGuide(props) {
       const state = props.useCost?.(s => s)?.state, config = state?.config
@@ -2607,6 +2531,15 @@
       }
     }
 
+    function goQuotaDetail(go, config, t) {
+      const direction = barDirectionOf(config, 'go')
+      return ['rolling', 'weekly', 'monthly'].map((key, i) => {
+        const win = go?.[key], pct = typeof win?.percent === 'number' && Number.isFinite(win.percent) ? Math.max(0, Math.min(100, win.percent)) : null
+        const reset = win?.resetsAt && Number.isFinite(Date.parse(win.resetsAt)) ? ' · ' + t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() }) : ''
+        return t(['goWindowRolling', 'goWindowWeekly', 'goWindowMonthly'][i]) + ': ' + (pct === null ? '—' : quotaValueText(simpleBarByDirection(pct, direction).label, direction, t)) + reset
+      }).concat(go?.fetchedAt > 0 ? t('goQuotaFetchedAt', { time: new Date(go.fetchedAt).toLocaleTimeString() }) : []).join('\n')
+    }
+
     function GoQuotaBox(props) {
       const { state, wide } = props
       const goQuota = state.goQuota
@@ -2615,17 +2548,8 @@
       const mainKey = state.config?.goQuota?.main === 'weekly' || state.config?.goQuota?.main === 'monthly' ? state.config.goQuota.main : 'rolling'
       if (goQuota[mainKey] === null || typeof goQuota[mainKey]?.percent !== 'number') return null
       const view = goBoxBody(state, state.config, t)
-      const detail = [
-        t('goQuotaTitle'),
-        t('goWindowRolling') + ': ' + (goQuota.rolling === null ? '—' : Math.round(goQuota.rolling.percent) + '%'),
-        t('goWindowWeekly') + ': ' + (goQuota.weekly === null ? '—' : Math.round(goQuota.weekly.percent) + '%'),
-        t('goWindowMonthly') + ': ' + (goQuota.monthly === null ? '—' : Math.round(goQuota.monthly.percent) + '%'
-          + (goQuota.monthly !== null && typeof goQuota.monthly.resetsAt === 'string' && goQuota.monthly.resetsAt.length > 0
-            ? ' · ' + t('goResetAt', { time: new Date(goQuota.monthly.resetsAt).toLocaleString() })
-            : '')),
-        t('goQuotaFetchedAt', { time: goQuota.fetchedAt > 0 ? new Date(goQuota.fetchedAt).toLocaleTimeString() : '—' }),
-      ].join('; ')
-      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+      const detail = goQuotaDetail(goQuota, state.config, t)
+      return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', { 'data-cm-display': 'go', className: 'cm-bbox' + (view.level === 'ok' ? '' : ' ' + view.level) + (wide ? '' : ' rail') },
           wide ? view.body : el('div', { className: 'cm-bbox-rail cm-num' }, view.rail)))
     }
@@ -2867,8 +2791,9 @@
       const source = state.config?.codexQuotaSource ?? 'auto'
       const cached = useCodexQuota(enabled && !props.preview, source)
       const snap = props.preview ? state.displayPreviewCodex ?? (codexQuotaCache.source === source ? codexQuotaCache : { status: 'idle' }) : cached
-      const refresh = useClickRefresh(props.preview ? null : () => fetchCodexQuota(true, enabled, source))
-      if (!enabled) return null
+      const refresh = useClickRefresh(props.preview ? null : enabled ? () => fetchCodexQuota(true, enabled, source) : () => props.api.updateConfig({ codexQuotaEnabled: true, codexQuotaSidebar: true }))
+      if (!enabled && (state.config?.codexQuotaSidebar === false || state.codexCompat?.enabled !== true)) return null
+      if (!enabled) return el('div', { 'data-cm-display': 'codex', className: 'cm-bbox cm-mm clickable' + (wide === false ? ' rail' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) }, refresh.err || (wide === false ? 'Codex' : t('codexQuotaEnable')))
       if (snap.status !== 'ok') return el('div', {
         'data-cm-display': 'codex', className: 'cm-bbox cm-mm clickable' + (wide === false ? ' rail' : ''),
         title: t('codexQuotaUnavailable'), ...clickableRefreshProps(refresh.busy, refresh.run),
@@ -3070,7 +2995,7 @@
       const rail = el('div', { className: 'cm-bbox-rail cm-num' }, railText)
       return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
         el('div', {
-          ...hoverProps, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
+          ...hoverProps, 'data-cm-display': 'gateway', 'data-cm-source': source.id, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
           ...clickableRefreshProps(refresh.busy, refresh.run),
         }, wide === false ? el(Fragment, null, rail, switchBtn) : body))
     }
@@ -3083,7 +3008,7 @@
         if (source.enabled === false || (source.display !== 'sidebar' && source.display !== 'both')) continue
         const live = snaps.find(q => q.id === source.id)
         if (!live || (live.status !== 'ok' && live.status !== 'partial' && live.status !== 'stale') || live.accounts.length === 0) continue
-        nodes.push(el(GatewayQuotaBox, { source, snapshot: live, state, wide, api }))
+        nodes.push(el(GatewayQuotaBox, { key: 'gateway:' + source.id, source, snapshot: live, state, wide, api }))
       }
       return nodes
     }
@@ -3163,7 +3088,7 @@
               key: 'go',
               label: 'Go ' + t(mainKey === 'rolling' ? 'goShortRolling' : mainKey === 'weekly' ? 'goShortWeekly' : 'goShortMonthly'),
               level,
-              tip: 'Go: ' + pct + '%' + resets,
+              tip: goQuotaDetail(goQuota, config, t),
               segs: [{ name: 'main', pct: Math.round(simpleBarByDirection(pct, barDirectionOf(config, 'go')).width) }],
             })
           }
@@ -3415,9 +3340,10 @@
     }
 
     function sidebarTodayValue(today, config, t) {
-      return config.sidebarTodayMetric === 'tokens'
-        ? formatTokens(['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning'].reduce((sum, key) => sum + (Number(today?.[key]) || 0), 0)) + ' ' + t('tokensUnit')
-        : formatMoneyUsd(displayCostOf(today, config), config)
+      const mode = config.sidebarTodayMetric ?? 'cost'
+      return el('span', { className: 'cm-today-values', 'data-both': mode === 'both' },
+        mode !== 'tokens' ? el('span', { 'data-cm-today': 'cost' }, formatMoneyUsd(displayCostOf(today, config), config)) : null,
+        mode !== 'cost' ? el('span', { 'data-cm-today': 'tokens' }, formatTokens(['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning'].reduce((sum, key) => sum + (Number(today?.[key]) || 0), 0)) + ' ' + t('tokensUnit')) : null)
     }
 
     function BudgetBoxContent(props) {
@@ -3650,7 +3576,7 @@
       // 网关额度侧边栏卡片(issue #96):按来源 display 门控,卡片本体见 GatewayQuotaBox。
       const gatewayNodes = gatewaySidebarCards(state, config, wide, api)
       // 启用后始终保留卡片,避免未登录/接口失败时没有提示和手动重试入口。
-      const codexOn = config.codexQuotaEnabled === true && config.codexQuotaSidebar !== false
+      const codexOn = config.codexQuotaSidebar !== false && (config.codexQuotaEnabled === true || state.codexCompat?.enabled === true)
       const budgetOn = (config.budget ?? {}).enabled === true && config.hideBudget !== true
       const showToday = config.sidebar !== false && config.hideTodayCost !== true
       const peakOn = peakView(config, Date.now()) !== null
@@ -3660,49 +3586,58 @@
       // (CSS 于 .cm-footer-stack.compact 生效);卡片本身与收起(rail)态维持原样。
       const simple = config.sidebarSimple === true
       const compactWide = !simple && wide && config.sidebarStyle === 'compact'
+      // 上游 v1.9.x 的 summary 侧栏风格:宽栏下按 today/balance/peak 三块独立排布并按 sidebarOrder 排序,
+      // 与 fork 的合并信息卡承载方式互斥,故 fork 的合并卡在此风格下让位给上游布局。
+      const summaryStyle = !simple && wide && config.sidebarStyle === 'summary'
       const nodes = []
       // simple 模式(上游极简侧栏):宽栏摘要行由 BudgetBoxContent(simple && wide 时自带 summary,
       // 见下方预算分支)与这一行今日用量共同承载;余额仍走原图框/行。
-      if (simple && wide && showToday) nodes.push(el('div', { 'data-cm-display': 'today', className: 'cm-simple-summary' },
+      // 上游 v1.9.x:开启 sidebarTodayBalanceInline 后今日并入余额卡,此行让位。
+      if (simple && wide && showToday && !config.sidebarTodayBalanceInline) nodes.push(el('div', { key: 'today', 'data-cm-display': 'today', className: 'cm-simple-summary' },
         el('span', null, t('today')), el('span', { className: 'cm-num' }, sidebarTodayValue(state.today, config, t))))
       // 展开态:今日费用 + 官方余额 + 峰谷条合并为一张卡(含今日/累计 Token 量,见 TodayBalanceCard);
-      // 收起(rail)态与 simple 模式维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
+      // 收起(rail)态、simple 模式与上游 summary 风格维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
       // 上游已把本函数改为 renderSidebarFooter(state, wide, api, preview):此处一律用形参 api(没有 props)。
-      if (wide && !simple) nodes.push(el(TodayBalanceCard, { state, wide, api: api, showBalance, showBalanceBar, showToday }))
-      else if (showBalanceBar) nodes.push(el(BalanceBox, { state, wide, api: api }))
-      else if (showBalance) nodes.push(el(BalanceRowContent, { state, wide, api: api }))
-      if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { state, wide, api: api }))
-      else if (showCustomBalance) nodes.push(el(CustomBalanceRowContent, { state, wide, api: api }))
+      if (wide && !simple && !summaryStyle) nodes.push(el(TodayBalanceCard, { key: 'mergedCard', state, wide, api: api, showBalance, showBalanceBar, showToday }))
+      else if (showBalanceBar) nodes.push(el(BalanceBox, { key: 'balance', state, wide, api: api }))
+      else if (showBalance) nodes.push(el(BalanceRowContent, { key: 'balance', state, wide, api: api }))
+      if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { key: 'customBalance', state, wide, api: api }))
+      else if (showCustomBalance) nodes.push(el(CustomBalanceRowContent, { key: 'customBalance', state, wide, api: api }))
       const afterBalance = nodes.length
       if (plansOn) nodes.push(...sidebarPlanIds.map(id => id === 'minimax'
-        ? el(MiniMaxPlanBox, { state, wide, api: api })
-        : el(CodingPlanBox, { id, state, wide, api: api })))
+        ? el(MiniMaxPlanBox, { key: 'plan:' + id, state, wide, api: api })
+        : el(CodingPlanBox, { key: 'plan:' + id, id, state, wide, api: api })))
       nodes.push(...gatewayNodes)
-      if (codexOn) nodes.push(el(CodexPlanBox, { state, wide, api, preview }))
+      if (codexOn) nodes.push(el(CodexPlanBox, { key: 'codex', state, wide, api, preview }))
       if (goOk && budgetOn && wide && !simple) {
         // 同时出现:合并为一张卡片(Go 在上、预算在下,细分隔线),各自保留预警色与自己的详细信息开关。
         const goView = goBoxBody(state, config, t)
         const budgetView = budgetBoxBody(state, config, t)
         const level = goView.level === 'over' || budgetView.level === 'over' ? 'over'
           : goView.level === 'warn' || budgetView.level === 'warn' ? 'warn' : 'ok'
-        nodes.push(el('div', { className: 'cm-bbox cm-bbox-pair' + (level === 'ok' ? '' : ' ' + level) },
+        nodes.push(el('div', { key: 'goBudgetPair', className: 'cm-bbox cm-bbox-pair' + (level === 'ok' ? '' : ' ' + level) },
           el('div', { 'data-cm-display': 'go', className: 'cm-bbox-section' + (goView.level === 'ok' ? '' : ' ' + goView.level) }, goView.body),
           el('div', { className: 'cm-bbox-divider' }),
           el('div', { 'data-cm-display': 'budget', className: 'cm-bbox-section' + (budgetView.level === 'ok' ? '' : ' ' + budgetView.level) }, budgetView.body)))
       } else {
-        if (goOk) nodes.push(el(GoQuotaBox, { state, wide }))
-        if (budgetOn) nodes.push(el(BudgetBoxContent, { state, wide, summary: simple && wide }))
+        if (goOk) nodes.push(el(GoQuotaBox, { key: 'go', state, wide }))
+        if (budgetOn) nodes.push(el(BudgetBoxContent, { key: 'budget', state, wide, summary: simple && wide }))
       }
       // fork:标准宽栏用合并信息卡承载今日费用/余额/峰谷条;它与 TodayBalanceCard 内部的
       // 「!showToday && !balanceOn 就返回 null」保持一致,避免卡片缺席时把峰谷条一起吞掉。
-      const mergedCardOn = wide && !simple && (showToday
+      const mergedCardOn = wide && !simple && !summaryStyle && (showToday
         || (showBalance && (state.balance?.status === 'ok' || state.balance?.status === 'error')))
       // 今日费用行:标准宽栏已并入合并卡,故只在合并卡缺席或收起态补渲染;
       // 上游 v1.9.x 改为每个显示目标自管可见性(todayOnly 卡片 + peakOn 门控),条件按承载关系收窄。
-      if (showToday && !mergedCardOn && !(simple && wide)) nodes.push(el(BudgetBoxContent, { state, wide, todayOnly: true }))
+      if (showToday && !mergedCardOn && (!(simple && wide) || config.sidebarTodayBalanceInline)) nodes.push(el(BudgetBoxContent, { key: 'today', state, wide, todayOnly: true }))
       // fork:宽栏且合并卡在场时峰谷条由卡片承载,其余情况(简化宽栏 / 合并卡缺席 / 收起态)独立渲染。
-      if (peakOn && !mergedCardOn) nodes.push(wide ? peakNoticeEl(state, config, t) : peakNoticeRailEl(state, config, t))
+      if (peakOn && !mergedCardOn) nodes.push(el(Fragment, { key: 'peak' }, wide ? peakNoticeEl(state, config, summaryStyle ? { ...config, peakProgressVariant: 'summary' } : config, t) : peakNoticeRailEl(state, config, t)))
       if (modelsOn) nodes.splice(config.sidebarModels.position === 'first' ? 0 : config.sidebarModels.position === 'afterBalance' ? afterBalance : nodes.length, 0,
         el(SidebarModelCosts, { key: 'models', state, wide, preview }))
-      return el('div', { ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : '') }, ...nodes)
+      const order = config.sidebarOrder?.length ? config.sidebarOrder : config.sidebarStyle === 'summary' && !simple ? ['today', 'balance', 'peak'] : []
+      if (order.length) {
+        const rank = node => { const index = order.indexOf(node.key); return index < 0 ? 999 : index }
+        nodes.sort((a, b) => rank(a) - rank(b))
+      }
+      return el('div', { ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (config.sidebarTodayBalanceInline ? ' same-line' : '') + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : config.sidebarStyle === 'summary' && wide ? ' summary' : '') }, ...nodes)
     }
