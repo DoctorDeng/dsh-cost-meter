@@ -10,17 +10,12 @@
 
     const loadedPages = new WeakMap()
     const warmPage = (load, props) => load?.().then(page => { loadedPages.set(load, page); return page.prefetch?.(props) }).catch(() => {})
-    function BillionCompatibilityGuide(props) {
-      const state = props.useCost?.(s => s)?.state, meter = state?.billionContext
-      const [Page, setPage] = useState(null)
-      const show = state?.config?.billionContextNoticeEnabled !== false && meter?.noticeId && !state?.config?.billionContextNoticesSeen?.includes(meter.noticeId) && ['needs_update', 'changed', 'bridge_missing'].includes(meter.compatibility)
-      useEffect(() => {
-        if (!show) return
-        let active = true
-        props.api.loadStatistics().then(page => { if (active) setPage(() => page.BillionCompatibilityNotice) }).catch(() => {})
-        return () => { active = false }
-      }, [!!show, props.api])
-      return show && Page ? el(Page, { meter, config: state.config, api: props.api, locale: resolveLocale(state?.config ?? {}) }) : null
+    function BillingAccuracyNote({ state }) {
+      const meter = state?.billionContext
+      if (!meter || !(meter.unresolved > 0 || ['needs_update', 'changed', 'bridge_missing'].includes(meter.compatibility))) return null
+      return el('p', { className: 'cm-note', 'data-billing-accuracy': 'billion-context' }, resolveLocale(state.config) === 'en'
+        ? 'Some billion-context usage records are incomplete; cost totals may differ from the provider bill.'
+        : 'billion-context 部分用量记录不完整，费用统计可能存在偏差。')
     }
     function BillingStatistics(props) {
       const load = props.load ?? props.api.loadStatistics
@@ -1153,8 +1148,8 @@
           onRemove ? el('button', { className: 'cm-btn small', onClick: onRemove }, t('quotaRemove')) : null,
           el('button', {
             className: 'cm-btn small', onClick: buttonAction,
-            disabled: busy === true || enabled !== true || saved?.enabled !== true || saved.display === 'off',
-            title: enabled !== true ? t('quotaEnableFirst') : saved?.enabled !== true || saved.display === 'off' ? t('quotaRefreshReady') : loginRequired ? t('loginCodingPlan') : t('refresh'),
+            disabled: busy === true || enabled !== true || saved?.enabled !== true || saved.display === 'off' && saved.showInComposer !== true,
+            title: enabled !== true ? t('quotaEnableFirst') : saved?.enabled !== true || saved.display === 'off' && saved.showInComposer !== true ? t('quotaRefreshReady') : loginRequired ? t('loginCodingPlan') : t('refresh'),
           }, buttonText)),
         statusNode,
         expandable && open === true ? el('div', { className: 'cm-collapse-body' }, configNode) : null,
@@ -1397,7 +1392,7 @@
       const set = (key, value) => { if (draft) setDraft({ ...draft, goQuota: { ...cfg, [key]: value } }) }
       return el(Fragment, null,
         [['display', 'goQuotaDisplayLabel'], ['main', 'goMainLabel']].map(([key, label]) => el('div', { key, className: 'cm-field' }, el('label', null, t(label)),
-          el('select', { className: 'cm-input', value: cfg[key], onChange: e => set(key, e.target.value) }, key === 'display' ? displayOptions(t) : ['rolling', 'weekly', 'monthly'].map((v, i) => el('option', { key: v, value: v }, t(['goWindowRolling', 'goWindowWeekly', 'goWindowMonthly'][i])))))),
+          el('select', { className: 'cm-input', value: key === 'display' ? quotaPlacementValue(cfg, (draft ?? config).quotaStrip, 'go') : cfg[key], onChange: e => key === 'display' ? draft && setDraft({ ...draft, goQuota: { ...cfg, ...quotaPlacementPatch(e.target.value) } }) : set(key, e.target.value) }, key === 'display' ? quotaPlacementOptions(t) : ['rolling', 'weekly', 'monthly'].map((v, i) => el('option', { key: v, value: v }, t(['goWindowRolling', 'goWindowWeekly', 'goWindowMonthly'][i])))))),
         el('div', { className: 'cm-field' }, el('label', null, t('goQuotaRefreshIntervalLabel')),
           numInput({ value: cfg.refreshMinutes }, v => set('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v)))))),
         el('label', null, t('goQuotaKeyLabel')),
@@ -1523,7 +1518,7 @@
     /** 单个 Coding Plan 订阅卡片(11 家共用:开关在标题行,展示/间隔/计划额度/凭据收在展开区)。 */
     let planSettingsPage
     function loadPlanSettings() {
-      return planSettingsPage ??= require.async('./client.plan-settings.js').then(module => module.mount({ useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd })).catch(error => { planSettingsPage = null; throw error })
+      return planSettingsPage ??= require.async('./client.plan-settings.js').then(module => module.mount({ useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, codingPlanWindowEntries, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions })).catch(error => { planSettingsPage = null; throw error })
     }
     function PlanQuotaCard(props) { return el(BillingStatistics, { ...props, load: loadPlanSettings }) }
 
@@ -1706,6 +1701,15 @@
       return el(CodexLazy, { ...props, state, view: 'prompt', ready: state?.codexCompat?.enabled === true && state?.codexCompat?.promptDue, locale: snapshot?.locale })
     }
 
+    // 迁移阶段两个入口均保留完整配置；DSH 切换设置页用途时再改为 true。
+    const SETTINGS_DISPLAY_ONLY = false
+    function CostOverview(props) {
+      const snapshot = props.useCost?.(s => s)
+      return el(BillingStatistics, { state: snapshot?.state, snapshot, api: props.api, load: props.api.loadSettingsOverview,
+        helpers: { makeT, Card, BillingAccuracyNote, displayCostOf, quotaWindowRow, codingPlanWindowLabel, formatBalanceMoney,
+          formatCustomBalanceMoney, CODING_PLAN_ROWS, UsagePanel, TodaySessions, BudgetBoxContent, useCodexQuota, codingPlanWindowEntries } })
+    }
+
     function CostSection(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
       const api = props.api
@@ -1721,7 +1725,7 @@
       // 设置页当前标签(issue #29):概览/额度/用量/价格/显示;仅切可见分区,不拆配置与保存逻辑。
       const [activeTab, setTab] = useState('overview')
       const codexInstalled = state?.codexCompat?.installed === true && state?.codexCompat?.enabled === true
-      const tab = activeTab === 'codex' && !codexInstalled ? 'overview' : activeTab
+      const tab = activeTab === 'export' ? 'statistics' : activeTab === 'codex' && !codexInstalled ? 'overview' : activeTab
       useEffect(() => { if (!codexInstalled) setTab(current => current === 'codex' ? 'overview' : current) }, [codexInstalled])
       const [quotaTarget, setQuotaTarget] = useState(null)
       // 自动保存状态:idle(无改动) | saving | saved | error。
@@ -1904,7 +1908,7 @@
         el(BillingStatistics, { state, api, load: api.loadCommunity, locale, quiet: true }),
         // 操作结果提示(价格同步/历史导入/清除):全局展示,不随触发按钮所在标签页。
         cmMsg(message),
-        tab === 'statistics' ? el(BillingStatistics, { state, api }) : null,
+        tab === 'statistics' ? el(BillingStatistics, { state, api, autoExport: activeTab === 'export' }) : null,
         // ── 概览:汇总卡片、今日会话、预算、官方余额 ──
         tab === 'overview' ? el(Fragment, { key: 'overview' },
         // 汇总卡片(今日卡片受 hideTodayCost 门控,issue #46;金额为真金白银口径,issue #64)
@@ -1940,6 +1944,7 @@
         // 防抖落盘产生分钟级时差;reasoning 由 API 单列上报但不计费,token 合计
         // 天然对不齐,引导以金额对账。
         el('p', { className: 'cm-note', key: 'cards-footnote' }, t('cardsFootnote')),
+        el(BillingAccuracyNote, { state }),
         // 宿主/浏览器时区错位提示(issue #74):宿主以非本地时区运行时,「今日」
         // 的日界与用户感知不同(本地午夜后的调用记前一日),避免误判为漏计。
         (() => {
@@ -1963,6 +1968,7 @@
           el('span', null, t('cardsTogglePlanTotal'))),
         // 今日会话
         el('div', null,
+          el('button', { className: 'cm-btn', onClick: () => setTab('export') }, locale === 'en' ? 'Export cost records' : '导出费用记录'),
           el('h3', { className: 'cm-h' }, t('todaySessions')),
           el(TodaySessions, { state, t })),
         // 预算
@@ -1989,6 +1995,8 @@
         el(HistoryPanel, { state, api }),
         // 按会话统计(全部历史,不分日期;issue #22)
         el(SessionRankPanel, { state, api }),
+        el(BillingStatistics, { state, api, load: api.loadBillingStorage, draft, setDraft, locale,
+          disabled: saveState.status === 'saving' || (draft ?? config).billingStorageRetentionDays !== config.billingStorageRetentionDays }),
         // 历史数据操作(导入安装前历史/清除全部历史;与用量统计同组)
         el('div', null,
           el('h3', { className: 'cm-h' }, t('historyDataTitle')),
@@ -2018,7 +2026,7 @@
           : null,
         // 显示设置：独立加载的交互预览，共用草稿与自动保存。
         el(BillingStatistics, { state: { ...state, displayPreviewCodex: codexQuotaCache.source === (state.config.codexQuotaSource ?? 'auto') ? codexQuotaSnapshot() : { status: 'idle', windows: {} } }, api, load: api.loadDisplay, draft, setDraft, t, locale,
-          numInput, displayOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, formatMoneyUsd,
+          numInput, displayOptions, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, formatMoneyUsd,
           planOptions: CODING_PLAN_ROWS.map(row => [row.id, t(row.labelKey)]),
           onNavigate: (page, plan) => { setQuotaTarget(plan); setTab(page) },
           renderSidebar: (preview, data = state) => renderSidebarFooter({ ...data, config: preview }, true, undefined, true),
@@ -2108,8 +2116,9 @@
       if (costMeter === undefined) return
       ctx.inject(['connection'], connectionCtx => connectionCtx.effect(() => {
         const rpc = connectionCtx.get('connection')?.rpc
-        resetCodexQuota(rpc)
-        return () => { if (codexQuotaCache.rpc === rpc) resetCodexQuota(null) }
+        resetCodexQuota(rpc, () => costMeter.getPiAiCodexQuota(), () => costMeter.getChatgptSubQuota())
+        notifyCodexQuota()
+        return () => { if (codexQuotaCache.rpc === rpc) { resetCodexQuota(null); notifyCodexQuota() } }
       }, 'cost-meter: Codex quota transport'))
       const readLocale = () => {
         try { return supportedLocale(ctx.get('locale')?.getSnapshot?.().active) }
@@ -2135,7 +2144,7 @@
       let lastPoll = Date.now()
       let reloading = false
       let active = true, retrySeconds = 1
-      let configRevision = 0, savingConfig = 0
+      let configRevision = 0, savingConfig = 0, configWrites = Promise.resolve()
       // 宿主在价格表版本未变时省略 config.prices(占轮询载荷 56%):此时沿用上一份,
       // 保证 config.prices 在客户端始终存在(渲染与改价逻辑都按它非空处理)。
       // 版本号相同即价格表逐字节相同,因此沿用上一份与用新下发的那份等价;
@@ -2214,6 +2223,9 @@
         return pages[name]
       }
       const api = {
+        loadBillingStorage: () => loadPage('billing-storage'),
+        billingStorage: async options => call('billingStorage', [billingStorageOptionsCodec.parse(options)]),
+        loadSettingsOverview: () => loadPage('settings-overview'),
         loadStatistics: () => loadPage('statistics'),
         loadOpenRouter: () => loadPage('openrouter'),
         loadCommunity: () => loadPage('community'),
@@ -2225,12 +2237,15 @@
           const { activeLocale: _local, ...savedPatch } = patch
           // 使保存前发出的旧查询失效，避免套餐开关或工作区回退。
           configRevision++; savingConfig++
-          try {
+          // All mounted entries share this queue; a slow earlier save cannot undo a later one.
+          const write = configWrites.catch(() => {}).then(async () => {
             const state = await call('updateConfig', [savedPatch])
             store.set({ status: 'ready', error: null, state })
             if (patch.planBilling) setTimeout(() => { void reload() }, 1500)
             return state
-          } finally { savingConfig--; configRevision++ }
+          })
+          configWrites = write
+          try { return await write } finally { savingConfig--; configRevision++ }
         },
         fetchPrices: async () => receive(costMeter.fetchPrices()),
         // 交回自动同步(OpenRouter 手改价):成功即刷新本地快照,失败抛出带原因的错误。
@@ -2291,6 +2306,9 @@
       ;['conversation.view', 'sidebar.right.pane.tab', 'conversation.input.overlay'].forEach(contextPrices)
 
       const injected = () => ({ hooks: { cost: store }, api })
+      slots.inject('plugins.bundle.config', () => slots.register({
+        name: 'plugins.bundle.config', key: 'dsh-cost-meter', inject: injected,
+      }, CostSection))
       for (const [entryPosition, name] of [['header', 'conversation.session.header.actions'], ['dock', 'conversation.composer.dock']]) slots.inject(name, () => slots.register({ name, id: 'cost-meter-statistics', order: 1, inject: () => ({ ...injected(), entryPosition }) }, SessionStatisticsButton))
       slots.inject('conversation.chat.turnTail', () => slots.register({ name: 'conversation.chat.turnTail', id: 'cost-meter-turn', order: 10, inject: injected }, TurnCost))
       // 通用插槽注册去重:共享「失效旧注册→bump gen→注入→生成期护栏→记录 dispose→卸载清理」逻辑。
@@ -2335,8 +2353,6 @@
       })
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: 'cost-meter-simple-guide', order: 1, inject: injected }, SidebarSimpleGuide))
-      slots.inject('sidebar.footer.action', () => slots.register(
-        { name: 'sidebar.footer.action', id: 'cost-meter-billion-compatibility', order: 2, inject: injected }, BillionCompatibilityGuide))
       slots.inject('sidebar.footer.action', () => slots.register(
         { name: 'sidebar.footer.action', id: 'cost-meter-peak-progress-guide', order: 1, inject: injected }, PeakProgressGuide))
       slots.inject('sidebar.footer.action', () => slots.register(
@@ -2384,7 +2400,7 @@
       // 设置页「费用/Cost」分节:语言变化时撤销旧注册并重建,让侧边栏标签同步。
       const sectionActive = slotActive()
       const registerSection = locale => {
-        registerSlot(sectionActive, 'settings.section', { name: 'settings.section', id: 'cost-meter', order: 30, label: locale === 'en' ? MESSAGES.en.sectionLabel : MESSAGES.zh.sectionLabel, inject: injected }, CostSection, true)
+        registerSlot(sectionActive, 'settings.section', { name: 'settings.section', id: 'cost-meter', order: 30, label: locale === 'en' ? MESSAGES.en.sectionLabel : MESSAGES.zh.sectionLabel, inject: injected }, SETTINGS_DISPLAY_ONLY ? CostOverview : CostSection, true)
       }
       // Token 用量统计「通用设置」行(position = general 时,注入宿主通用设置页的 settings.general.item 插槽)。
       const generalUsageActive = slotActive()

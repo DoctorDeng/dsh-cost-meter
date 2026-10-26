@@ -10,7 +10,10 @@ import './ledger-lock-recovery.mjs'
 // This service fixture owns startup timers and must not overlap slow static imports.
 import './context-costs.mjs'
 import './clinepass-quota.mjs'
-import { readFileSync, rmSync, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
+import './pi-ai-codex-quota.mjs'
+import './chatgpt-sub-quota.mjs'
+import './pi-ai-codex-client.mjs'
+import { readFileSync, rmSync as removeFixtureFiles, mkdirSync, writeFileSync, readdirSync, mkdtempSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, dirname, resolve } from 'node:path'
 import { tmpdir as osTmpdir } from 'node:os'
@@ -98,6 +101,26 @@ import {
 } from '../lib/coding-plans.js'
 import { extractByRule } from '../lib/custom-balance.js'
 
+// Minimal host mocks still execute effects and dispose them before removing their homes.
+// This covers real background writes instead of depending on a 2-second timer race.
+const fixtureEffects = new Map()
+function trackFixtureEffect(factory) {
+  const dispose = factory(), root = process.env.DSH_HOME
+  if (typeof dispose === 'function' && root) {
+    const key = resolve(root), entries = fixtureEffects.get(key) ?? []
+    entries.push(dispose); fixtureEffects.set(key, entries)
+  }
+  return dispose
+}
+function rmSync(path, options) {
+  const target = resolve(String(path)).toLowerCase()
+  for (const [root, effects] of fixtureEffects) if (root.toLowerCase() === target || root.toLowerCase().replaceAll('\\', '/').startsWith(target.replaceAll('\\', '/') + '/')) {
+    for (const dispose of effects.reverse()) dispose()
+    fixtureEffects.delete(root)
+  }
+  removeFixtureFiles(path, { ...options, maxRetries: 5, retryDelay: 100 })
+}
+
 // Wait for the static multi-process fixtures before probing Windows native IDs.
 await import('./ledger-lock-compatibility.mjs')
 
@@ -141,7 +164,7 @@ const displaySource = readFileSync(new URL('../src/display/index.js', import.met
 // classic script 语法错误不触发 error 事件、宿主只报「loaded without registering」,
 // 而本套件此前只做字符串断言、从不解析该文件——语法错误一路溜到线上。
 // 这里用 vm.Script 整份编译(只编译不执行,window 引用无碍),任何语法错误当场失败。
-for (const browserBundle of ['../lib/client.js', '../lib/client.codex.js', '../lib/client.statistics.js', '../lib/client.openrouter.js', '../lib/client.community.js', '../lib/client.pricing.js', '../lib/client.display.js']) {
+for (const browserBundle of ['../lib/client.js', '../lib/client.settings-overview.js', '../lib/client.codex.js', '../lib/client.statistics.js', '../lib/client.openrouter.js', '../lib/client.community.js', '../lib/client.pricing.js', '../lib/client.display.js']) {
   const src = readFileSync(new URL(browserBundle, import.meta.url), 'utf8')
   new vm.Script(src, { filename: browserBundle })
 }
@@ -1380,7 +1403,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   assert.ok(clientSource.includes("id: 'cost-meter-qstrip-guide'"), '引导卡挂常驻 sidebar 插槽')
   assert.ok(clientSource.includes('function QuotaStrip(') && clientSource.includes('function QuotaStripGuide('), '两个组件定义存在')
   assert.ok(clientSource.includes("if (config.quotaStrip?.promptSeen === true) return null"), '引导卡按 promptSeen 门控')
-  assert.ok(clientSource.includes("if (strip.enabled !== true) return null"), '横条按 enabled 门控')
+  assert.ok(clientSource.includes("if (strip.enabled !== true && config.goQuota?.showInComposer !== true") && clientSource.includes('function quotaInComposer('), '横条保留默认门控，并允许单家显式选择输入框上方')
   assert.ok(clientSource.includes('cm-qstrip') && clientSource.includes('cm-qchip') && clientSource.includes('cm-qguide'), '横条/引导卡 CSS 类存在')
   assert.ok(clientSource.includes('quotaStripEnable') && clientSource.includes('quotaStripShowBudget') && clientSource.includes('quotaStripShowGo') && clientSource.includes('quotaStripShowPlans'), '设置 UI 开关文案存在')
   assert.ok(clientSource.includes('quotaStripGuideTitle') && clientSource.includes('quotaStripGuideOn') && clientSource.includes('quotaStripGuideOff'), '引导卡文案存在')
@@ -2630,13 +2653,13 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.equal(providerPriceEntryFor('foo', 'no-such-model', fullPrices, { mode: 'auto', overrides: { 'foo:no-such-model': 'no-such-model' } }).priced, false, '未知裸名保持未定价(不误套默认价)')
   const clientSource = readClientSource() + readFileSync(new URL('../src/pricing/index.js', import.meta.url), 'utf8')
   assert.ok(clientSource.includes("value: 'deepseek:' + id"), '设置页下拉框 DeepSeek 目标存带前缀的值(issue #56 根因)')
-  assert.ok(clientSource.includes("if (provider !== 'deepseek' && !provider.includes('deepseek')") && clientSource.includes("matchModelIdLocal(override, Object.keys(dsModels), override, prices?.snapshotTags !== false)"), '客户端 resolveClientPrice 同口径裸名兜底(未命中列表/徽章估算与计费一致)')
+  assert.ok(clientSource.includes("if (provider !== 'deepseek' && !provider.includes('deepseek')") && clientSource.includes("matchModelIdLocal(override, Object.keys(dsModels), override, prices?.snapshotTags !== false, prices?.shortSnapshotTags !== false)"), '客户端 resolveClientPrice 同口径裸名兜底(未命中列表/徽章估算与计费一致)')
   // 客户端计费口径接线:parseConfig 白名单保留 prices.currency(CNY 价目下
   // 回退计价必须除汇率,否则展示金额放大汇率倍);跨厂商兑底 billingMode 与
   // 服务端 bestMode 对齐;数字分叉守卫双端同步。
   assert.ok(clientSource.includes("currency: typeof v.prices?.currency === 'string'"), '客户端 parseConfig 保留 prices.currency')
   assert.ok(clientSource.includes("bestMode = priceBillingMode(modelsCat[h])"), '客户端跨厂商兑底 billingMode 与服务端同口径')
-  assert.ok(clientSource.includes('const stripped = stripIdDecor(target, snapshotTags)') && clientSource.includes('hits.length === 1 ? hits[0] : null'), '客户端安全后缀匹配与 pricing.js 同步')
+  assert.ok(clientSource.includes('const stripped = stripIdDecor(target, snapshotTags, shortSnapshotTags)') && clientSource.includes('hits.length === 1 ? hits[0] : null'), '客户端安全后缀匹配与 pricing.js 同步')
   console.log('[ok] 手动价格映射裸 DeepSeek 名兜底(宿主+客户端双端/语义保留/下拉框根因修复)通过')
 }
 
@@ -3342,7 +3365,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const provided = {}
   const fakeCtx = {
     on: () => () => {},
-    effect: () => {},
+    effect: trackFixtureEffect,
     inject: () => {},
     provide: (key, value) => { provided[key] = value },
     logger: console,
@@ -3458,7 +3481,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     const provided = {}
     apply({
       on: () => () => {},
-      effect: () => {},
+      effect: trackFixtureEffect,
       inject: () => {},
       provide: (k, v) => { provided[k] = v },
       logger: console,
@@ -3555,7 +3578,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     const provided = {}
     apply({
       on: () => () => {},
-      effect: () => {},
+      effect: trackFixtureEffect,
       inject: () => {},
       provide: (k, v) => { provided[k] = v },
       logger: console,
@@ -3606,7 +3629,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const provided = {}
   apply({
     on: () => () => {},
-    effect: () => {},
+    effect: trackFixtureEffect,
     inject: () => {},
     provide: (key, value) => { provided[key] = value },
     logger: console,
@@ -3678,7 +3701,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const provided = {}
   apply({
     on: () => () => {},
-    effect: () => {},
+    effect: trackFixtureEffect,
     inject: () => {},
     provide: (key, value) => { provided[key] = value },
     logger: console,
@@ -3843,7 +3866,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   }
   // 设置页:每张 provider 卡片内的显示位置下拉(统一卡片外壳后 planId 由卡片组件持有,setPlan 不再带 id)。
   assert.ok(planSrc.includes("t('codingPlanDisplayLabel')"), '显示位置标签在设置页渲染')
-  assert.ok(planSrc.includes("setPlan('display', event.target.value)"), '显示位置下拉写回该厂商 display')
+  assert.ok(planSrc.includes('...quotaPlacementPatch(event.target.value)') && planSrc.includes('...quotaPlacementOptions(t)'), '显示位置下拉写回该厂商的侧栏/设置页与输入区选择')
   // 选项值、文案及列表身份由 model-quota-cards.mjs 执行实际组件验证。
   // 侧边栏:按 display 门控的循环 + MiniMax 专用卡片 + 通用 CodingPlanBox。
   assert.ok(planSrc.includes('const sidebarPlanIds = CODING_PLAN_ROWS'), '侧边栏按 CODING_PLAN_ROWS 遍历厂商')
@@ -3854,8 +3877,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(planSrc.includes('function codingPlanWindowLabel(name, t)'), '窗口名本地化(fiveHour/weekly/monthly)')
   // 通用卡片样式:宽标签与文本窗口行的 CSS。
   assert.ok(planSrc.includes('.cm-mm-row.wide .cm-bbox-label{') && planSrc.includes('.cm-mm-row.wide .cm-mm-text{'), '通用卡片行样式存在')
-  // 单行余额来源(WorkBuddy):余额并入标题行右端,正文不再重复一行。
-  assert.ok(planSrc.includes("const titleValue = id === 'workbuddy'") && planSrc.includes("entries.filter(([name]) => name !== 'balance')"), '余额从正文窗口行剔除')
+  // WorkBuddy/OpenDesign 余额并入标题行,实际渲染由浏览器检查。
+  assert.ok(planSrc.includes("entries.filter(([name]) => name !== 'balance')"), '余额从正文窗口行剔除')
   assert.ok(planSrc.includes("className: titleValue ? 'cm-mm-title cm-mm-row wide' : 'cm-mm-title'"), '标题行右端余额节点(复用通用行样式,零新增 CSS)')
   console.log('[ok] Coding Plan 侧边栏显示(display 门控/通用卡片/双语文案/设置页下拉)通过')
 }
@@ -3995,13 +4018,13 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.equal(usageParsed.fiveHour.percent, 25, 'UsageDetails FiveHour 300/1200=25%')
   assert.equal(usageParsed.weekly.percent, 10, 'UsageDetails Weekly 900/9000=10%')
   assert.equal(usageParsed.monthly.percent, 16.7, 'UsageDetails Monthly (18000-15000)/18000≈16.7%')
-  // 4b) AFPDaily / daily 窗口(实测 GetAFPUsage 返回 daily,需兼容)
+  // GetAFPUsage 的 AFPDaily 属于另一产品，不能混入 Coding Plan。
   const dailyData = {
     ResponseMetadata: {},
     Result: { UsageDetails: [{ QuotaType: 'AFPDaily', Total: 100, Used: 0, ResetTime: '2026-08-26T00:00:00Z' }] },
   }
   const dailyParsed = parseVolcengineUsage(dailyData)
-  assert.equal(dailyParsed.daily.percent, 0, 'AFPDaily 归一为 daily')
+  assert.equal(dailyParsed, null, 'Coding Plan 不接受 AFPDaily 日窗口')
   // 4c) GetCodingPlanUsage 官方形态(issue #71 实测 by @suyukun):
   // Result.QuotaUsage[] + Level 窗口名 + 仅 Percent(无 used/total)+ ResetTimestamp 秒。
   const codingPlanData = {
@@ -4380,9 +4403,9 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   bucketsAcc = appendHourBucket(bucketsAcc, 'minimax', 3600_000 + 1800_000, 50, 0.05) // 同小时累加
   assert.equal(Object.values(bucketsAcc.minimax)[0].tokens, 150, '同小时桶累加')
   const pruned = pruneHourBuckets({ minimax: { 3600_000: { tokens: 1, cost: 1 } }, zai: 'bad' }, 3600_000 + HOUR_BUCKET_RETENTION_MS - 1000)
-  assert.equal(pruned.minimax['3600000'].tokens, 1, '48h 内桶保留')
+  assert.equal(pruned.minimax['3600000'].tokens, 1, '月周期内的小时桶保留')
   assert.equal(pruned.zai, undefined, '非法厂商槽剔除')
-  const stalePruned = pruneHourBuckets({ minimax: { 3600_000: { tokens: 1, cost: 1 } } }, 3600_000 * 72)
+  const stalePruned = pruneHourBuckets({ minimax: { 3600_000: { tokens: 1, cost: 1 } } }, HOUR_BUCKET_RETENTION_MS + 7200_000)
   assert.equal(stalePruned.minimax, undefined, '超龄桶丢弃')
   const converted = convertRecentCallsToBuckets([
     { t: 7200_000, provider: 'go', tokens: 10, cost: 0.01 },
@@ -4822,7 +4845,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const { apply } = await import('../lib/index.js')
   apply({
     on: () => () => {},
-    effect: () => {},
+    effect: trackFixtureEffect,
     inject: () => {},
     provide: (k, v) => { provided[k] = v },
     logger: console,
@@ -5040,7 +5063,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     const { apply } = await import('../lib/index.js')
     apply({
       on: () => () => {},
-      effect: () => {},
+      effect: trackFixtureEffect,
       inject: () => {},
       provide: (k, v) => { provided[k] = v },
       logger: console,
@@ -5360,7 +5383,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     const { apply: apply11 } = await import('../lib/index.js')
     apply11({
       on: () => () => {},
-      effect: () => {},
+      effect: trackFixtureEffect,
       inject: () => {},
       provide: (k, v) => { provided11[k] = v },
       logger: console,
@@ -5592,7 +5615,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     const { apply: apply13 } = await import('../lib/index.js')
     apply13({
       on: () => () => {},
-      effect: () => {},
+      effect: trackFixtureEffect,
       inject: () => {},
       provide: (k, v) => { provided13[k] = v },
       logger: console,
@@ -5716,7 +5739,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
     const { apply: apply79 } = await import('../lib/index.js')
     apply79({
       on: () => () => {},
-      effect: () => {},
+      effect: trackFixtureEffect,
       inject: () => {},
       provide: (k, v) => { provided79[k] = v },
       logger: console,
@@ -5813,20 +5836,15 @@ await import('./typert-codecs.mjs')
     const provided81 = {}
     // 拦截官方余额查询:注入 CNY 账户(总额 58 → 当日变动 ¥42,与 $3.99 偏差巨大)。
     const origFetch81 = globalThis.fetch
-    globalThis.fetch = async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    globalThis.fetch = async () => Response.json({
         is_available: true,
         balance_infos: [{ currency: 'CNY', total_balance: '58', granted_balance: '1', topped_up_balance: '57' }],
-      }),
-      text: async () => '',
     })
     try {
       const { apply: apply81 } = await import('../lib/index.js')
       apply81({
         on: () => () => {},
-        effect: () => {},
+        effect: trackFixtureEffect,
         inject: () => {},
         provide: (k, v) => { provided81[k] = v },
         logger: console,
@@ -5875,20 +5893,15 @@ await import('./typert-codecs.mjs')
     const provided302 = {}
     const origFetch302 = globalThis.fetch
     // 当日主要使用第三方渠道:官方余额只在赠送桶减少,充值桶不变。
-    globalThis.fetch = async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    globalThis.fetch = async () => Response.json({
         is_available: true,
         balance_infos: [{ currency: 'CNY', total_balance: '821.7149', granted_balance: '32.8532', topped_up_balance: '788.8617' }],
-      }),
-      text: async () => '',
     })
     try {
       const { apply: apply302 } = await import('../lib/index.js')
       apply302({
         on: () => () => {},
-        effect: () => {},
+        effect: trackFixtureEffect,
         inject: () => {},
         provide: (k, v) => { provided302[k] = v },
         logger: console,
@@ -6907,9 +6920,11 @@ await import('./qwen-cli.mjs')
 await import('./bailian-cli.mjs')
 await import('./minimax-endpoint.mjs')
 await import('./openrouter-pricing.mjs')
+await import('./openrouter-restart.mjs')
 await import('./openrouter-catalog.mjs')
 await import('./pr145-147.mjs')
 await import('./antigravity-endpoint-fallback.mjs')
+await import('./antigravity-models-quota.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./custom-balance-host.mjs')
 await import('./custom-balance-post.mjs')
@@ -6937,6 +6952,8 @@ await import('./gpt-astra-pricing.mjs')
 await import('./pricing-model-matching.mjs')
 await import('./provider-pricing-coverage.mjs')
 await import('./ollama-cloud-pricing.mjs')
+await import('./volcengine-pricing.mjs')
+await import('./quota-placement.mjs')
 await import('./ollama-cloud-upgrade.mjs')
 await import('./ollama-snapshot-upgrade.mjs')
 await import('./subagent-billing.mjs')
@@ -6951,6 +6968,8 @@ await import('./pricing-history-performance.mjs')
 await import('./price-multiplier.mjs')
 await import('./billing-history-service.mjs')
 await import('./billing-statistics.mjs')
+await import('./billing-export.mjs')
+await import('./quota-window-order.mjs')
 await import('./turn-inspection.mjs')
 await import('./billing-statistics-client.mjs')
 // 无外部依赖(纯 vm + 假 DOM),因此并入本套件而不是浏览器作业。
@@ -6968,6 +6987,7 @@ await import('./workbuddy-quota.mjs')
 await import('./workbuddy-billing.mjs')
 await import('./workbuddy-connect.mjs')
 await import('./workbuddy-accounts.mjs')
+await import('./workbuddy-xdpool.mjs')
 await import('./workbuddy-host.mjs')
 await import('./mimo-enable-flow.mjs')
 await import('./mimo-v26-pricing.mjs')
@@ -6998,3 +7018,16 @@ console.log('[ok] 全部验证通过')
 await import('./exchange-rates.mjs')
 await import('./custom-model-prices.mjs')
 await import('./context-activity.mjs')
+await import('./review-billing-regressions.mjs')
+await import('./review-ledger-writer.mjs')
+await import('./ledger-worker-isolation.mjs')
+await import('./review-journal-storage.mjs')
+await import('./review-release.mjs')
+await import('./billion-null-usage.mjs')
+
+await import('./settings-pages.mjs')
+
+await import('./review-fx-consistency.mjs')
+await import('./billion-context-storage.mjs')
+await import('./billion-context-inventory.mjs')
+await import('./review-io-lifecycle.mjs')

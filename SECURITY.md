@@ -27,7 +27,7 @@ Only the latest release receives security fixes — please upgrade.
 
 供漏洞研究参考的既有边界:
 
-- **API Key 只发往官方/用户自配端点**:官方余额查询强制 `api.deepseek.com`(非官方 baseURL 直接拒绝);Coding Plan 各家凭据只发往硬编码白名单内的官方端点(verify.mjs 有域名白名单断言);自定义余额端点为用户显式自配,`{{ENV_VAR}}` 凭据占位符只注入到该自配请求。
+- **API Key 只发往官方/用户自配端点**：官方余额查询强制 `api.deepseek.com`；Coding Plan 默认使用各适配器的固定官方端点。MiniMax 还允许用户明确配置 HTTPS 来源，凭据仅发送到该来源，禁止携带凭据重定向。pi-ai Codex 额度查询使用 `https://chatgpt.com/backend-api/wham/usage`。自定义余额和网关使用用户配置的地址；`{{ENV_VAR}}` 凭据引用只注入对应请求。
 - **账本与配置仅存于本地** `$DSH_HOME/storages/cost-meter/`,无远端上报。
 - **自定义请求头**：敏感头与已识别密钥形态在持久化、浏览器回传前脱敏。纯凭据引用可以保留；含静态密钥的混合模板需手动拆分成凭据引用，不自动生成嵌套模板。
 - **响应体限制**：自定义余额和网关 JSON 按实际流大小限制读取，超限取消，不依赖服务端的 `Content-Length`。JSON 解析错误不回显响应片段。

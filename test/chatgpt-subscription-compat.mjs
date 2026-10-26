@@ -243,7 +243,7 @@ try {
   assert.deepEqual(PLAN_PROVIDER_ALIASES.minimax, ['minimax', 'minimax-code'])
   assert.deepEqual(PLAN_PROVIDER_ALIASES.kimi, ['kimi', 'kimi-code'])
   assert.deepEqual(PLAN_PROVIDER_ALIASES.commandcode, ['commandcode', 'command-code'])
-  assert.deepEqual(PLAN_PROVIDER_ALIASES.workbuddy, ['workbuddy', 'workbuddy-subscription', 'workbuddy-ai', 'workbuddy-global'])
+  assert.deepEqual(PLAN_PROVIDER_ALIASES.workbuddy, ['workbuddy', 'workbuddy-subscription', 'workbuddy-ai', 'workbuddy-global', 'xdpool', 'xdpool-global'])
   assert.deepEqual(PLAN_PROVIDER_ALIASES.antigravity, ['antigravity'])
   assert.deepEqual(PLAN_PROVIDER_ALIASES.stepfun, ['stepfun', 'step-code'])
 

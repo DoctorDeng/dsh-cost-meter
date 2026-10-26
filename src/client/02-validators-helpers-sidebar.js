@@ -148,7 +148,7 @@
         sidebarModels: Object.fromEntries(Object.entries(MODEL_SIDEBAR_DEFAULTS).map(([k, v0]) => [k, v.sidebarModels?.[k] ?? v0])),
         codexQuotaSidebar: v.codexQuotaSidebar !== false,
         codexQuotaStrip: v.codexQuotaStrip !== false,
-        codexQuotaSource: ['connect', 'subscription', 'chatgpt'].includes(v.codexQuotaSource) ? v.codexQuotaSource : 'auto',
+        codexQuotaSource: ['connect', 'subscription', 'chatgpt', 'pi-ai', 'chatgpt-sub'].includes(v.codexQuotaSource) ? v.codexQuotaSource : 'auto',
         // Codex 订阅兼容(契约 B-5):用户已关闭一次性提示 / 已应用历史归类的时点。
         // 直通白名单缺失会导致关闭后重开页面又弹提示,或应用后状态行回落「未应用」。
         codexCompatHistoryAppliedAt: num0(v.codexCompatHistoryAppliedAt),
@@ -204,11 +204,12 @@
               out[id] = {
                 enabled: e.enabled === true,
                 display: e.display === 'sidebar' || e.display === 'both' || e.display === 'off' ? e.display : 'settings',
+                ...(typeof e.showInComposer === 'boolean' ? { showInComposer: e.showInComposer } : {}),
                 refreshMinutes: typeof e.refreshMinutes === 'number' && Number.isFinite(e.refreshMinutes) ? e.refreshMinutes : 15,
                 apiKey: typeof e.apiKey === 'string' ? e.apiKey : '',
                 ...(id === 'minimax' ? { baseUrl: typeof e.baseUrl === 'string' ? e.baseUrl : '' } : {}),
                 ...(id === 'factory' ? { orgId: typeof e.orgId === 'string' ? e.orgId : '', factoryPool: ['core', 'both'].includes(e.factoryPool) ? e.factoryPool : 'standard' } : {}),
-                ...(id === 'workbuddy' ? { accountScope: e.accountScope ?? 'current', accountIds: Array.isArray(e.accountIds) ? e.accountIds : [] } : {}),
+                ...(id === 'workbuddy' ? { accountScope: e.accountScope ?? 'current', accountIds: Array.isArray(e.accountIds) ? e.accountIds : [], ...(typeof e.accountSource === 'string' ? { accountSource: e.accountSource } : {}) } : {}),
                 ...(id === 'opendesign' ? { workspaceId: typeof e.workspaceId === 'string' ? e.workspaceId : '' } : {}),
                 ...(id === 'qwen' ? { quotaSource: ['cli', 'bailian'].includes(e.quotaSource) ? e.quotaSource : 'local' } : {}),
                 // SCNet / 千问本地计量字段(issue #26/#78):其余厂商无此键,缺省剔除。
@@ -234,6 +235,7 @@
           currency: typeof v.prices?.currency === 'string' && v.prices.currency.length > 0 ? v.prices.currency : undefined,
         },
         historyDays: needNum(v.historyDays, path + '.historyDays'),
+        billingStorageRetentionDays: [0, 7, 30].includes(v.billingStorageRetentionDays) ? v.billingStorageRetentionDays : 7,
         fetchedAt: v.fetchedAt === null || v.fetchedAt === undefined ? null : needStr(v.fetchedAt, path + '.fetchedAt'),
         priceSource: typeof v.priceSource === 'string' ? v.priceSource : 'bundled',
         budget: {
@@ -248,11 +250,13 @@
           display: oneOf(v.balance?.display, ['sidebar', 'settings', 'off'], 'both'),
           refreshMinutes: typeof v.balance?.refreshMinutes === 'number' && Number.isFinite(v.balance.refreshMinutes) ? v.balance.refreshMinutes : 5,
           showProgressBar: v.balance?.showProgressBar === true,
+          showSource: v.balance?.showSource === true,
           budgetCap: typeof v.balance?.budgetCap === 'number' && Number.isFinite(v.balance.budgetCap) && v.balance.budgetCap > 0 ? v.balance.budgetCap : null,
           clickHintSeen: v.balance?.clickHintSeen === true,
         },
         goQuota: {
           enabled: v.goQuota?.enabled !== false,
+          ...(typeof v.goQuota?.showInComposer === 'boolean' ? { showInComposer: v.goQuota.showInComposer } : {}),
           display: oneOf(v.goQuota?.display, ['sidebar', 'settings', 'off'], 'both'),
           refreshMinutes: typeof v.goQuota?.refreshMinutes === 'number' && Number.isFinite(v.goQuota.refreshMinutes) ? v.goQuota.refreshMinutes : 15,
           apiKey: typeof v.goQuota?.apiKey === 'string' ? v.goQuota.apiKey : '',
@@ -315,6 +319,7 @@
         })(),
         // Plan/API 双轨计费分类(issue #64):读侧白名单,非法值回落默认。
         planBilling: {
+          ...(Array.isArray(v.planBilling?.autoProviders) ? { autoProviders: v.planBilling.autoProviders.filter(id => PLAN_PROVIDER_IDS_LOCAL.includes(id)) } : {}),
           providers: parseBillingClasses(v.planBilling?.providers),
           models: parseBillingClasses(v.planBilling?.models, true),
           modelPlans: Object.fromEntries(Object.entries(v.planBilling?.modelPlans ?? {}).filter(([key, value]) => key.includes(':') && PLAN_PROVIDER_IDS_LOCAL.includes(value))),
@@ -468,7 +473,7 @@
         ourFreeModel: v.ourFreeModel?.enabled === true ? { enabled: true, version: typeof v.ourFreeModel.version === 'string' ? v.ourFreeModel.version : '' } : undefined,
         history: Array.isArray(v.history) ? v.history.map((d, i) => parseDay(d, path + '.history[' + i + ']')) : [],
         billionContext: v.billionContext?.protocol === 1 ? { protocol: 1, connected: v.billionContext.connected === true, failed: v.billionContext.failed === true,
-          requests: Number(v.billionContext.requests) || 0, unreported: Number(v.billionContext.unreported) || 0, partial: Number(v.billionContext.partial) || 0, uncovered: Number(v.billionContext.uncovered) || 0,
+          requests: Number(v.billionContext.requests) || 0, unreported: Number(v.billionContext.unreported) || 0, partial: Number(v.billionContext.partial) || 0, uncovered: Number(v.billionContext.uncovered) || 0, unresolved: Number(v.billionContext.unresolved) || 0,
           detected: v.billionContext.detected === true, version: typeof v.billionContext.version === 'string' ? v.billionContext.version.slice(0, 100) : '',
           compatibility: ['needs_update', 'changed', 'bridge_missing', 'ready'].includes(v.billionContext.compatibility) ? v.billionContext.compatibility : 'unknown',
           noticeId: typeof v.billionContext.noticeId === 'string' ? v.billionContext.noticeId.slice(0, 240) : '' } : undefined,
@@ -492,6 +497,7 @@
           now: typeof v.meta?.now === 'number' ? v.meta.now : Date.now(),
           timezoneOffsetMinutes: typeof v.meta?.timezoneOffsetMinutes === 'number' ? v.meta.timezoneOffsetMinutes : 0,
           timezone: typeof v.meta?.timezone === 'string' ? v.meta.timezone : '',
+          ...(typeof v.meta?.defaultProvider === 'string' ? { defaultProvider: v.meta.defaultProvider } : {}),
           dayKey: typeof v.meta?.dayKey === 'string' ? v.meta.dayKey : '',
           monthKey: typeof v.meta?.monthKey === 'string' ? v.meta.monthKey : '',
         },
@@ -544,6 +550,16 @@
     // ── RPC 贡献(与服务端 ./typert 清单一一对应) ───────────────────────────
     const strictCodec = (name, schema) => ({ mode: 'strict', typeSymbol: 'dsh-cost-meter#' + name, schema, create: () => schema })
     const rpcParam = (name, type, schema, optional = false) => ({ name, wire: name, source: 'json', codec: strictCodec(type, schema), ...(optional ? { acceptsUndefined: true } : {}) })
+    const billingStorageOptionsCodec = codecOf(v => {
+      needObject(v, 'billing storage options')
+      if (Object.keys(v).some(key => !['retentionDays', 'apply', 'streams', 'groups'].includes(key)) || ![0, 7, 30].includes(v.retentionDays)) fail('billing storage options', 'retentionDays 0/7/30')
+      const out = { retentionDays: v.retentionDays }
+      for (const key of ['apply', 'streams', 'groups']) {
+        if (v[key] !== undefined && typeof v[key] !== 'boolean') fail(key, 'boolean')
+        out[key] = v[key] ?? key !== 'apply'
+      }
+      return out
+    })
 
     const CONTRIBUTION = {
       package: 'dsh-cost-meter',
@@ -558,6 +574,23 @@
           result: strictCodec('CostState', stateCodec),
         },
         ...['getState', 'getLocalState'].map(method => ({ method, result: strictCodec('CostState', stateCodec) })),
+        {
+          method: 'billingStorage',
+          parameters: [rpcParam('options', 'BillingStorageOptions', billingStorageOptionsCodec)],
+          result: strictCodec('BillingStorage', codecOf(v => {
+            needObject(v, 'billing storage')
+            const out = {}
+            for (const key of ['retentionDays', 'scannedAt', 'sessions', 'reclaimableBytes', 'archivedStreams', 'removedFiles', 'releasedBytes', 'archiveBytes', 'skipped']) out[key] = needNum(v[key], key)
+            for (const key of ['applied', 'limited']) { if (typeof v[key] !== 'boolean') fail(key, 'boolean'); out[key] = v[key] }
+            for (const key of ['streams', 'groups', 'archives']) {
+              const row = needObject(v[key], key), metric = {}
+              for (const field of ['files', 'bytes', 'eligibleFiles', 'eligibleBytes']) metric[field] = needNum(row[field], key + '.' + field)
+              for (const field of ['oldestAt', 'newestAt']) metric[field] = row[field] === null ? null : needNum(row[field], key + '.' + field)
+              out[key] = metric
+            }
+            return out
+          })),
+        },
         {
           method: 'updateConfig',
           parameters: [rpcParam('patch', 'ConfigPatch', patchCodec)],
@@ -580,6 +613,20 @@
         {
           method: 'refreshGoQuota',
           },
+        ...['getPiAiCodexQuota', 'getChatgptSubQuota'].map(method => ({
+          method,
+          result: strictCodec('PiAiCodexQuota', codecOf(v => {
+            needObject(v, 'pi-ai quota')
+            if (!['off', 'ok', 'error'].includes(v.status)) fail('pi-ai quota status', 'off/ok/error')
+            const windows = {}, raw = needObject(v.windows, 'pi-ai windows')
+            for (const key of ['five', 'weekly']) if (raw[key] !== undefined) {
+              const percent = needNum(raw[key].percent, key)
+              if (percent < 0 || percent > 100) fail(key, '0-100 percent')
+              windows[key] = { percent, resetsAt: needStr(raw[key].resetsAt, 'resetsAt') }
+            }
+            return { status: v.status, windows, message: needStr(v.message, 'message') }
+          })),
+        })),
         {
           method: 'refreshCustomBalance',
           // index(v1.7.1):与宿主侧 manifest 同口径——acceptsUndefined 允许旧调用
@@ -702,6 +749,7 @@
       if (base === undefined) return null
       Object.assign(base, priceMultiplierSettings(raw))
       if (raw.billingMode === 'utc-peak') base.billingMode = 'utc-peak'
+      if (raw.peakSchedule === 'volcengine') base.peakSchedule = 'volcengine'
       // 峰谷/历史子档必须随主档一起保留:usageSplit 回退计价与 Plan 拆分靠 tierFor
       // 取子档,剥掉会把峰时调用按基础价(= 谷价)重算、低估约一半(v1.6.9 审计修复)。
       for (const key of ['offPeak', 'peak', 'legacyBase']) {
@@ -786,7 +834,7 @@
       if (peak?.enabled !== true) return asTier(base)
       // 非有限(如 Date.parse('') 的 NaN)视同「未知生效时刻」,与服务端 tierFor 同口径。
       const effectiveAtMs = typeof peak.effectiveAtMs === 'number' && Number.isFinite(peak.effectiveAtMs) ? peak.effectiveAtMs : undefined
-      if (isPeakHour(atMs, effectiveAtMs, peak.windows, peak.holidays)) {
+      if (isPeakHour(atMs, effectiveAtMs, peak.windows, base.peakSchedule === 'volcengine' ? [] : peak.holidays)) {
         const p = base.peak
         return p === undefined ? asTier(base) : asTier(p, 'peak')
       }
@@ -874,15 +922,16 @@
      * 模型名自动匹配(与 lib/pricing.js 的 matchModelId 同逻辑;bundle 无法导入,修改时两处同步)。
      * 精确 → 归一化等价 → 去日期/版本后缀 → 安全后缀。
      */
-    function stripIdDecor(id, snapshotTags = true) {
+    function stripIdDecor(id, snapshotTags = true, shortSnapshotTags = true) {
       // Strip request decorations one at a time; candidate snapshots keep their identity.
       const text = modelNameText(id)
       if (snapshotTags && /[-_./:@](?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])$/.test(text)) return text.slice(0, -5)
+      if (snapshotTags && shortSnapshotTags && /[-_./:@]\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])$/.test(text)) return text.slice(0, -7)
       return text.replace(/[-_./:@](?:\d{4}-?\d{2}-?\d{2}|v\d+(?:\.\d+)*|\d+k|latest)$/, '')
     }
 
     /** Exact IDs precede unique punctuation aliases and request-only safe decorations. */
-    function matchModelIdLocal(modelId, candidates, exactId = modelId, snapshotTags = true) {
+    function matchModelIdLocal(modelId, candidates, exactId = modelId, snapshotTags = true, shortSnapshotTags = true) {
       if (typeof modelId !== 'string' || modelId.length === 0) return null
       const list = Array.isArray(candidates) ? candidates.filter(c => typeof c === 'string' && c.length > 0) : []
       const exact = list.find(c => c === exactId)
@@ -894,7 +943,7 @@
         if (canon.length === 0) return null
         const hits = list.filter(c => canonModelIdLocal(c) === canon)
         if (hits.length > 0) return hits.length === 1 ? hits[0] : null
-        const stripped = stripIdDecor(target, snapshotTags)
+        const stripped = stripIdDecor(target, snapshotTags, shortSnapshotTags)
         if (stripped === target.toLowerCase()) return null
         target = stripped
       }
@@ -925,11 +974,11 @@
         if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)
           && (vendor === provider || (provider === 'opencode-zen' || provider === 'opencode-go')
             && (MODEL_VENDOR_PREFIXES[vendor].test(bare)
-              || matchModelIdLocal(bare, Object.keys(vendor === 'deepseek' ? prices?.models ?? {} : prices?.providers?.[vendor]?.models ?? {}), bare, prices?.snapshotTags !== false) !== null))) target = bare
+              || matchModelIdLocal(bare, Object.keys(vendor === 'deepseek' ? prices?.models ?? {} : prices?.providers?.[vendor]?.models ?? {}), bare, prices?.snapshotTags !== false, prices?.shortSnapshotTags !== false) !== null))) target = bare
         else if (Object.hasOwn(MODEL_VENDOR_PREFIXES, vendor)) return null
       }
       // Formatting a request must not create a literal hit that bypasses alias collisions.
-      return matchModelIdLocal(target, Object.keys(models), modelId, prices?.snapshotTags !== false)
+      return matchModelIdLocal(target, Object.keys(models), modelId, prices?.snapshotTags !== false, prices?.shortSnapshotTags !== false)
     }
     /**
      * 客户端价格解析(与 pricing.js providerPriceEntryFor 同口径):手动覆盖 → 精确 → 自动匹配。
@@ -960,7 +1009,7 @@
         && typeof override === 'string' && override.length > 0 && override !== '__local__' && !override.includes(':')) {
         const dsModels = prices.models ?? {}
         const retryHit = Object.hasOwn(dsModels, override) ? override
-          : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels), override, prices?.snapshotTags !== false) : null)
+          : (mode === 'auto' ? matchModelIdLocal(override, Object.keys(dsModels), override, prices?.snapshotTags !== false, prices?.shortSnapshotTags !== false) : null)
         if (retryHit !== null && dsModels[retryHit]?.unpriced !== true) return { entry: dsModels[retryHit], priced: true, billingMode: 'deepseek-peak', matched: true }
       }
       return null
@@ -1075,15 +1124,17 @@
     }
     function resolveClientPrice(provider, modelId, config) {
       let result = resolveClientPriceRaw(provider, modelId, config)
-      if (result.currency) return result
-      if (!result.priced) {
-        const normalized = String(provider ?? '').trim().toLowerCase().replace(/^llm-/, '') || 'deepseek'
+      const normalized = String(provider ?? '').trim().toLowerCase().replace(/^llm-/, '') || 'deepseek'
+      if (!result.currency && !result.priced) {
         result = legacyDeepseekOverride(normalized, config?.priceOverrides?.[normalized + ':' + modelId], config?.prices ?? {}, config?.priceMatch === 'exact' ? 'exact' : 'auto') ?? result
       }
-      if (result.priced && config?.prices?.currency === 'CNY' && result.entry?.cny) {
-        return { ...result, entry: cnyPrice(result.entry), currency: 'CNY' }
+      if (!result.currency) {
+        result = result.priced && config?.prices?.currency === 'CNY' && result.entry?.cny
+          ? { ...result, entry: cnyPrice(result.entry), currency: 'CNY' }
+          : { ...result, currency: result.priced && result.billingMode === 'deepseek-peak' && config?.prices?.currency === 'CNY' ? 'CNY' : 'USD' }
       }
-      return { ...result, currency: result.priced && result.billingMode === 'deepseek-peak' && config?.prices?.currency === 'CNY' ? 'CNY' : 'USD' }
+      return ['volcengine', 'ark'].includes(normalized) && config?.prices?.volcenginePeak !== false && result.entry && result.billingMode === 'deepseek-peak'
+        ? { ...result, entry: { ...result.entry, peakSchedule: 'volcengine' } } : result
     }
     /** 投影 token 桶 → 按当前时刻档位计价的美元成本。 */
     /**
@@ -1136,7 +1187,7 @@
     //    (bundle 无法导入 Node 模块,修改时两处同步)。──
     const PLAN_PROVIDER_ALIASES_LOCAL = {
       opendesign: OPENDESIGN_PROVIDER_IDS,
-      go: ['go', 'zen', 'opencode', 'opencode-go', 'opencode-go-plus'],
+      go: ['go', 'zen', 'opencode', 'opencode-go', 'opencode-go-plus', 'dsh-opencode-go'],
       codex: ['codex', 'openai-codex', 'dsh-openai-codex', 'codex-chatgpt'],
       // 以下别名来自 ChatGPT 订阅渠道的订阅线路(与 lib/plan-billing.js PLAN_PROVIDER_ALIASES 同步)。
       anthropic: ['anthropic', 'claude-subscription'],
@@ -1145,7 +1196,7 @@
       kimi: ['kimi', 'kimi-code'],
       commandcode: ['commandcode', 'command-code'],
       clinepass: ['clinepass', 'cline-pass'],
-      workbuddy: ['workbuddy', 'workbuddy-subscription', 'workbuddy-ai', 'workbuddy-global'],
+      workbuddy: ['workbuddy', 'workbuddy-subscription', 'workbuddy-ai', 'workbuddy-global', 'xdpool', 'xdpool-global'],
       antigravity: ['antigravity'],
       stepfun: ['stepfun', 'step-code'],
       'volcengine-agent': ['volcengine-agent', 'ark-agent-plan', 'volcengine-agent-plan'],
@@ -1199,6 +1250,7 @@
       return PLAN_PROVIDER_IDS_LOCAL.includes(name) ? name : inferPlanProviderIdLocal(provider, modelId)
     }
     function enabledPlanSetOfLocal(config) {
+      if (Array.isArray(config?.planBilling?.autoProviders)) return new Set(config.planBilling.autoProviders)
       const out = new Set()
       const plans = config?.codingPlans
       if (plans !== null && typeof plans === 'object') {
@@ -1890,22 +1942,21 @@
       if (balance.status === 'error') {
         return el(Tooltip, { portal: true, label: [t('balanceQueryFailed', { message: balance.message || t('unknownError') }), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
           el('div', { 'data-cm-display': 'balance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
-            wide ? el(Fragment, null, t('balance'), ' ', el('span', { className: 'cm-num' }, t('queryFailed'))) : '⚠'))
+            wide ? el(Fragment, null, balanceLabel(t, state.config), ' ', el('span', { className: 'cm-num' }, t('queryFailed'))) : '⚠'))
       }
-      const detail = [
-        t('balanceTitle'),
-        t('totalBalance', { amount: formatBalanceMoney(balance.totalBalance, state.config, balance.currency) }),
-        t('grantedToppedUp', {
-          granted: formatBalanceMoney(balance.grantedBalance, state.config, balance.currency),
-          toppedUp: formatBalanceMoney(balance.toppedUpBalance, state.config, balance.currency),
-        }),
-        t('updatedAt', { time: balance.fetchedAt > 0 ? new Date(balance.fetchedAt).toLocaleTimeString() : '—' }),
-        ...(state.reconcile?.ok === false ? ['⚠ ' + state.reconcile.message] : []),
-        ...clickRefreshTipLines(t, refresh),
-      ].join('; ')
+      const detail = officialBalanceTooltip(t, balance, state.config, state.reconcile, refresh)
       return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el('div', { 'data-cm-display': 'balance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
-          wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, t('balance'), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
+          wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, balanceLabel(t, state.config), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
+    }
+
+    function balanceLabel(t, config) { return t(config?.balance?.showSource === true ? 'officialBalance' : 'balance') }
+
+    function officialBalanceTooltip(t, balance, config, reconcile, refresh) {
+      const lines = [t('officialBalance') + ' ' + formatBalanceMoney(balance.totalBalance, config, balance.currency),
+        t('grantedToppedUp', { granted: formatBalanceMoney(balance.grantedBalance, config, balance.currency), toppedUp: formatBalanceMoney(balance.toppedUpBalance, config, balance.currency) }),
+        ...(reconcile?.ok === false ? ['⚠ ' + reconcile.message] : []), ...clickRefreshTipLines(t, refresh)]
+      return el('div', { style: { maxWidth: 'min(280px, 70vw)', whiteSpace: 'normal' } }, ...lines.map((line, key) => el('div', { key }, line)))
     }
 
     function BalanceBox(props) {
@@ -1917,21 +1968,10 @@
       if (!balance || balance.status !== 'ok') return null
       const segments = segmentsForOfficialBalance(state, config)
       const remaining = formatBalanceMoney(balance.totalBalance, config, balance.currency)
-      const formatAmt = v => formatBalanceMoney(v, config, balance.currency)
-      const detail = [
-        t('balanceTitle'),
-        balanceBarTooltipLines(t, formatAmt, segments, remaining, segments.cap),
-        t('grantedToppedUp', {
-          granted: formatBalanceMoney(balance.grantedBalance, config, balance.currency),
-          toppedUp: formatBalanceMoney(balance.toppedUpBalance, config, balance.currency),
-        }),
-        t('updatedAt', { time: balance.fetchedAt > 0 ? new Date(balance.fetchedAt).toLocaleTimeString() : '—' }),
-        ...(state.reconcile?.ok === false ? ['⚠ ' + state.reconcile.message] : []),
-        ...clickRefreshTipLines(t, refresh),
-      ].join('; ')
+      const detail = officialBalanceTooltip(t, balance, config, state.reconcile, refresh)
       const body = el(Fragment, null,
         el('div', { className: 'cm-bbox-head' },
-          el('span', { className: 'cm-balance-name' }, el('span', { className: 'cm-bbox-label' }, t('balance')), rechargeLinkEl(t)),
+          el('span', { className: 'cm-balance-name' }, el('span', { className: 'cm-bbox-label' }, balanceLabel(t, config)), rechargeLinkEl(t)),
           el('span', { className: 'cm-bbox-pct cm-num cm-bal-amt' }, remaining)),
         el(BalanceBar, { segments, direction: barDirectionOf(config, 'balance') }))
       return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
@@ -2169,7 +2209,8 @@
      * 修改时两处需同步)。窗口半开区间 [start, end),兼容跨午夜窗口。
      * 周末/公众假期全天谷价；返回 weekend 或 holiday 标记，跳过期间的峰窗。
      */
-    function peakPhaseAt(atMs, windows, holidays) {
+    function peakPhaseAt(atMs, windows, holidays, schedule) {
+      if (schedule === 'volcengine') holidays = []
       if (!Array.isArray(windows) || windows.length === 0 || !Number.isFinite(atMs)) return null
       const hourAt = (dayOffset, hour) => {
         const date = new Date(atMs)
@@ -2215,8 +2256,18 @@
       if (!config || config.peakNotice === false || config.peakEnabled !== true) return null
       const effectiveAtMs = Date.parse(config.peakEffectiveAt || '')
       if (Number.isFinite(effectiveAtMs) && now < effectiveAtMs) return null
-      const windows = Array.isArray(config.peakWindows) ? config.peakWindows : []
-      return peakPhaseAt(now, windows, config.peakHolidays)
+      return peakPhaseForConfig(config, now)
+    }
+
+    function peakPhaseForConfig(config, now) {
+      const provider = String(config?.peakProvider ?? '').trim().toLowerCase().replace(/^llm-/, '')
+      return peakPhaseAt(now, config?.peakWindows ?? [], config?.peakHolidays, ['volcengine', 'ark'].includes(provider) ? 'volcengine' : undefined)
+    }
+
+    function peakConfigForState(state, provider) {
+      const config = state?.config
+      const selected = provider ?? config?.peakProvider ?? state?.meta?.defaultProvider
+      return config && selected ? { ...config, peakProvider: selected } : config
     }
 
     /** 相位标签键:周末全谷价 / 峰时 / 谷时(chip = 展开态文案,short = 收起态短词,notice = 悬停说明)。 */
@@ -2373,7 +2424,7 @@
     // 进度条与首次介绍共用按需模块，不增加旧样式的定时器和主包体积。
     let peakPage
     function loadPeakPage() {
-      return peakPage ??= require.async('./client.peak.js').then(module => module.mount({ peakView, peakPhaseAt, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip, FloatingCard, renderSidebarFooter }))
+      return peakPage ??= require.async('./client.peak.js').then(module => module.mount({ peakView, peakPhaseAt, peakPhaseForConfig, peakConfigForState, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip, FloatingCard, renderSidebarFooter }))
         .catch(error => { peakPage = null; throw error })
     }
     function PeakProgress(props) {
@@ -2677,7 +2728,7 @@
     }
 
     // ── ChatGPT PLUS(Codex)额度(issue #59 / dsh-codex-subscription)──────────
-    // 数据源:dsh-codex-subscription RPC、dsh-chatgpt-subscription HTTP、connect 状态。
+    // 数据源:dsh-codex-subscription RPC、DSH pi-ai 登录、ChatGPT HTTP、connect 状态。
     // 只查询额度,启用后查询失败保留提示与重试入口。
 
     const CODEX_STATUS_PATH = '/plugins/dsh-openai-codex/auth/status'
@@ -2707,19 +2758,27 @@
       return parseCodexWindows(data.usage?.rateLimits)
     }
 
+    async function boundedCodexRead(read) {
+      const signal = AbortSignal.timeout(8000)
+      let abort
+      const cancelled = new Promise((_, reject) => { abort = () => reject(signal.reason); signal.addEventListener('abort', abort, { once: true }) })
+      try { return await Promise.race([Promise.resolve().then(() => read(signal)), cancelled]) }
+      finally { signal.removeEventListener('abort', abort) }
+    }
+
     /** 读取 dsh-codex-subscription 的 DSH 同源认证 RPC;失败返回 null 以便 auto 回退。 */
     async function fetchCodexSubscription(force) {
       try {
-        const result = await codexQuotaCache.rpc?.call('/api', 'codex-subscription/usage', { force }, AbortSignal.timeout(8000))
+        const result = await boundedCodexRead(signal => codexQuotaCache.rpc?.call('/api', 'codex-subscription/usage', { force }, signal))
         return result?.ok ? parseCodexWindows(result.value?.rateLimits) : null
       } catch { return null }
     }
 
     const codexQuotaCache = { source: 'auto', listeners: [] }
-    const resetCodexQuota = rpc => Object.assign(codexQuotaCache, { rpc, request: null, inFlight: null, fetchedAt: 0, status: 'idle', windows: {} })
+    const resetCodexQuota = (rpc, readPiAi = null, readChatgptSub = null) => Object.assign(codexQuotaCache, { rpc, readPiAi, readChatgptSub, request: null, inFlight: null, fetchedAt: 0, status: 'idle', windows: {}, message: '' })
     resetCodexQuota(null)
     const codexQuotaSnapshot = () => {
-      const { rpc, request, inFlight, listeners, ...view } = codexQuotaCache
+      const { rpc, readPiAi, readChatgptSub, request, inFlight, listeners, ...view } = codexQuotaCache
       return view
     }
     const subscribeCodexQuota = fn => {
@@ -2729,7 +2788,7 @@
     const notifyCodexQuota = () => { for (const fn of codexQuotaCache.listeners) { try { fn() } catch { /* 订阅方异常不扩散 */ } } }
 
     /**
-     * 探测 Codex 额度。auto 按 subscription → chatgpt → connect 顺序回退;
+     * 探测 Codex 额度。auto 按 subscription → pi-ai → chatgpt-sub → chatgpt → connect 回退;
      * 成功缓存 5 分钟,失败 1 分钟后可重试。
      */
     async function fetchCodexQuota(force = false, enabled = false, source = 'auto') {
@@ -2741,9 +2800,23 @@
       if (codexQuotaCache.source !== source) Object.assign(codexQuotaCache, { status: 'idle', windows: {}, fetchedAt: 0, source })
       notifyCodexQuota()
       const task = Promise.resolve().then(async () => {
-        let windows = {}
+        let windows = {}, message = ''
         try {
           if (source === 'auto' || source === 'subscription') windows = await fetchCodexSubscription(force) ?? {}
+          if (Object.keys(windows).length === 0 && (source === 'auto' || source === 'pi-ai')) {
+            try {
+              const result = await boundedCodexRead(() => codexQuotaCache.readPiAi?.())
+              if (result?.ok === true && result.value?.status === 'ok') windows = result.value.windows
+              else if (result?.ok === true && result.value?.status === 'error') message = result.value.message
+            } catch {}
+          }
+          if (Object.keys(windows).length === 0 && (source === 'auto' || source === 'chatgpt-sub')) {
+            try {
+              const result = await boundedCodexRead(() => require.async('./client.codex.js').then(page => page.readChatgptSubQuota(codexQuotaCache.readChatgptSub)))
+              if (result?.status === 'ok') windows = result.windows
+              else if (result?.status === 'error') message = result.message
+            } catch {}
+          }
           if (Object.keys(windows).length === 0 && (source === 'auto' || source === 'chatgpt')) {
             try { windows = await (await require.async('./client.codex.js')).readChatgptQuota(force) ?? {} } catch {}
           }
@@ -2756,6 +2829,7 @@
           if (codexQuotaCache.request !== request) return
           codexQuotaCache.status = Object.keys(windows).length > 0 ? 'ok' : 'unavailable'
           codexQuotaCache.windows = windows
+          codexQuotaCache.message = Object.keys(windows).length ? '' : message
           codexQuotaCache.fetchedAt = Date.now()
           codexQuotaCache.inFlight = null
           notifyCodexQuota()
@@ -2778,7 +2852,7 @@
         void fetchCodexQuota(false, true, source)
         const timer = setInterval(() => { void fetchCodexQuota(false, true, source) }, 60_000)
         return () => { mounted = false; clearInterval(timer); unsubscribe() }
-      }, [enabled, source])
+      }, [enabled, source, codexQuotaCache.rpc])
       return snap.source === source ? snap : { status: 'idle', windows: {}, fetchedAt: 0 }
     }
 
@@ -2796,9 +2870,9 @@
       if (!enabled) return el('div', { 'data-cm-display': 'codex', className: 'cm-bbox cm-mm clickable' + (wide === false ? ' rail' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) }, refresh.err || (wide === false ? 'Codex' : t('codexQuotaEnable')))
       if (snap.status !== 'ok') return el('div', {
         'data-cm-display': 'codex', className: 'cm-bbox cm-mm clickable' + (wide === false ? ' rail' : ''),
-        title: t('codexQuotaUnavailable'), ...clickableRefreshProps(refresh.busy, refresh.run),
+        title: snap.message || t('codexQuotaUnavailable'), ...clickableRefreshProps(refresh.busy, refresh.run),
       }, el('div', { className: 'cm-mm-title' }, wide === false ? 'Codex' : t('codexQuotaTitle')),
-      el('span', { className: 'cm-hint' }, wide === false ? '—' : t(snap.status === 'idle' || refresh.busy ? 'refreshing' : 'codexQuotaUnavailable')))
+      el('span', { className: 'cm-hint' }, wide === false ? '—' : snap.status === 'idle' || refresh.busy ? t('refreshing') : snap.message || t('codexQuotaUnavailable')))
       const views = [['five', 'codexQuotaFive', '5h'], ['weekly', 'codexQuotaWeek', '7d']].flatMap(([key, label, short]) => {
         const win = snap.windows[key]
         if (!win) return []
@@ -2844,6 +2918,14 @@
       return String(name).replace(/_/g, ' ')
     }
 
+    function codingPlanWindowEntries(windows, provider) {
+      const rank = name => {
+        const key = name.replace(/^core_/, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+        return /^(fivehour|five|5h|rolling|session)$/.test(key) ? 0 : /^(daily|day|1d)$/.test(key) ? 1 : /^(weekly|week|7d|sevenday)$/.test(key) ? 2 : /^(monthly|month|30d)$/.test(key) ? 3 : 4
+      }
+      return Object.entries(windows ?? {}).filter(([name]) => provider !== 'volcengine' || [0, 2, 3].includes(rank(name))).sort((a, b) => rank(a[0]) - rank(b[0]))
+    }
+
     function CodingPlanBox(props) {
       const hoverProps = useQuotaHoverRefresh()
       const { id, state, wide, api } = props
@@ -2853,15 +2935,15 @@
       const rowDef = CODING_PLAN_ROWS.find(r => r.id === id)
       if (!rowDef || !live || live.status !== 'ok') return null
       const windows = live.windows !== null && typeof live.windows === 'object' ? live.windows : {}
-      const entries = Object.entries(windows)
+      const entries = codingPlanWindowEntries(windows, id)
       if (entries.length === 0) return null
       const pctOf = win => win !== null && typeof win === 'object' && typeof win.percent === 'number'
         ? Math.max(0, Math.min(100, Math.round(Number(win.percent) || 0))) : null
       // 条形方向(issue #67):Plan 卡默认已用方向,剩余方向时填充与标签显示剩余%。
       const planDirection = barDirectionOf(state.config, 'plan')
-      // 单行余额来源(WorkBuddy):余额提到标题行右端,正文不再重复一行;
+      // 余额放在标题行右端,正文只保留额度窗口;
       // 窗口文本只装数值,标题行自己补「余额:」标签。textWindowOf 只产非空文本,真值检查即可。
-      const titleValue = id === 'workbuddy' && windows.balance?.text
+      const titleValue = (id === 'workbuddy' || id === 'opendesign') && windows.balance?.text
         ? t('codingPlanWindowBalance') + ': ' + windows.balance.text : null
       const rows = (titleValue ? entries.filter(([name]) => name !== 'balance') : entries).map(([name, win]) => {
         const pct = pctOf(win)
@@ -2898,7 +2980,7 @@
           wide === false
             ? el('div', { className: 'cm-bbox-rail cm-num' }, railText)
             : el(Fragment, null,
-              // WorkBuddy 有余额时标题行复用宽行样式,余额以正文档贴右端。
+              // 标题和余额共用一行,保留悬停提示中的完整余额标签。
               el('div', { className: titleValue ? 'cm-mm-title cm-mm-row wide' : 'cm-mm-title' },
                 t(rowDef.labelKey),
                 titleValue && el('span', { className: 'cm-mm-text' }, titleValue)),
@@ -3031,6 +3113,24 @@
       factory: 'Factory', opendesign: 'OpenDesign',
     }
 
+    function quotaInComposer(entry, strip, kind) {
+      if (entry?.enabled !== true) return false
+      return typeof entry.showInComposer === 'boolean' ? entry.showInComposer : entry.display !== 'off' && strip?.enabled === true && strip[kind] !== false
+    }
+    function quotaPlacementValue(entry, strip, kind) {
+      const display = entry?.display ?? 'settings'
+      const composer = typeof entry?.showInComposer === 'boolean' ? entry.showInComposer : display !== 'off' && strip?.enabled === true && strip[kind] !== false
+      return composer ? ({ off: 'composer', both: 'all' }[display] ?? display + '-composer') : display
+    }
+    function quotaPlacementPatch(value) {
+      const display = { composer: 'off', 'sidebar-composer': 'sidebar', 'settings-composer': 'settings', all: 'both' }[value]
+      return { display: display ?? value, showInComposer: display !== undefined }
+    }
+    function quotaPlacementOptions(t) {
+      return [['sidebar', 'balanceSidebar'], ['settings', 'balanceSettings'], ['both', 'quotaSidebarSettings'], ['composer', 'quotaComposer'], ['sidebar-composer', 'quotaSidebarComposer'], ['settings-composer', 'quotaSettingsComposer'], ['all', 'quotaAllPositions'], ['off', 'off']]
+        .map(([value, key]) => el('option', { key: value, value }, t(key)))
+    }
+
     function QuotaStrip(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
       const cfg = costStore?.state?.config
@@ -3043,11 +3143,11 @@
       if (!state) return null
       const config = state.config
       const strip = config.quotaStrip ?? { enabled: false, budget: true, go: true, plans: true }
-      if (strip.enabled !== true) return null
+      if (strip.enabled !== true && config.goQuota?.showInComposer !== true && !Object.values(config.codingPlans ?? {}).some(entry => entry.enabled === true && entry.showInComposer === true)) return null
       const t = makeT(resolveLocale(config))
       const chips = []
       // 预算 chip:与预算图框同口径(≥80% 预警、≥100% 超支);点击 reload 重取状态(issue #52)。
-      if (strip.budget !== false) {
+      if (strip.enabled === true && strip.budget !== false) {
         const budget = config.budget ?? { enabled: false, amount: 100, period: 'month' }
         if (budget.enabled === true) {
           const rate = Number(config.exchangeRate)
@@ -3074,7 +3174,7 @@
         }
       }
       // Go chip:主窗口一档(与右下角 chips 的主窗口口径一致)。
-      if (strip.go !== false) {
+      if (quotaInComposer(config.goQuota, strip, 'go')) {
         const goQuota = state.goQuota
         if (config?.goQuota?.enabled !== false && goQuota?.status === 'ok') {
           const mainKey = config.goQuota.main === 'weekly' || config.goQuota.main === 'monthly' ? config.goQuota.main : 'rolling'
@@ -3095,12 +3195,12 @@
         }
       }
       // Coding Plan chip:每家厂商一条(多窗口融合为段,竖线分隔;点击刷新整家,issue #52)。
-      if (strip.plans !== false) {
+      {
         for (const rowDef of CODING_PLAN_ROWS) {
           const live = state.codingPlans?.[rowDef.id]
-          if (config.codingPlans?.[rowDef.id]?.enabled !== true || !live || live.status !== 'ok') continue
+          if (!quotaInComposer(config.codingPlans?.[rowDef.id], strip, 'plans') || !live || live.status !== 'ok') continue
           const windows = live.windows !== null && typeof live.windows === 'object' ? live.windows : {}
-          const allEntries = Object.entries(windows)
+          const allEntries = codingPlanWindowEntries(windows, rowDef.id)
           const groups = rowDef.id === 'factory'
             ? [allEntries.filter(([name]) => !name.startsWith('core_')), allEntries.filter(([name]) => name.startsWith('core_'))]
             : [allEntries]
@@ -3144,7 +3244,7 @@
       }
       // Codex chip(issue #59):connect / subscription 在位且已登录时出现;5h + 周双窗口。
       // 独立于 Coding Plan 开关:即使 strip.plans 为 false,Codex chip 仍应渲染。
-      const codexWins = config.codexQuotaEnabled === true && config.codexQuotaStrip !== false && codexQuotaCache.source === (config.codexQuotaSource ?? 'auto') && codexQuotaCache.status === 'ok' ? codexQuotaCache.windows : {}
+      const codexWins = strip.enabled === true && config.codexQuotaEnabled === true && config.codexQuotaStrip !== false && codexQuotaCache.source === (config.codexQuotaSource ?? 'auto') && codexQuotaCache.status === 'ok' ? codexQuotaCache.windows : {}
       const fiveWin = codexWins.five ?? null
       const weekWin = codexWins.weekly ?? null
       const pctOf = win => Math.max(0, Math.min(100, Math.round(Number(win.percent) || 0)))
@@ -3343,7 +3443,7 @@
       const mode = config.sidebarTodayMetric ?? 'cost'
       return el('span', { className: 'cm-today-values', 'data-both': mode === 'both' },
         mode !== 'tokens' ? el('span', { 'data-cm-today': 'cost' }, formatMoneyUsd(displayCostOf(today, config), config)) : null,
-        mode !== 'cost' ? el('span', { 'data-cm-today': 'tokens' }, formatTokens(['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning'].reduce((sum, key) => sum + (Number(today?.[key]) || 0), 0)) + ' ' + t('tokensUnit')) : null)
+        mode !== 'cost' ? el('span', { 'data-cm-today': 'tokens' }, formatTokens(['input', 'output', 'cacheRead', 'cacheWrite'].reduce((sum, key) => sum + (Number(today?.[key]) || 0), 0)) + ' ' + t('tokensUnit')) : null)
     }
 
     function BudgetBoxContent(props) {
@@ -3539,13 +3639,14 @@
         try { projectionUsage = props.useProjection('costUsage') } catch { projectionUsage = undefined }
       }
       useProjectionRefresh(props, projectionUsage)
-      const state = costStore?.state
+      const current = costStore?.state
+      const state = current ? { ...current, config: peakConfigForState(current, projectionUsage?.provider) } : null
       return state ? renderSidebarFooter(state, !!props.wide, props.api) : null
     }
 
     // Shared presentation only: no store, projection or quota subscription.
     function renderSidebarFooter(state, wide, api, preview = false) {
-      const config = state.config
+      const config = peakConfigForState(state)
       const t = makeT(resolveLocale(config))
       const showBalance = (config.balance?.display === 'sidebar' || config.balance?.display === 'both')
         && config.hideOfficialBalance !== true

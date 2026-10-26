@@ -32,10 +32,16 @@ ${readFileSync('lib/client.codex.js', 'utf8')}
 window.__ModuleLoader__={load:mod=>window.costUI=mod.factory(costRequire)};
 ${readFileSync('lib/client.js', 'utf8')}
 let state=${JSON.stringify(state)};const entries=new Map(),disposers=[];const services={};
+let nativeQuota={status:'off',windows:{},message:''};window.nativeReads=0;
+window.setNativeQuota=value=>nativeQuota=value;
+let chatgptSubQuota={status:'ok',message:'',windows:{five:{percent:36,resetsAt:'2026-10-25T10:10:00.000Z'},weekly:{percent:14,resetsAt:'2026-10-29T00:10:00.000Z'}}};window.chatgptSubReads=0;
+window.setChatgptSubQuota=value=>chatgptSubQuota=value;
 const context={fiber:{uid:1},remote:{$mount:async()=>()=>{}},on:()=>()=>{},inject:(names,fn)=>{if(names.every(name=>services[name]))fn(context)},provide:(name,value)=>services[name]=value,
  effect:fn=>{const cleanup=fn();if(typeof cleanup==='function')disposers.push(cleanup);return cleanup},get:name=>services[name]};
 connectionUI.installConnection(context);
 services['remote.costMeter']={getLocalState:async()=>({ok:true,value:state}),getState:async()=>({ok:true,value:state}),
+ getPiAiCodexQuota:async()=>{window.nativeReads++;return{ok:true,value:nativeQuota}},
+ getChatgptSubQuota:async()=>{window.chatgptSubReads++;return{ok:true,value:chatgptSubQuota}},
  updateConfig:async patch=>{state={...state,config:{...state.config,...patch}};return{ok:true,value:state}}};
 services.slots={entries:()=>[],inject:(name,fn)=>fn(),register:(options,component)=>{entries.set(options.name+':'+options.id,{options,component});return()=>{}}};
 await costUI.apply(context);
@@ -52,6 +58,7 @@ const compiled = await build({ stdin: { contents: code, resolveDir: process.cwd(
 let signedIn = false, hasFive = true, reset = Date.parse('2026-10-25T00:10:00Z') / 1000
 const calls = [], chatgptCalls = []
 let chatgptSignedIn = false, chatgptHasFive = true
+let chatgptSubSignedIn = false
 const server = createServer(async (request, response) => {
   if (request.url === '/app.js') { response.setHeader('content-type', 'text/javascript'); return response.end(compiled.outputFiles[0].contents) }
   if (request.url === '/api/codex-subscription/usage') {
@@ -62,6 +69,11 @@ const server = createServer(async (request, response) => {
     return response.end(JSON.stringify({ type: 'server-response', rpcId: message.rpcId, result: signedIn
       ? { ok: true, value: { rateLimits: [{ id: 'codex', windows: [...hasFive ? [{ windowSeconds: 18000, remainingPercent: 60, resetsAt: Date.parse('2026-10-19T10:10:00Z') / 1000 }] : [], { windowSeconds: 604800, remainingPercent: 83, resetsAt: reset }] }] } }
       : { ok: false, error: { code: 'internal', message: 'ChatGPT subscription is not signed in', details: { issues: [] } } } }))
+  }
+  if (request.url === '/_dsh/dsh-chatgpt-sub/getCodexBridgeStatus') {
+    assert.equal(request.method, 'GET')
+    response.setHeader('content-type', 'application/json')
+    return response.end(JSON.stringify({ ok: chatgptSubSignedIn, bound: chatgptSubSignedIn, routeConfigured: chatgptSubSignedIn }))
   }
   if (request.url === '/api/dsh-chatgpt-subscription/status' || request.url === '/api/dsh-chatgpt-subscription/quota/refresh') {
     const force = request.url.endsWith('/quota/refresh')
@@ -239,12 +251,56 @@ try {
   assert.equal(calls.length, oldCalls + 1, 'auto first checks the original subscription RPC')
   assert.equal(chatgptCalls.length, chatgptCount + 1, 'auto recovers through ChatGPT when the first source is signed out')
   await card.screenshot({ path: join(output, 'chatgpt-quota-weekly.png') })
+  const beforeNative={subscription:calls.length,chatgpt:chatgptCalls.length}
+  await page.evaluate(async () => {
+    window.setNativeQuota({status:'ok',message:'',windows:{weekly:{percent:31,resetsAt:'2026-10-25T00:10:00.000Z'}}})
+    await window.configure({codexQuotaSource:'pi-ai'})
+  })
+  await card.getByText('剩余 69%', {exact:true}).waitFor()
+  assert.equal(await card.locator('.cm-mm-row').count(),1,'native pi-ai Pro does not invent a 5h quota')
+  assert.equal(calls.length,beforeNative.subscription);assert.equal(chatgptCalls.length,beforeNative.chatgpt,'explicit pi-ai source reads no other accounts')
+  await page.evaluate(() => window.configure({codexQuotaSource:'auto'}))
+  await card.getByText('剩余 69%', {exact:true}).waitFor()
+  assert.equal(chatgptCalls.length,beforeNative.chatgpt,'auto uses native login before HTTP fallback')
+  await page.evaluate(() => window.setNativeQuota({status:'error',message:'pi-ai 登录需要刷新',windows:{}}))
+  await card.click();await card.getByText('剩余 79%',{exact:true}).waitFor()
+  await page.evaluate(() => window.configure({codexQuotaSource:'pi-ai'}))
+  await card.getByText('pi-ai 登录需要刷新',{exact:true}).waitFor()
+  await page.evaluate(() => window.setNativeQuota({status:'ok',message:'',windows:{weekly:{percent:35,resetsAt:''},five:{percent:12,resetsAt:''}}}))
+  await card.click();await card.getByText('剩余 65%',{exact:true}).waitFor()
+  await card.getByText('剩余 88%',{exact:true}).waitFor()
+  await card.screenshot({path:join(output,'pi-ai-quota-recovered.png')})
+  const otherReads = { subscription: calls.length, multi: chatgptCalls.length, native: await page.evaluate(() => window.nativeReads) }
+  await page.evaluate(() => window.configure({ codexQuotaSource: 'chatgpt-sub' }))
+  await card.getByText(/未取得额度/).waitFor()
+  assert.equal(await page.evaluate(() => window.chatgptSubReads), 0, 'signed-out plugin does not access its credential')
+  chatgptSubSignedIn = true
+  await card.click(); await card.getByText('剩余 64%', { exact: true }).waitFor(); await card.getByText('剩余 86%', { exact: true }).waitFor()
+  assert.equal(await card.locator('.cm-mm-row .cm-bbox-fill').evaluateAll(nodes => nodes.map(node => node.style.width).join(',')), '64%,86%')
+  await page.locator('#composer').getByText(/5h 剩余 64%/).waitFor()
+  await card.screenshot({ path: join(output, 'chatgpt-sub-quota-dual.png') })
+  assert.equal(calls.length, otherReads.subscription); assert.equal(chatgptCalls.length, otherReads.multi)
+  assert.equal(await page.evaluate(() => window.nativeReads), otherReads.native, 'explicit source never reads another account')
+  await page.evaluate(() => window.setChatgptSubQuota({ status: 'ok', message: '', windows: { weekly: { percent: 28, resetsAt: '' } } }))
+  await card.click(); await card.getByText('剩余 72%', { exact: true }).waitFor()
+  assert.equal(await card.locator('.cm-mm-row').count(), 1, 'weekly-only ChatGPT sub quota has no invented 5h row')
+  const subReads = await page.evaluate(() => window.chatgptSubReads)
+  chatgptSubSignedIn = false
+  await card.click(); await card.getByText(/未取得额度/).waitFor()
+  assert.equal(await page.evaluate(() => window.chatgptSubReads), subReads, 'unbinding clears the graph and cannot query a leftover credential')
+  chatgptSubSignedIn = true
+  await page.evaluate(() => { window.setNativeQuota({ status: 'off', message: '', windows: {} }); return window.configure({ codexQuotaSource: 'auto' }) })
+  await card.getByText('剩余 72%', { exact: true }).waitFor()
+  assert.equal(chatgptCalls.length, otherReads.multi, 'auto discovers ChatGPT sub before multi-provider fallback')
+  await card.screenshot({ path: join(output, 'chatgpt-sub-quota-weekly.png') })
   await page.evaluate(() => window.configure({ codexQuotaSidebar: false, codexQuotaStrip: false }))
-  const stopped = chatgptCalls.length
+  const stopped = chatgptCalls.length, stoppedNative=await page.evaluate(()=>window.nativeReads), stoppedSub=await page.evaluate(()=>window.chatgptSubReads)
   await page.clock.fastForward(360_000)
   assert.equal(chatgptCalls.length, stopped, 'hiding both ChatGPT quota positions stops reads')
+  assert.equal(await page.evaluate(()=>window.nativeReads),stoppedNative,'hiding both native quota positions stops reads')
+  assert.equal(await page.evaluate(()=>window.chatgptSubReads),stoppedSub,'hiding both ChatGPT sub positions stops reads')
   assert.deepEqual(errors, []); assert.deepEqual(external, [])
   writeFileSync(join(output, 'result.json'), JSON.stringify({ passed: true, calls: calls.length, chatgptCalls, layouts, workbuddyLayouts, remainingBars: true, resetTopRight: true, weeklyOnly: true, missingReset: true, externalRequests: 0, browserErrors: errors }, null, 2))
   await page.evaluate(() => window.dispose())
-  console.log('[ok] Codex quota: shipped assets, DSH Connection RPC and ChatGPT HTTP, login recovery, both windows, source fallback and disable cleanup')
+  console.log('[ok] Codex quota: shipped assets, DSH Connection RPC, native pi-ai and ChatGPT HTTP, login recovery, weekly-only/dual windows, source fallback and disable cleanup')
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

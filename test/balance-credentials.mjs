@@ -163,13 +163,13 @@ try {
     console.log('[ok] #201: real host credentials-local precedence, isolated file writes and dedicated-key balance query; storedFirst=' + storedFirst)
   }
 
-  for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
   const disk = readFileSync(ledgerPath, 'utf8')
   for (const secret of [accountToken, modelKey, dedicatedKey]) assert.ok(!disk.includes(secret), 'ledger contains no credentials')
   console.log('[ok] #201: account-token shadowing, dedicated key priority, save/clear, cache cancellation, reconciliation, endpoint guard and credential redaction')
 } finally {
   await host?.fiber.dispose()
-  for (const cleanup of cleanups.reverse()) cleanup()
+  for (const cleanup of cleanups.reverse()) await cleanup()
   globalThis.fetch = originalFetch
   for (const [name, value] of Object.entries(saved)) value === undefined ? delete process.env[name] : process.env[name] = value
   assert.equal(dirname(root), tmpdir())

@@ -96,11 +96,11 @@ try {
   assert.equal(Object.hasOwn(state.meta, 'locale'), false, 'missing preference is omitted, not fabricated')
   stateSchema.parse(JSON.parse(JSON.stringify(state)))
   } finally { Date.now = realNow }
-  for (const dispose of effects.splice(0).reverse()) dispose()
+  for (const dispose of effects.splice(0).reverse()) await dispose()
   assert.equal(JSON.parse(readFileSync(file)).config.locale, 'auto', 'resolved locale never replaces persisted auto')
   console.log('[ok] #226 Host locale preferences, live cached errors, explicit overrides, optional codec metadata and cleanup')
 } finally {
-  for (const dispose of effects.splice(0).reverse()) dispose()
+  for (const dispose of effects.splice(0).reverse()) await dispose()
   globalThis.fetch = originalFetch
   for (const name of names) if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name]
   rmSync(work, { recursive: true, force: true })

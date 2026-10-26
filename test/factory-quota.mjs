@@ -153,7 +153,7 @@ try {
   assert.equal(pendingSignal.aborted, true, 'turning off the source aborts its query')
   release(); await pending
   assert.equal((await meter.getState()).codingPlans.factory.status, 'off')
-  for (const dispose of disposers.splice(0).reverse()) dispose()
+  for (const dispose of disposers.splice(0).reverse()) await dispose()
   await delay(20)
   const disk = readFileSync(join(storage, 'ledger.json'), 'utf8')
   assert.ok(!disk.includes('PRIVATE'))
@@ -163,7 +163,7 @@ try {
   assert.equal(reopened.planSamples.factory, undefined)
   reopened.close()
 } finally {
-  for (const dispose of disposers.reverse()) dispose()
+  for (const dispose of disposers.reverse()) await dispose()
   globalThis.fetch = originalFetch
   for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value }
   assert.equal(dirname(resolve(root)), resolve(tmpdir()))

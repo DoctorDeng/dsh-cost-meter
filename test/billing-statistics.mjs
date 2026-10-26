@@ -154,6 +154,7 @@ try {
     assert.ok(host, 'the lazy client has a matching host invocation')
     assert.equal(item.result.typeSymbol, host.result.typeSymbol)
     const sample = {
+      getBillingExport: { id: 'export-fixture', status: 'ready', filename: 'costs.csv', mime: 'text/csv;charset=utf-8', totalBytes: 3, offset: 0, nextOffset: 3, data: 'YWJj', completedSessions: 1, totalSessions: 1, rows: 1, message: '' },
       getBillingStatistics: stats,
       getSessionBilling: { ...detail, refreshing: false, generatedAt: detail.generatedAt ?? 0, refreshFailed: false },
       getTurnInspection: { found: false, turn: 0, input: '', inputTruncated: false, tools: [], totalTools: 0, offset: 0 },

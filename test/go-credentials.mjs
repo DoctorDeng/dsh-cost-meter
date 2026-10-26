@@ -135,7 +135,7 @@ try {
   assert.deepEqual(mutations, [['set', 'OPENCODE_GO_API_KEY'], ['unset', 'OPENCODE_GO_API_KEY']], '设置/清除只操作插件专用引用，不改模型共享 Key')
   console.log('[ok] #139 Go 凭据：真实刷新、路由改名/轮换、来源一致性、优先级、旧来源回退及凭据隔离')
 } finally {
-  for (const dispose of cleanups.reverse()) dispose()
+  for (const dispose of cleanups.reverse()) await dispose()
   globalThis.fetch = originalFetch
   for (const n of envNames) savedEnv[n] === undefined ? delete process.env[n] : process.env[n] = savedEnv[n]
   rmSync(root, { recursive: true, force: true })

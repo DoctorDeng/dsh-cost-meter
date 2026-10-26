@@ -212,7 +212,7 @@ process.stdout.write(config.raw ?? JSON.stringify(config.payload));
   await api.getState()
   assert.equal(count(), disabledCount, 'hidden source never executes the CLI')
 } finally {
-  for (const cleanup of cleanups.reverse()) cleanup()
+  for (const cleanup of cleanups.reverse()) await cleanup()
   for (const [name, value] of Object.entries(savedEnv)) { if (value === undefined) delete process.env[name]; else process.env[name] = value }
   assert.equal(dirname(resolve(root)), resolve(tmpdir()))
   rmSync(root, { recursive: true, force: true })

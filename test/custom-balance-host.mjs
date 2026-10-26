@@ -60,7 +60,7 @@ try {
   assert.equal(state.customBalances[0].remaining, 75, 'a different listening port invalidates the old origin cache')
   assert.equal(localReads, cached + 1)
   assert.equal(state.config.customBalances[0].request.url, entry.request.url, 'relative path persists without a port')
-  for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 
   // Non-loopback addresses are simulated. The default HTTPS policy remains unchanged.
   globalThis.fetch = async (url, init) => {
@@ -89,7 +89,7 @@ try {
   await assert.rejects(query(allowed), /redirected/)
   console.log('[ok] Custom balance: live random ports, cache invalidation, relative-path boundaries, opt-in LAN HTTP, exact allowlists, WorkBuddy2API credit extraction and redirect rejection')
 } finally {
-  for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
   globalThis.fetch = realFetch
   if (oldHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = oldHome
   await Promise.all(servers.map(server => new Promise(resolve => server.close(resolve))))

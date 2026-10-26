@@ -6,7 +6,7 @@
 
 **Session cost tracking plugin for the DeepSeek Harness web GUI (bilingual UI)**
 
-[![version](https://img.shields.io/badge/version-1.9.26-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.9.40-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![dshfind](https://dshfind.com/api/badge/Han-1413141/dsh-cost-meter?metric=downloads&lang=en)](https://dshfind.com/zh/plugins/Han-1413141/dsh-cost-meter?ref=badge)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -16,11 +16,11 @@
 
 </div>
 
-**v1.9.26** fixes reversed OpenDesign 5-hour and weekly quotas, keeping each percentage paired with its reset time.
+**v1.9.40** moves billing accuracy guidance into settings and improves balance-query backoff to reduce redundant requests and related operational risks.
 
 **Host floor: DSH 0.2.0** · Adaptation target: **0.2.1-rc.2** (npm `next`). Expand the compatibility notes below for exact declarations, host records and troubleshooting.
 
-Release notes: [v1.9.26](docs/update-notes-1.9.26.md#english). Fully restart DSH after updating.
+Release notes: [v1.9.40](docs/update-notes-1.9.40.md#english). Fully restart DSH after updating.
 
 ![Promo art](docs/promo.en.png)
 
@@ -65,7 +65,7 @@ Community and feedback: [Join the WeChat group →](#community). The WeChat grou
 | OpenCode Go quota | Sidebar / Settings / bottom-right dock (configurable) | Rolling-5h / weekly / monthly usage percent and reset times, each window toggleable independently, budget used % can show alongside; key auto-discovered (dedicated ref / official Go route apiKeyEnv / env / opencode login) or entered manually |
 | Coding plan quotas | Sidebar / Settings page (per vendor) | Multi-vendor coding-plan quota queries (Anthropic Claude Pro/Max, Z.ai / Zhipu GLM Coding Plan, MiniMax Token Plan, Kimi Code weekly + 5-hour quotas with PAYG balance fallback when no subscription key, OpenRouter credits, SiliconFlow balance, CommandCode 5h/weekly windows + monthly credits balance, Cline Pass 5-hour/weekly/monthly windows, Xiaomi MiMo Token Plan plan/compensation credit windows + period-end reset + balance via console cookie); per-vendor enable switch, key, display position and refresh interval (sidebar card in the same box style as the Go quota; the collapsed rail shows percentages), official endpoints by default, with a [configurable trusted MiniMax origin](docs/minimax-quota-endpoint.md#english); neutral hints when no credentials/subscription; SCNet Token Plan supports [external console snapshots](docs/scnet-official-snapshot.md#english); without a valid snapshot, monthly usage is estimated from the local ledger via the official credits deduction table (no credentials needed) |
 | Subscription plugin compatibility | Settings → Cost → Codex / sidebar & quota cards | Detects installed Codex / ChatGPT subscription plugins and classifies their subscription calls as Plan quota instead of pay-as-you-go API spend; new usage is classified at record time, and a one-time dismissible prompt decides whether historical Codex billing is reclassified (idempotent). Explicit plan/API choices are never overridden. [Details](docs/update-notes-1.9.0.md#english) |
-| Codex quota display | Settings → Display → Codex / sidebar & quota strip | Reads actual 5-hour and 7-day windows from `dsh-codex-subscription` or `@eddyskywalker/dsh-chatgpt-subscription`, with `dsh-codex-connect` compatibility. Select `auto` (tries those three plugins in order), `subscription`, `chatgpt`, or `connect`. An explicit source shows only that plugin's current account. Independent of the billing classification in “Subscription plugin compatibility”. |
+| Codex quota display | Settings → Display → Codex / sidebar & quota strip | Reads actual quota windows from `dsh-codex-subscription`, the native DSH pi-ai login, `dsh-chatgpt-sub`, `@eddyskywalker/dsh-chatgpt-subscription`, or `dsh-codex-connect`. Select `auto` (tries these sources in order), `subscription`, `pi-ai`, `chatgpt-sub`, `chatgpt`, or `connect`. Enable quota display and select `dsh-chatgpt-sub` for its bound account's remaining bars and reset times. Weekly-only accounts show no 5h bar. An explicit source uses only that source's current account; billing classification remains separate. |
 | SQLite session storage (better-session) | Host integration | Auto-detects the host session backend; with `@morlay/better-session` / `@morlay/session-rdb` (SQLite) storage, historical backfill, legacy import, history repricing, hour-bucket repair, fork cleanup and per-session cost/trajectory/call details keep working. The JSONL path is unchanged; old JSONL and RDB histories are not merged automatically. [Guide](docs/better-session.md) |
 | OpenDesign quota | Sidebar / Settings (OpenDesign vendor) | Workspace coding-plan windows from the console API; with a Control Key, a 401/403 from the primary endpoint triggers one conservative `/billing/preflight` Bearer fallback, and window/wallet reads degrade independently. [Troubleshooting](docs/opendesign-billing.md#english) |
 | Mobile / dsh-pocket layout | All cost UIs | On screens ≤1023px and dsh-pocket mobile layouts: single-column cards, horizontally scrolling tabs, 36px touch targets, dialogs capped at 90vh with safe-area padding and scrolling wide tables; desktop layout unchanged |
@@ -131,6 +131,8 @@ The `extract` rules accept four forms: a numeric constant, a dot path string, `a
 - **Plain HTTP is allowed for loopback endpoints**: `http://` is accepted when the host is `127.0.0.1` / `localhost` / `[::1]` (the traffic never leaves the machine), which covers local read-only routes that listen on loopback only and serve no TLS (e.g. `dsh-workbuddy-connect`'s `/plugins/dsh-workbuddy-connect/status`). **Every non-loopback host still requires https**; plaintext is refused.
 
 ### WorkBuddy credits example (local plugin route)
+
+The dedicated **WorkBuddy credits** quota card now supports dsh-xdpool. Select **Credit source → dsh-xdpool** when using multiple connectors; current, all and selected accounts work across CN/global pools. See the [integration notes](docs/update-notes-1.9.38.md#english).
 
 With `dsh-workbuddy-connect` installed, its web status route already returns the aggregated credit total — no credential needs to be copied:
 
@@ -352,22 +354,22 @@ On Node.js 20, use `npm install -g pnpm@10` instead. See [pnpm installation and 
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.9.26`** — review the script before running):
+**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.9.40`** — review the script before running):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.26/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.40/install.ps1 | iex
 ```
 
 **Or a plain command line** (the machine must already have pnpm and git; also pinned to the tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.26
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.40
 ```
 
 Without git, use the GitHub tag archive:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.26.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.40.tar.gz
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):
@@ -432,7 +434,7 @@ Workarounds:
 
    ```yaml
    minimumReleaseAgeExclude:
-     - dsh-cost-meter@1.9.26
+     - dsh-cost-meter@1.9.40
    ```
 
 3. For a one-off CLI operation, forward the pnpm flag: `dsh plugin --profile desktop remove dsh-cost-meter --config.minimum-release-age=0` (or add `--trust-lockfile` when only lockfile verification fails). Both flags were verified against pnpm 11.28.5 in a temporary profile.
@@ -561,8 +563,8 @@ Check and clear the host search before changing stored data.
 Join the WeChat group to discuss the plugin, share feedback, and suggest features.
 
 <p align="center">
-  <a href="docs/community-wechat.jpg"><img src="docs/community-wechat.jpg" alt="dsh-cost-meter WeChat community QR code" width="320" /></a><br />
-  <a href="docs/community-wechat.jpg">View full-size QR code</a>
+  <a href="docs/community-wechat.png"><img src="docs/community-wechat.png" alt="dsh-cost-meter WeChat community QR code" width="320" /></a><br />
+  <a href="docs/community-wechat.png">View full-size QR code</a>
 </p>
 
 ## Update history

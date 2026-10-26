@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { setImmediate as tick } from 'node:timers/promises'
 import { apply } from '../lib/index.js'
 import { stateSchema } from '../lib/typert.host.js'
-import { GATEWAY_MANAGEMENT_PATHS } from '../lib/gateway-quotas.js'
+import { GATEWAY_MANAGEMENT_PATHS, managementKeyVarOf } from '../lib/gateway-quotas.js'
 import { queryCustomBalance } from '../lib/custom-balance.js'
 
 const failures = []
@@ -27,7 +27,7 @@ const fixture = async (config, fetchImpl, run) => {
   const previousHome = process.env.DSH_HOME, previousFetch = globalThis.fetch
   const cleanups = []
   let api
-  const dispose = () => { for (const fn of cleanups.splice(0).reverse()) fn() }
+  const dispose = async () => { for (const fn of cleanups.splice(0).reverse()) await fn() }
   try {
     const dir = join(root, 'storages', 'cost-meter')
     mkdirSync(dir, { recursive: true })
@@ -46,7 +46,7 @@ const fixture = async (config, fetchImpl, run) => {
     })
     await run(api, dispose)
   } finally {
-    dispose()
+    await dispose()
     globalThis.fetch = previousFetch
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
@@ -127,6 +127,31 @@ await check('网关首次并发读取共享在途请求', async () => {
 
 const row = (label, path = label) => ({ enabled: true, label, display: 'both', refreshMinutes: 15,
   request: { url: 'http://127.0.0.1/' + path, headers: {} }, extract: { remaining: 'balance' } })
+
+for (const action of ['disable', 'remove', 'replace-key', 'clear-key', 'dispose']) {
+  await check(`网关 ${action} 取消旧请求并阻止继续查询账号`, async () => {
+    const gate = deferred(); let signal, calls = 0
+    await fixture(gatewayConfig, async (url, init) => {
+      signal ??= init.signal; calls++
+      await gate.promise
+      return gatewayResponse(url, 15)
+    }, async (api, dispose) => {
+      const pending = api.getState(); let mutation
+      try {
+        await until(() => signal)
+        const configured = (await api.getLocalState()).config.gatewayQuotas.sources[0]
+        if (action === 'disable') mutation = api.updateConfig({ gatewayQuotas: { sources: [{ ...configured, enabled: false }] } })
+        else if (action === 'remove') mutation = api.updateConfig({ gatewayQuotas: { sources: [] } })
+        else if (action === 'replace-key') mutation = api.setCredential('customVar:' + managementKeyVarOf(gateway), 'REPLACEMENT_TEST_KEY')
+        else if (action === 'clear-key') mutation = api.clearCredential('customVar:' + managementKeyVarOf(gateway))
+        else mutation = dispose()
+        mutation.catch(() => {})
+        await until(() => signal.aborted)
+      } finally { gate.resolve(); await Promise.all([pending, mutation]) }
+      if (['disable', 'remove', 'dispose'].includes(action)) assert.equal(calls, 1, '旧来源停止后不再发出账号查询')
+    })
+  })
+}
 await check('官方余额关闭后立即重新显示，无需重启或等待刷新间隔', async () => {
   let calls = 0
   const config = { balance: { display: 'both', refreshMinutes: 60, reconcile: false } }
@@ -212,7 +237,7 @@ await check('自定义余额卸载时取消在途请求', async () => {
     signal = init.signal; await gate.promise; return Response.json({ balance: 10 })
   }, async (api, dispose) => {
     const pending = api.getState()
-    try { await until(() => signal); dispose() }
+    try { await until(() => signal); await dispose() }
     finally { gate.resolve(); await pending }
     assert.equal(signal.aborted, true)
   })
@@ -271,5 +296,76 @@ await check('自定义余额重定向释放响应流', async () => {
     assert.equal(cancelled, true)
   })
 })
+
+// #409: rejection must not turn UI polling or queued refresh clicks into an HTTP loop.
+for (const kind of ['official', 'custom']) {
+  const config = kind === 'official'
+    ? { balance: { display: 'both', refreshMinutes: 1, reconcile: false } }
+    : { customBalances: [{ ...row('limited'), refreshMinutes: 1 }] }
+  const refresh = api => kind === 'official' ? api.refreshBalance() : api.refreshCustomBalance(0)
+  const value = state => kind === 'official' ? state.balance : state.customBalances[0]
+  const success = () => kind === 'official'
+    ? Response.json({ balance_infos: [{ currency: 'USD', total_balance: '25' }] })
+    : Response.json({ balance: 25 })
+  for (const status of [401, 403]) {
+    await check(`${kind} HTTP ${status} 自动查询等待间隔，手动刷新可恢复`, async () => {
+      let calls = 0
+      await fixture(config, async () => ++calls === 1 ? new Response('private upstream body', { status }) : success(), async api => {
+        const first = await api.getState()
+        assert.equal(value(first).status, 'error')
+        assert.ok(!JSON.stringify(first).includes('private upstream body'))
+        await api.getState(); await api.getState()
+        assert.equal(calls, 1)
+        assert.equal((await refresh(api)).ok, true)
+        assert.equal(calls, 2)
+      })
+    })
+  }
+  for (const header of ['900', 'date', 'invalid', '']) {
+    await check(`${kind} HTTP 429 遵守 ${header || '缺省'} Retry-After，包括并发手动刷新`, async () => {
+      const originalNow = Date.now
+      let now = Date.UTC(2026, 9, 26), calls = 0
+      const gate = deferred(), delay = ['900', 'date'].includes(header) ? 900_000 : 60_000
+      const retryAfter = header === 'date' ? new Date(now + delay).toUTCString() : header
+      Date.now = () => now
+      try {
+        await fixture(config, async () => {
+          calls++
+          if (calls > 1) return success()
+          await gate.promise
+          return new Response('private upstream body', { status: 429, headers: { 'Retry-After': retryAfter } })
+        }, async api => {
+          const initial = api.getState()
+          await until(() => calls === 1)
+          const queued = [refresh(api), refresh(api)]
+          await tick()
+          gate.resolve()
+          const states = await Promise.all([initial, ...queued])
+          assert.equal(value(states[0]).status, 'error')
+          assert.equal(calls, 1, 'queued clicks must observe the rejection from the first request')
+          await api.updateConfig({ decimals: 3 })
+          now += delay - 1
+          await api.getState()
+          assert.equal((await refresh(api)).ok, false)
+          assert.equal(calls, 1, 'manual refresh and unrelated settings cannot bypass the wait')
+          now++
+          assert.equal((await refresh(api)).ok, true)
+          assert.equal(calls, 2)
+          stateSchema.parse(await api.getState())
+        })
+      } finally { gate.resolve(); Date.now = originalNow }
+    })
+  }
+  await check(`${kind} 429 后换用新凭据或新端点时清除旧等待状态`, async () => {
+    let calls = 0
+    await fixture(config, async () => ++calls === 1 ? new Response('', { status: 429 }) : success(), async api => {
+      await api.getState()
+      if (kind === 'official') await api.setCredential('balance', 'TEST_NEW_BALANCE_KEY')
+      else await api.updateConfig({ customBalances: [{ ...row('replacement'), refreshMinutes: 1 }] })
+      await api.getState()
+      assert.equal(calls, 2)
+    })
+  })
+}
 
 if (failures.length) throw new AggregateError(failures, `${failures.length} cache lifecycle regressions`)

@@ -125,7 +125,7 @@ const React = { createElement: element, Fragment: 'fragment', useState: value =>
   useRef: value => ({ current: value }), useEffect() {}, useMemo: fn => fn(), useCallback: fn => fn }
 const source = readdirSync(new URL('../src/client/', import.meta.url)).filter(name => name.endsWith('.js')).sort()
   .map(name => readFileSync(new URL('../src/client/' + name, import.meta.url), 'utf8')).join('')
-vm.runInNewContext(source.replace('exports.apply = apply', 'exports.testing = { PlanQuotaCard, CodingPlanBox, QuotaStrip, parseConfig, resolveClientPriceRaw, billingClassOfLocal, MESSAGES, useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd }; exports.apply = apply'), {
+vm.runInNewContext(source.replace('exports.apply = apply', 'exports.testing = { PlanQuotaCard, CodingPlanBox, QuotaStrip, parseConfig, resolveClientPriceRaw, billingClassOfLocal, MESSAGES, useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, codingPlanWindowEntries, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions }; exports.apply = apply'), {
   window: { __ModuleLoader__: { load: value => { factory = value.factory } } }, navigator: { language: 'en' }, console, setTimeout, clearTimeout,
 })
 const ui = factory(name => name === 'react' ? React : {}).testing

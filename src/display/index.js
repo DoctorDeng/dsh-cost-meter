@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
     const skinCss = `
       body :is(.cm-section,.cm-stat){background:transparent}
       body :is(.cm-stat-dialog,.cm-qguide,.cm-peak-alert,.cm-combo-panel,.cm-context-intro),body dialog.cm-fee-dialog{background:var(--cm-opaque-base,#fff);background:rgb(from var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff)) r g b / max(alpha,.9))}
-      body :is(.cm-simple-summary,.cm-billion-notice){background:var(--cm-opaque-base,#fff);background:rgb(from var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff)) r g b / max(alpha,.9))}
+      body .cm-simple-summary{background:var(--cm-opaque-base,#fff);background:rgb(from var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff)) r g b / max(alpha,.9))}
       html body .cm-footer-stack,html body .cm-footer-stack:is(.simple,.summary):not(.rail),html body .cm-footer-stack :is(.cm-bbox,.cm-foot,.cm-simple-summary,.cm-peak-classic-chip){background:transparent}
     `
     /* DISPLAY_APPEARANCE_SOURCE */
@@ -207,11 +207,6 @@ window.__ModuleLoader__.load({
             onChange: event => set({ followSkinTransparency: event.target.checked }) }),
           text('跟随皮肤透明度', 'Follow skin transparency')),
         el('span', { className: 'cm-hint' }, text('费用页与侧栏卡片跟随背景，弹窗保留至少 90% 不透明度。', 'Cost pages and sidebar cards share their background; dialogs remain at least 90% opaque.')))
-    }
-    function CompatibilityNotice({ config, set, text, state }) {
-      return el('section', { className: 'cm-display-notifications', 'aria-label': text('兼容提醒', 'Compatibility reminders') },
-        el('label', { className: 'cm-check' }, el('input', { type: 'checkbox', role: 'switch', checked: config.billionContextNoticeEnabled !== false, onChange: event => set({ billionContextNoticeEnabled: event.target.checked }) }), text('弹出 billion-context 计费兼容提醒', 'Show billion-context billing compatibility popups')),
-        el('p', { className: 'cm-note' }, text('关闭只停止自动弹窗，计费检测继续运行。当前状态：', 'Disabling popups keeps billing detection active. Current status: ') + ({ ready: text('已接入', 'Connected'), needs_update: text('需要更新', 'Update required'), changed: text('接口变化', 'Interface changed'), bridge_missing: text('尚未接入', 'Not connected') }[state.billionContext?.compatibility] ?? text('未检测到兼容问题', 'No compatibility issue detected'))))
     }
     function DetailedSettings({ state, draft, setDraft, t, locale, numInput, displayOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, open = false }) {
       const config=state.config

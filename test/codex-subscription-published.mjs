@@ -58,7 +58,7 @@ const rpc = { call: async (base, method, args, requestSignal) => {
   assert.equal(response.status, 200)
   return (await response.json()).result
 } }
-const client = vm.runInNewContext('const CODEX_WINDOWS={18000:"five",604800:"weekly"};const codexQuotaCache={rpc};\n' + ownFunction('parseCodexWindows') + '\n' + ownFunction('fetchCodexSubscription') + '\n({fetchCodexSubscription})', { rpc, AbortSignal })
+const client = vm.runInNewContext('const CODEX_WINDOWS={18000:"five",604800:"weekly"};const codexQuotaCache={rpc};\n' + ownFunction('parseCodexWindows') + '\n' + ownFunction('boundedCodexRead') + '\n' + ownFunction('fetchCodexSubscription') + '\n({fetchCodexSubscription})', { rpc, AbortSignal })
 const plain = value => JSON.parse(JSON.stringify(value))
 try {
   payload = { plan_type: 'pro', rate_limit: { primary_window: { used_percent: 17, limit_window_seconds: 604800, reset_at: 1792887000 } } }

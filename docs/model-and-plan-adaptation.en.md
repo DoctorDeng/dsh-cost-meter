@@ -104,7 +104,7 @@ Without credentials/subscription the panel shows a **neutral soft-failure hint**
 
 The per-model billing selector now offers 18 families, separately from quota adapters. Added: Codex / ChatGPT, Volcengine Agent Plan, Tencent Coding Plan, Tencent Token Plan, and Baidu Qianfan Coding Plan. Explicit vendor and plan markers are required for inference; manual assignment or API overrides win. Generic OpenAI, Tencent and Baidu API providers are not subscriptions merely because they use the same models.
 
-Go Plus shares Go's reference prices and attribution. The opencode-go-plus alias respects custom prices. Codex auto classification follows the existing Codex quota switch; quota remains read-only through the installed dsh-openai-codex plugin. The four new standalone plan families currently classify local tokens and equivalent cost; they do not invent remote quota percentages or reset windows.
+Go Plus shares Go's reference prices and attribution. The opencode-go-plus alias respects custom prices. Codex auto classification uses the saved Plan provider set; read-only quota can come from native DSH pi-ai OAuth or an installed subscription connector. The four new standalone plan families currently classify local tokens and equivalent cost; they do not invent remote quota percentages or reset windows.
 
 Official sources: [Codex / ChatGPT](https://learn.chatgpt.com/docs/pricing), [Volcengine Agent Plan](https://docs.volcengine.com/docs/ark/agent-plan-personal-plan-overview?lang=zh), [Tencent's independent plans](https://cloud.tencent.com/document/product/1823/130103), [Baidu Qianfan](https://qianfan.cloud.baidu.com/qianfandev/topic/687754), [Go / Go Plus](https://opencode.ai/v2/docs/console/go/).
 
@@ -121,16 +121,16 @@ If any of the above releases an API-key-based endpoint, it can be added cheaply 
 
 ## 2.5 Plan/API dual-track billing classification (issue #64, since v1.5.51)
 
-The ledger records both the total equivalent cost (cost) and the real-money portion (apiCost) at day / session / byProviderModel level; budget, today-cost and overview cards count only the API portion, while subscription-quota consumption is presented as equivalents. Priority: **per-model override (planBilling.models[provider:model]) > raw-provider config (planBilling.providers[provider]) > Plan-family config > auto** (plan when that vendor's quota query is enabled, otherwise api). Raw-provider keys match the request provider exactly and can explicitly classify a custom route as plan/api. An auto value defers to the family configuration and enabled state. Official DeepSeek search and fetch request fees always remain API charges.
+The ledger records both the total equivalent cost (cost) and the real-money portion (apiCost) at day / session / byProviderModel level; budget, today-cost and overview cards count only the API portion, while subscription-quota consumption is presented as equivalents. Priority: **per-model override (planBilling.models[provider:model]) > raw-provider config (planBilling.providers[provider]) > Plan-family config > auto** (using the saved planBilling.autoProviders set). Raw-provider keys match the request provider exactly and can explicitly classify a custom route as plan/api. An auto value defers to the family configuration and saved automatic Plan set. Since 1.9.28, legacy configuration captures its prior classification once; later quota query/display switches do not change historical attribution. Explicitly assign newly added subscriptions to plan in billing settings. Official DeepSeek search and fetch request fees always remain API charges.
 
 | Vendor | Default (auto) | Notes |
 |---|---|---|
-| anthropic / zai / minimax / commandcode / clinepass / scnet / volcengine | plan while enabled | percent-based subscription windows |
-| kimi | plan while enabled | subscription windows; override models to api for PAYG balance scenarios |
-| workbuddy / workbuddy-ai / workbuddy-global | plan while WorkBuddy credits query is enabled | Domestic and international routes from both WorkBuddy connectors share the workbuddy family configuration; providers.workbuddy=plan also works explicitly |
+| anthropic / zai / minimax / commandcode / clinepass / scnet / volcengine | plan if saved in the automatic Plan set | percent-based subscription windows |
+| kimi | plan if saved in the automatic Plan set | subscription windows; override models to api for PAYG balance scenarios |
+| workbuddy / workbuddy-ai / workbuddy-global | plan if saved in the automatic Plan set | Domestic and international routes from both WorkBuddy connectors share the workbuddy family configuration; providers.workbuddy=plan also works explicitly |
 | openrouter / siliconflow | api | credits/balance are real money |
-| OpenCode Go (zen/opencode routes) | plan while Go enabled | Go-subscription models; Zen PAYG users should override to api |
-| Codex (ChatGPT subscription) | api (manual) | no API-key quota endpoint; mark provider:model as plan in settings |
+| OpenCode Go (zen/opencode routes) | plan if saved in the automatic Plan set | Go-subscription models; Zen PAYG users should override to api |
+| Codex (ChatGPT subscription) | saved Plan set or manual | Native pi-ai OAuth and subscription connector quotas; assign provider:model to plan in settings |
 
 Per-1% quota and full-window token/equivalent-cost estimates are derived by diffing a **sampled percent history** (one sample per successful refresh, capped at 400 per vendor×window over 90 days); with insufficient samples they fall back to "current-period actual ÷ current used %". SCNet is a local credits self-estimate and does not participate in sampling.
 

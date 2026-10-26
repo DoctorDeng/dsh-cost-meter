@@ -178,7 +178,7 @@ try {
   await api.getState(); await api.refreshCodingPlan('minimax')
   assert.equal(calls.length, hiddenCalls, '关闭显示后停止查询')
 } finally {
-  for (const cleanup of cleanups.reverse()) cleanup()
+  for (const cleanup of cleanups.reverse()) await cleanup()
   globalThis.fetch = originalFetch
   for (const [name, value] of Object.entries(savedEnv)) { if (value === undefined) delete process.env[name]; else process.env[name] = value }
   assert.equal(dirname(resolve(root)), resolve(tmpdir()))

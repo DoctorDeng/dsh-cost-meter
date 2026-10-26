@@ -331,9 +331,12 @@ function harness(overrides = {}) {
     const ledger = { path: join(root, 'ledger.json'), account() {} }
     installNativeSearchBilling(ctx, ledger)
     assert.equal(nativeSearchReconcile(ledger, 'zh', { ok: true, message: '' }).ok, false)
+    assert.equal(nativeSearchReconcile(ledger, 'zh', { ok: true, message: '' }).message, '今日 2 次搜索未完整计入统计。')
+    assert.equal(nativeSearchReconcile(ledger, 'en', { ok: true, message: '' }).message, '2 search request(s) today could not be fully recorded.')
+    assert.equal(nativeSearchReconcile(ledger, 'zh', { ok: false, message: '余额与账本不一致' }).message, '余额与账本不一致\n今日 2 次搜索未完整计入统计。', 'short copy retains an existing reconciliation warning')
     const request = { query: 'synthetic' }
     assert.equal(await web.search(request), request)
-    for (const dispose of effects.reverse()) dispose()
+    for (const dispose of effects.reverse()) await dispose()
     assert.equal(web.search, original, 'web 服务卸载恢复原方法')
     assert.equal(NATIVE_SEARCH_USAGE_EVENT, 'cost-meter/native-search-usage')
   } finally { rmSync(root, { recursive: true, force: true }) }
@@ -389,7 +392,7 @@ function harness(overrides = {}) {
       const ledger = { path: join(root, `${label}.json`), account: (...args) => accounts.push(args) }
       installNativeSearchBilling(ctx, ledger)
       await web.search({ query: 'synthetic' })
-      for (const dispose of effects.reverse()) dispose()
+      for (const dispose of effects.reverse()) await dispose()
       assert.equal(accounts.length, 1, `${label}: 原生搜索用量照常入账`)
       assert.equal(accounts[0][2], session.id, `${label}: 入账带上会话 id`)
       assert.equal(session.rows.length, 0, `${label}: 不写入宿主会话日志`)

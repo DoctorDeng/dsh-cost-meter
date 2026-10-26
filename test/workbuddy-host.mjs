@@ -12,12 +12,16 @@ const root = mkdtempSync(join(tmpdir(), 'cm-workbuddy-host-'))
 const names = ['DSH_HOME', 'USERPROFILE', 'HOME', 'XDG_CONFIG_HOME', 'WORKBUDDY_AUTH_FILE']
 const saved = Object.fromEntries(names.map(name => [name, process.env[name]]))
 const disposers = [], requests = [], originalFetch = globalThis.fetch
-let balance = 100, failing = false
+let balance = 100, failing = false, pool = false
 const server = createServer((req, res) => {
   requests.push({ path: req.url, method: req.method, authorization: req.headers.authorization })
   const url = new URL(req.url, 'http://localhost')
   res.setHeader('content-type', 'application/json')
   if (failing) { res.writeHead(503); res.end('{}'); return }
+  if (pool && url.pathname === '/plugins/dsh-xdpool/status') {
+    const region = url.searchParams.get('region'), id = region === 'cn' ? 'a' : 'b'
+    res.end(JSON.stringify({ ok: true, region, activeAccountId: id, accounts: [{ id, label: 'Synthetic pool ' + id, credits: { total: region === 'cn' ? balance : 25 }, token: 'DO_NOT_FORWARD' }] })); return
+  }
   if (url.pathname !== '/plugins/dsh-connect-workbuddy/account-credits') { res.writeHead(404); res.end('{}'); return }
   res.end(JSON.stringify({ accounts: url.searchParams.get('region') === 'cn'
     ? [{ id: 'a', accountName: 'Synthetic A', selected: true, credits: balance, token: 'DO_NOT_FORWARD' }]
@@ -75,6 +79,14 @@ try {
   assert.equal(damaged.state.codingPlans.workbuddy.workbuddy.historyUnavailable, true)
   assert.equal(damaged.state.codingPlans.workbuddy.windows.balance.text, '25')
   assert.equal(readFileSync(history, 'utf8'), '{broken')
+  pool = true
+  await meter.updateConfig({ codingPlans: { workbuddy: { accountSource: 'xdpool', accountScope: 'all' } } })
+  const poolState = (await meter.refreshCodingPlan('workbuddy')).state
+  for (const state of [stateSchema.parse(poolState), codec.parse(JSON.parse(JSON.stringify(poolState)))]) {
+    assert.equal(state.config.codingPlans.workbuddy.accountSource, 'xdpool', 'source survives both RPC codecs')
+    assert.equal(state.codingPlans.workbuddy.windows.balance.text, '115')
+    assert.ok(state.codingPlans.workbuddy.workbuddy.accounts.every(account => account.id.includes(':xdpool:')))
+  }
   await meter.updateConfig({ codingPlans: { workbuddy: { enabled: false } } })
   const stoppedCount = requests.length
   assert.equal((await meter.getState()).codingPlans.workbuddy.status, 'off')
@@ -82,6 +94,7 @@ try {
   for (const stop of disposers.splice(0).reverse()) await stop()
   const reopened = Ledger.open()
   assert.deepEqual(reopened.config.codingPlans.workbuddy.accountIds, ['global:b'])
+  assert.equal(reopened.config.codingPlans.workbuddy.accountSource, 'xdpool', 'source survives disk reload')
   assert.deepEqual(reopened.days, {}, 'credit observations never enter the monetary ledger')
   reopened.close()
   assert.ok(requests.every(row => row.method === 'GET' && row.authorization === undefined))

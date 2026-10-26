@@ -4,6 +4,8 @@ The display settings preview reuses selected SVG artwork and presentation CSS fr
 
 Artwork is reused without geometry changes. Presentation styles are scoped and adapted into separate regions at normal text size. The preview uses the host's exported primitives when available.
 
+The standalone ledger worker also bundles the home-directory resolver from @deepseek-ai/dsh-home-paths 0.2.1-rc.1, under the same DeepSeek MIT license below. It does not bundle the host runtime or credential services.
+
 MIT License
 
 Copyright (c) 2026 DeepSeek

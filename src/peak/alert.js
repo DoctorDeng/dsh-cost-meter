@@ -1,6 +1,6 @@
     function PeakAlert(props) {
       const costStore = props.useCost ? props.useCost(s => s) : undefined
-      const config = costStore?.state?.config
+      const config = peakConfigForState(costStore?.state)
       const [now, setNow] = useState(Date.now())
       const [dismissedAt, setDismissedAt] = useState(null)
       const [preview, setPreview] = useState(null)
@@ -36,7 +36,7 @@
         // 同一切换点只发一次(旧实现比较 tick 时间戳,每 10 秒都"未通知过",会连发)。
         if (!config || config.peakAlertEnabled !== true || config.peakEnabled !== true) return
         if (config.peakAlertWebNotify !== true || !window.Notification || Notification.permission !== 'granted') return
-        const wv = peakPhaseAt(now, Array.isArray(config.peakWindows) ? config.peakWindows : [], config.peakHolidays)
+        const wv = peakPhaseForConfig(config, now)
         if (wv === null) return
         const tgt = config.peakAlertTarget === 'peak' || config.peakAlertTarget === 'offpeak' ? config.peakAlertTarget : 'both'
         const intoPeak = wv.nextIntoPeak === true
@@ -59,7 +59,7 @@
       if (config.peakAlertEnabled === true) {
         const effectiveAtMs = Date.parse(config.peakEffectiveAt || '')
         if (!(Number.isFinite(effectiveAtMs) && now < effectiveAtMs)) {
-          const view = peakPhaseAt(now, Array.isArray(config.peakWindows) ? config.peakWindows : [], config.peakHolidays)
+          const view = peakPhaseForConfig(config, now)
           if (view !== null) {
             const target = config.peakAlertTarget === 'peak' || config.peakAlertTarget === 'offpeak' ? config.peakAlertTarget : 'both'
             const aheadMinutes = Number(config.peakAlertAhead)

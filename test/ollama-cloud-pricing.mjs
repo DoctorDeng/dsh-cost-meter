@@ -265,6 +265,12 @@ for (const [model, off, high] of snapshots) {
   }
 }
 const taggedKey = 'ollama-cloud:deepseek-v4.1-flash:1017'
+for (const [label, split] of clients) {
+  for (const [iso, expected] of [['2026-10-01T02:00:00Z', .096], ['2026-10-28T02:00:00Z', .096], ['2026-10-24T02:00:00Z', .048]]) {
+    clock = at(iso)
+    near(split({ byProviderModel: { 'volcengine:deepseek-v4-1-flash-260910': { input: 200000, cacheRead: 2000000, output: 20000 } } }, usd).total, expected, label + ' Ark snapshot and holiday calendar')
+  }
+}
 // v1.9.17 already fixed aliased snapshot calendars, but had no automatic MMDD matching.
 // Preserve the two independent policies when decoding its saved price versions.
 for (const alias of [false, true]) {

@@ -2,8 +2,165 @@
 
 ## [Unreleased]
 
+## [1.9.40] - 2026-10-26
+
+- billion-context 费用误差说明移至“设置 → 费用 → 概览”，以普通灰字按需显示，不再自动弹窗打断聊天。
+- 优化余额查询的等待策略，减少无效重复请求及相关使用风险。官方余额与通用 HTTP 自定义余额收到 401/403 后，自动查询等待配置间隔；429 遵守 `Retry-After`，连续手动刷新同样等待。
+- 请求恢复成功或切换凭据、查询来源后清除对应等待状态，保持错误信息可见。
+- 感谢 [@qingyu-ye](https://github.com/qingyu-ye) 在 [#409](https://github.com/Han-1413141/dsh-cost-meter/issues/409) 提供问题报告、截图及日志附件。
+- Move billing accuracy guidance into settings and reduce redundant balance requests with authentication backoff and rate-limit-aware refreshes.
+
+[更新说明 / Release notes](docs/update-notes-1.9.40.md)
+
+## [1.9.39] - 2026-10-25
+
+- Zod 升级至 4.6.6，修复超长集合校验导致过量错误对象和内存占用的高危漏洞（GHSA-mrhx-c7xc-m3w5）。
+- 修复代理计费扫描中断及文件、归档暂时读取失败后漏导入的问题；保留失败记录重试，正常记录继续处理，空闲目录保持增量扫描。
+- 已封存日志压缩后先同步并发布归档，再移除原文件；写入或同步失败时保留原始记录。
+- 本进程计费流使用已成功保存的元数据快照，避免 Windows 异步读取占用文件期间同步替换失败。
+- 网关停用、删除、配置与凭据变化、插件卸载时取消旧请求；响应体读取、重试等待和后续账号查询统一响应取消。WorkBuddy / XD Pool 同步补齐响应体取消。
+- 导出任务最后访问 10 分钟后主动释放，大量调用分批处理并在收集时限制数据量；CSV 按行检查输出大小。
+- 非法 Token 分项不再使整次调用费用归零，其他有效分项继续计费。
+- Recover transient billing reads, sync sealed archives before deleting originals, propagate quota cancellation, expire idle exports and preserve valid charges alongside invalid Token buckets.
+
+[更新说明 / Release notes](docs/update-notes-1.9.39.md)
+
+## [1.9.38] - 2026-10-25
+
+- WorkBuddy 积分增加 dsh-xdpool 适配，读取国内、国际账号池，支持当前、全部和勾选账号，沿用现有积分观测统计。
+- WorkBuddy 设置增加“积分来源”：自动识别、WorkBuddy 连接插件、dsh-xdpool。账号标识按来源隔离，多个插件不会重复相加；失败、冷却无数据、账号移除时保留未知状态。
+- xdpool / xdpool-global 精确归入 WorkBuddy 计费家族，沿用 API / Plan 设置及手动覆盖；历史修正不重算价格，不改变已记录的总金额。
+- 修复 #404：感谢 @qiyeren 提出适配需求；接口兼容依据为 @XDTrees 的 dsh-xdpool 2.4.6 发布包。
+- Add dsh-xdpool WorkBuddy credits with CN/global account selection and explicit source control; preserve unknown balances, isolate account identities and classify only the two WorkBuddy pool routes.
+
+[更新说明 / Release notes](docs/update-notes-1.9.38.md)
+
+## [1.9.37] - 2026-10-25
+
+- 单个对话的费用明细增加“导出费用记录”，支持 CSV 汇总、CSV 调用明细和 JSON 完整费用记录；导出完整记录，不受页面分页限制。
+- 费用设置的概览和计费统计增加统一导出入口，可导出当前筛选范围或全部保留记录。文件包含对话标题、模型、Token、时间和费用，不含对话正文或凭据。
+- 导出保留账本金额、历史价格、币种和 API / Plan 双口径；计入子代理时每条调用只导出一次。调用明细缺失或与账本不同会标注，支持取消和分块下载。
+- 额度窗口统一按 5h → 日 → 周 → 月排列，只显示实际支持的窗口；火山 Coding Plan 去掉混入的日额度，只显示 5h、周、月。
+- Export single-conversation or filtered/all retained billing records as summary CSV, call CSV or JSON; preserve recorded amounts, historical pricing/currency and subagent ownership. Order supported quota windows consistently and remove the unsupported Volcano Coding Plan daily window.
+
+[更新说明 / Release notes](docs/update-notes-1.9.37.md)
+
+## [1.9.36] - 2026-10-24
+
+- “DeepSeek 余额”名称改为可选：默认显示“余额”，在显示设置的官方余额组件中开启“显示余额来源（DeepSeek）”后显示来源；悬停提示始终保留账户来源。
+- Coding Plan 与 OpenCode Go 的显示位置增加“输入框上方”，支持侧栏、设置页与输入框上方的组合选择；额度设置和显示预览使用同一选项。
+- 单家位置可独立控制输入区额度横条，不会同时显示其他厂商，也不会启用原先关闭的查询；选择“仅输入框上方”后仍支持自动查询和点击刷新。
+- 保留已有横条默认设置的显示效果；手动选择单家位置后，以单家选择为准。配置经过校验、保存、重新加载与双端 codec。
+- Make the DeepSeek balance label optional and add per-vendor placement above the composer, including location combinations, persisted choices and composer-only refresh.
+
+[更新说明 / Release notes](docs/update-notes-1.9.36.md)
+
+## [1.9.35] - 2026-10-24
+
+- 修复 6 位 YYMMDD 快照模型名未匹配价格的问题，支持火山方舟 deepseek-v4-1-flash-260910 / -261017；精确匹配和独立快照价格仍优先。
+- volcengine / ark 的 DeepSeek 峰谷计价采用火山工作日日历，不再继承中国法定节假日全天谷价；会话投影、侧栏进度和切换提醒同步跟随渠道。
+- 官方余额卡明确标为“DeepSeek 余额”；保留仅官方渠道参与对账的规则，第三方渠道消费不会扣减或混入官方余额。
+- 余额悬停提示改为短行并限制宽度；原生搜索缺失用量提示简化为“今日 N 次搜索未完整计入统计”，保留对账异常与点击刷新入口。
+- 既有价格版本保留记录时的计价规则，不自动重算历史；需要修正历史时可在价格设置中手动重算对应模型。
+- 感谢 @littleyellowbicycle 在 [#399](https://github.com/Han-1413141/dsh-cost-meter/issues/399)、[#400](https://github.com/Han-1413141/dsh-cost-meter/issues/400)、[#401](https://github.com/Han-1413141/dsh-cost-meter/issues/401) 提供复现、根因定位、快照匹配补丁建议和余额来源建议。
+- Fix compact snapshot matching and Ark's weekday peak calendar; label DeepSeek balances explicitly and shorten hover warnings. Preserve saved historical pricing until explicit recalculation.
+
+[更新说明 / Release notes](docs/update-notes-1.9.35.md)
+
+## [1.9.34] - 2026-10-24
+
+- 修复 billion-context 空闲计费扫描同步遍历全部 stream 文件造成的主线程卡顿，改为异步目录变化检测，保留未完成流和调用日志的持续导入。
+- 新增计费历史存储面板：文件数量、大小、修改时间、清理预览与确认；默认保留 7 天原始辅助文件，可选 30 天或全部保留，后台每小时维护。
+- 已完成旧流先写入持久压缩归档再移除原文件，过期完成回执单独清理；保留账本、调用记录、费用明细和重放去重。新增默认预览、显式 --apply 的 CLI。
+- 覆盖归档失败、并发修改、重复清理、费用重放、目录链接及损坏元数据；浏览器验证中英文、错误反馈和窄屏操作。
+- 感谢 @ZiYuan258 在 [#397](https://github.com/Han-1413141/dsh-cost-meter/issues/397) 提供问题报告、复现证据、同步扫描定位及清理/保留时间建议。
+- Replace synchronous full-file idle scans with asynchronous directory revisions. Add storage statistics, preview/confirm cleanup, hourly retention and a preview-first CLI; preserve billing history through durable stream archives.
+
+[更新说明 / Release notes](docs/update-notes-1.9.34.md)
+
+## [1.9.33] - 2026-10-24
+
+- 验证兼容 billion-context 0.1.205 / 0.1.206、dsh-codex-subscription 3.1.6 和 dsh-codex-connect 0.2.0-alpha.10，接受已验证的接口指纹及发布包完整性；费用插件运行时代码无需调整。
+- 新增 Codex Connect 实际发布包的额度解析、公开状态类与 HTTP 状态路由检查，覆盖账号快照一致性、单周/双窗口、登录失效、额度失败和请求鉴权。
+- 持续集成保留旧版本并加入上述版本；兼容监控基线更新为 0.1.206 / 3.1.6 / 0.2.0-alpha.10。
+- 来源为 `github-actions[bot]` 的 [#392](https://github.com/Han-1413141/dsh-cost-meter/issues/392)、[#393](https://github.com/Han-1413141/dsh-cost-meter/issues/393)、[#394](https://github.com/Han-1413141/dsh-cost-meter/issues/394) 自动监控报告，报告提供新版版本号与接口指纹变化。
+- Verify the new upstream releases without changing runtime adapters. Add published Codex Connect parser/status-route checks, expand the pinned CI matrix and accept only tested compatibility fingerprints and package integrity.
+
+[更新说明 / Release notes](docs/update-notes-1.9.33.md)
+
+## [1.9.32] - 2026-10-24
+
+- 新增 `dsh-chatgpt-sub` 图形化额度适配：侧栏和输入区显示 5 小时、每周剩余进度条及重置时间，只有周额度的账号仅显示周窗口；点击卡片可刷新。
+- 先确认插件当前绑定状态，再使用它保存在 DSH 中的凭据查询额度；前端仅接收百分比和时间，不读取共享 Codex 登录文件。支持自动检测和单独指定来源，保留原有订阅插件接口。
+- 覆盖登录恢复、解除绑定、凭据轮换、错误与超时、卸载、来源切换、严格 RPC 编解码及实际浏览器显示；适配依据为 [dsh-chatgpt-sub 0.6.3](https://github.com/songoao25/dsh-chatgpt-sub) 的公开状态接口和凭据约定。
+- Display graphical ChatGPT quota for `dsh-chatgpt-sub`, including remaining 5h/weekly windows, reset times and refresh. Verify the active binding and query through the host-held credential; keep credentials out of the browser and shared Codex login files untouched.
+
+[更新说明 / Release notes](docs/update-notes-1.9.32.md)
+
+## [1.9.31] - 2026-10-23
+
+- 插件详情页接入完整费用设置，与左下角设置共用组件、实时快照、配置保存和按需加载；旧宿主保留设置入口。
+- 预备只展示实时费用、余额、额度、预算、Token 用量和今日会话的设置页，不提供配置控件；本版本保持关闭，两个现有入口仍可配置。
+- 修复两个入口并发保存时旧请求覆盖新操作的问题；共用串行保存队列，失败后后续修改仍可提交。
+- 修复外部调用记录和旧账本价格修复使用显示汇率的问题；人民币价格统一使用 CNY 汇率，美元或欧元显示不再改变计费金额。
+- 价格修复同步更新已冻结的人民币、欧元金额，保留记录时的汇率；日级模型汇总即使美元金额一致，也会修复可由完整会话记录确认的币种金额差异，缺失记录不当作零。
+- Add shared settings to plugin details and prepare a disabled read-only overview. Serialize saves across both entries, use CNY FX for CNY billing, and keep repaired historical currency amounts consistent with recorded rates.
+
+[更新说明 / Release notes](docs/update-notes-1.9.31.md)
+
+## [1.9.30] - 2026-10-23
+
+- 后台账本线程启动、导入或超时失败后立即降级为同步保存，本次运行只告警一次且不再启动故障线程；日常定时保存继续工作。临时账本锁冲突仍可重试，已提交但丢失回执的交易仍先恢复回执，防止重复计费。
+- 补齐 `dsh-opencode-go` 的 Go 套餐别名，服务端与前端同步识别；新调用遵循 Go 的自动归属与显式分类，套餐用量不再误计为 API 花费，保留 API 等值金额。
+- 感谢 [@2239058652](https://github.com/2239058652) 在 [#387](https://github.com/Han-1413141/dsh-cost-meter/issues/387) 提供运行环境、最小复现、依赖链测试与异步失败定位；感谢 [@ZIye1208](https://github.com/ZIye1208) 在 [#389](https://github.com/Han-1413141/dsh-cost-meter/issues/389) 提供渠道对照、别名定位与补丁验证。
+- Fall back to synchronous ledger saves once a worker fails, without repeatedly restarting it. Preserve transient lock retries and lost-acknowledgement recovery. Recognize the dedicated `dsh-opencode-go` route as the Go family in both host and client billing.
+
+[更新说明 / Release notes](docs/update-notes-1.9.30.md)
+
+## [1.9.29] - 2026-10-23
+
+- 修复 v1.9.28 后台账本线程缺少宿主模块解析器时找不到 `@deepseek-ai/dsh-home-paths`、反复写入失败的问题；工作线程独立打包，不再依赖 Desktop/Web 宿主的解析环境。
+- 卸载插件时异步等待正在写入的账本，避免阻塞宿主事件循环；线程超时后终止并清理其独占锁，最终提交保留未保存用量。
+- 修复桌面皮肤拉伸侧栏底部容器产生的大块空白，卡片随内容占高；OpenDesign 余额移至标题行右侧，保留 5h 和周额度行。
+- 今日消费与余额同行时，今日金额和 Token 数按实际内容撑开行高，避免第二行被裁切；保留与余额首行对齐。
+- Bundle the ledger worker independently of the DSH resolver; keep disposal responsive and recover a stopped worker's lock before the final write. Keep Desktop footer cards at their content height and show the OpenDesign balance in the title row.
+
+[更新说明 / Release notes](docs/update-notes-1.9.29.md)
+
+## [1.9.28] - 2026-10-23
+
+- 修复跨读取块的合法 zstd 大帧漏读，按实际解压输出执行预算；普通 JSONL、单行和事件数采用有界读取。
+- 修复乱序并发调用的错误去重，以及 billion-context 完成但调用明细为空时的宿主用量漏记；覆盖重启、重复导入和归档后的恢复。
+- 统一 Token 总量，推理作为输出细分；套餐统计按供应商实际重置周期聚合，小时桶保留 35 天并从可读会话恢复派生统计。
+- 日常账本保存移入串行工作线程，保留跨进程合并、原子替换和卸载提交；提交回执防止确认消息丢失后重复计费。
+- 保存自动套餐归属集合，额度查询及显示开关不再重新分类历史 API/Plan 费用。
+- 辅助日志达到 8 MiB 后轮转，对封存分段受限压缩，保留可读取的历史明细；增加变更标记与增量文件发现。
+- 余额、套餐、汇率和价格页面统一使用有界正文读取、解压输出限制与超时取消；网关不再把空百分比误报为 0% 已用。
+- 修复发布说明生成被自身写入拦截，以及已有标签未核对提交的问题；同步网络声明、MiniMax 自定义来源文档和边界回归测试。
+- Fix nine review findings covering compressed history, decompression limits, out-of-order deduplication, empty proxy streams, token totals, quota cycles, gateway percentages and release integrity.
+- Move routine ledger saves to a worker with atomic commit recovery; separate quota switches from billing ownership; rotate and archive journals without deleting history, bound network reads and expand behavior tests.
+
+[更新说明 / Release notes](docs/update-notes-1.9.28.md)
+
+## [1.9.27] - 2026-10-23
+
+- 修复 OpenRouter 每次启动都重拉价目表的问题：启动与小时级定时任务共用跨重启的一小时冷却，失败和中途退出也保留最近尝试时间；多个宿主共用一次自动刷新机会，冷却期间不改写账本或刷新状态。手动同步仍可立即执行。
+- 感谢 [@yanzhaohui1999](https://github.com/yanzhaohui1999) 在 [#384](https://github.com/Han-1413141/dsh-cost-meter/issues/384) 提供重启循环的流量测量、代码定位与持久化冷却建议。
+- Bound automatic OpenRouter catalog downloads with an hourly cooldown that survives restarts, failures and interrupted requests. Concurrent hosts share one refresh claim; manual sync remains immediate.
+
+- 修复 [@Sieuno](https://github.com/Sieuno) 在 [#382](https://github.com/Han-1413141/dsh-cost-meter/issues/382) 独立复现的 billion-context 漏记：持久化成功不再等同于用量完整。代理模型用量缺失、宿主用量有效时按调用流补记一次，保留独立压缩费用；重启和重复导入不重复入账。旧版已错误标记覆盖、但遗漏的宿主用量可从保留的桥接记录恢复；无法拆分的混合用量保留原始数据并提示核对。
+- Recover missing host usage once per stream when proxy model usage is unavailable; preserve compression charges and prevent duplicate recovery after restart. Keep ambiguous mixed usage explicit instead of adding a potentially overlapping host total.
+- 支持直接读取 DSH 内置 pi-ai 登录的 Codex 额度，新增 `pi-ai` 数据源及自动回退；按实际窗口显示，兼容只有每周额度的账号。额度读取超时后释放等待状态，令牌更新后可重试恢复。
+- 修复开发工具直接重载 `lib/index.js` 后未重新接入 billion-context 观察器、RPC 定义丢失的问题；保留冷启动时的提前观察器。卸载时取消 pi-ai 额度查询，不等待失去响应的请求。
+- 修复今日消费与余额同行时的金额对齐：金额与余额首行对齐，Token 单独置于下方，覆盖标准、紧凑、摘要和简洁布局。
+- 完成 [#379](https://github.com/Han-1413141/dsh-cost-meter/issues/379)、[#380](https://github.com/Han-1413141/dsh-cost-meter/issues/380) 的实际发布包兼容验证，更新 billion-context 0.1.204、dsh-codex-subscription 3.1.4 基线和持续集成。
+- 合并 [@Oct1AtJoe](https://github.com/Oct1AtJoe) 的 [#381](https://github.com/Han-1413141/dsh-cost-meter/pull/381)：过滤 Antigravity 占位项目 ID，补全 Gemini 模型额度；审查修正后逐模型保留额度和重置时间，取消查询后停止回退。
+- Read Codex quota from native DSH pi-ai OAuth without an extra subscription plugin; bound requests and handle weekly-only accounts. Restore startup observers on direct host reload and align inline Today/Balance amounts.
+
 - 修复独立复现的 WorkBuddy 紧凑侧栏标题只占半行、余额无法靠右及被截断的问题，标题保持横跨整张卡片。[@SternChiri](https://github.com/SternChiri) 的 [#377](https://github.com/Han-1413141/dsh-cost-meter/issues/377) 反馈触发了排查；报告者随后撤回了原有“文字左对齐”定位，本修复依据实际浏览器中的标题宽度与余额位置验证。
 - Keep the WorkBuddy heading across both compact sidebar columns so its balance reaches the card's right edge.
+
+[更新说明 / Release notes](docs/update-notes-1.9.27.md)
 
 ## [1.9.26] - 2026-10-21
 

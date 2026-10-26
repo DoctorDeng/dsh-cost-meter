@@ -12,12 +12,12 @@ const recorded = days => JSON.parse(JSON.stringify(days, (key, value) => key.sta
 const now = Date.now()
 let ledger
 try {
-  for (const route of ['workbuddy-ai', 'workbuddy-global']) for (const [name, enabled, classification, expectedPlan] of [
+  for (const route of ['workbuddy-ai', 'workbuddy-global', 'xdpool', 'xdpool-global']) for (const [name, enabled, classification, expectedPlan] of [
     ['enabled-auto', true, 'auto', true],
     ['explicit-plan', false, 'plan', true],
     ['explicit-api', true, 'api', false],
   ]) {
-    const migration = route === 'workbuddy-ai' ? 'workbuddy-ai-provider-split-v1' : 'workbuddy-global-provider-split-v1'
+    const migration = route.startsWith('xdpool') ? 'xdpool-workbuddy-provider-split-v1' : route === 'workbuddy-ai' ? 'workbuddy-ai-provider-split-v1' : 'workbuddy-global-provider-split-v1'
     const path = join(root, route + '-' + name + '.json')
     // Simulate a fully migrated old installation: all WorkBuddy AI calls were
     // recorded as API, even though the user intended to use its Plan family.

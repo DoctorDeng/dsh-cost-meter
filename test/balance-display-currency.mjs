@@ -51,14 +51,14 @@ try {
     assert.equal(JSON.stringify([state.today, state.month, state.total]), originalDays, '显示开关不重算账本')
   }
   assert.equal(calls, queryCount, '显示切换复用快照，不重新请求余额')
-  for (const dispose of cleanups.splice(0).reverse()) dispose()
+  for (const dispose of cleanups.splice(0).reverse()) await dispose()
   const disk = JSON.parse(readFileSync(join(root, 'storages', 'cost-meter', 'ledger.json'), 'utf8'))
   assert.deepEqual(disk.config.customBalances.map(e => e.convertToDisplayCurrency), [true, false])
   const reopened = Ledger.open()
   assert.deepEqual(reopened.config.customBalances.map(e => e.convertToDisplayCurrency), [true, false], '重启后保留每条设置')
   reopened.close()
 } finally {
-  for (const dispose of cleanups.reverse()) dispose()
+  for (const dispose of cleanups.reverse()) await dispose()
   globalThis.fetch = oldFetch
   if (oldHome === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = oldHome

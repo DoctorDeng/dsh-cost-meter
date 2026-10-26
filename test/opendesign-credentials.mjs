@@ -204,7 +204,7 @@ try {
     console.log('[ok] #317: real DSH local credential provider saves, resolves, queries and removes the Control Key in an isolated profile')
   }
 
-  for (const cleanup of disposers.splice(0).reverse()) cleanup()
+  for (const cleanup of disposers.splice(0).reverse()) await cleanup()
   const disk = readFileSync(path, 'utf8')
   for (const value of [first, second, alias, legacy]) assert.ok(!disk.includes(value), 'no key in the ledger')
   const reopened = Ledger.load(path)
@@ -223,7 +223,7 @@ try {
   } finally { migrated.close() }
 } finally {
   gate?.release()
-  for (const cleanup of disposers.reverse()) cleanup()
+  for (const cleanup of disposers.reverse()) await cleanup()
   await host?.fiber.dispose()
   globalThis.fetch = originalFetch
   for (const [name, value] of Object.entries(saved)) value === undefined ? delete process.env[name] : process.env[name] = value

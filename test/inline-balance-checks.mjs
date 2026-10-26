@@ -26,14 +26,26 @@ export async function checkInlineBalance(page, output) {
   assert.ok(await host.evaluate(n => n.getBoundingClientRect().height) < oldHeight, 'inline setting reduces sidebar height')
   assert.match(await row('today').getAttribute('data-test-tooltip'), /调用|请求/)
   assert.match(await row('balance').getAttribute('data-test-tooltip'), /赠送.*充值/)
-  for (const mode of ['standard', 'compact', 'summary', 'simple']) {
-    await page.evaluate(mode => window.configure({ sidebarStyle: mode === 'simple' ? 'standard' : mode, sidebarSimple: mode === 'simple', balance: { ...window.current().balance, showProgressBar: true, budgetCap: 200 } }), mode)
+  assert.match(await row('balance').getAttribute('data-test-tooltip'), /DeepSeek/, 'the official balance identifies its source in inline layouts too')
+  for (const mode of ['standard', 'compact', 'summary', 'simple']) for (const metric of ['cost', 'tokens', 'both']) {
+    await page.evaluate(({ mode, metric }) => window.configure({ sidebarStyle: mode === 'simple' ? 'standard' : mode, sidebarSimple: mode === 'simple', sidebarTodayMetric: metric, balance: { ...window.current().balance, showProgressBar: true, budgetCap: 200 } }), { mode, metric })
     await sameRow()
     assert.ok(await row('balance').locator('.cm-balance-bar').count() || await row('balance').locator('.cm-bbox-bar').count(), 'balance progress remains')
     for (const width of [311, 280, 220]) {
       await host.evaluate((n, width) => { n.style.width = width + 'px' }, width)
       await sameRow()
       assert.ok(await host.evaluate(n => n.scrollWidth <= n.clientWidth + 1), mode + ' stays within narrow sidebar')
+      const geometry = await host.evaluate(node => {
+        const today = node.querySelector('.cm-inline-today')
+        const value = today.querySelector('[data-cm-today=cost]') ?? today.querySelector('[data-cm-today=tokens]')
+        const balance = node.querySelector('.cm-inline-balance .cm-bbox-head .cm-bbox-pct')
+        const cost = value.getBoundingClientRect(), other = balance.getBoundingClientRect()
+        const tokens = today.querySelector('[data-cm-today=tokens]')?.getBoundingClientRect()
+        return { top: cost.top, balanceTop: other.top, bottom: cost.bottom, tokenTop: tokens?.top, tokenBottom: tokens?.bottom, rowBottom: today.getBoundingClientRect().bottom }
+      })
+      assert.ok(Math.abs(geometry.top - geometry.balanceTop) <= 1, `${mode}/${metric}/${width} today amount aligns with balance: ` + JSON.stringify(geometry))
+      if (metric === 'both') assert.ok(geometry.tokenTop >= geometry.bottom, 'tokens follow the amount without shifting its first line')
+      if (metric === 'both') assert.ok(geometry.tokenBottom <= geometry.rowBottom, 'the two-line amount is not clipped by the former fixed row height')
     }
   }
   await host.evaluate(n => { n.style.width = '311px' })

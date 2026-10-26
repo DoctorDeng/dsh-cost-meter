@@ -103,7 +103,7 @@ try {
   assert.ok(mutations.every(([, ref]) => ref === 'OPENCODE_GO_API_KEY'), 'saving and clearing never mutates shared model-route credentials')
   console.log('[ok] #325 Go: dedicated/route/env/login credentials, Bearer normalization, XDG/auth-content priority, logout, 401/403 classification, cache and immediate recovery; no external requests')
 } finally {
-  for (const dispose of cleanups.reverse()) dispose()
+  for (const dispose of cleanups.reverse()) await dispose()
   globalThis.fetch = originalFetch
   for (const n of names) saved[n] === undefined ? delete process.env[n] : process.env[n] = saved[n]
   assert.equal(dirname(root), tmpdir())

@@ -53,6 +53,18 @@ for (const path of ['../src/codex/index.js', '../lib/client.codex.js']) {
     value = invalid
     assert.equal(await page.readChatgptQuota(), null, 'unavailable quota permits auto fallback')
   }
+  let hostReads = 0
+  const readQuota = async () => { hostReads++; return { ok: true, value: { status: 'ok', message: '', windows: { weekly: { percent: 14, resetsAt: '' } } } } }
+  const sub = chunk(path, async (url, options) => {
+    assert.equal(url, '/_dsh/dsh-chatgpt-sub/getCodexBridgeStatus')
+    assert.equal(options.credentials, 'same-origin'); assert.equal(options.redirect, 'error')
+    return reply(value)
+  })
+  for (value of [null, {}, { ok: true }, { ok: false, bound: true, routeConfigured: true }, { ok: true, bound: false, routeConfigured: true }, { ok: true, bound: true, routeConfigured: false }]) assert.equal(await sub.readChatgptSubQuota(readQuota), null)
+  assert.equal(hostReads, 0, 'unbound or conflicting plugin state never reads its quota credential')
+  value = { ok: true, bound: true, routeConfigured: true }
+  assert.equal((await sub.readChatgptSubQuota(readQuota)).windows.weekly.percent, 14)
+  assert.equal(hostReads, 1)
   for (const fetch of [async () => ({ ok: false }), async () => ({ ok: true, json: async () => { throw Error('invalid JSON') } }), async () => { throw Error('timeout') }]) {
     assert.equal(await chunk(path, fetch).readChatgptQuota(), null)
   }
@@ -79,6 +91,10 @@ assert.deepEqual(changed.errors, [])
 assert.equal(sanitizeConfig(changed.config).codexQuotaSource, 'chatgpt')
 assert.equal(stateSchema.shape.config.parse(changed.config).codexQuotaSource, 'chatgpt')
 assert.equal(c.ui.parseConfig(changed.config).codexQuotaSource, 'chatgpt')
+const subConfig = applyConfigPatch(sanitizeConfig({}), { codexQuotaSource: 'chatgpt-sub' })
+assert.deepEqual(subConfig.errors, [])
+assert.equal(stateSchema.shape.config.parse(subConfig.config).codexQuotaSource, 'chatgpt-sub')
+assert.equal(c.ui.parseConfig(subConfig.config).codexQuotaSource, 'chatgpt-sub')
 assert.ok(applyConfigPatch(sanitizeConfig({}), { codexQuotaSource: 'unknown' }).errors.length > 0)
 let rpcCalls = 0
 c.ui.codexQuotaCache.rpc = { call: async () => { rpcCalls++; return { ok: false } } }
@@ -114,7 +130,7 @@ const fallbackCalls = []
 const fallback = client(async url => { fallbackCalls.push(url); return reply(url.startsWith(prefix) ? { ok: false } : { status: 'signed-in', usage: { rateLimits: [{ id: 'codex', windows: [{ windowSeconds: 604800, remainingPercent: 75 }] }] } }) })
 fallback.ui.codexQuotaCache.rpc = { call: async () => ({ ok: false }) }
 await fallback.ui.fetchCodexQuota(false, true, 'auto')
-assert.deepEqual(fallbackCalls, [prefix + 'status', '/plugins/dsh-openai-codex/auth/status'])
+assert.deepEqual(fallbackCalls, ['/_dsh/dsh-chatgpt-sub/getCodexBridgeStatus', prefix + 'status', '/plugins/dsh-openai-codex/auth/status'])
 assert.equal(fallback.ui.codexQuotaCache.windows.weekly.percent, 25)
 fallbackCalls.length = 0
 await fallback.ui.fetchCodexQuota(true, true, 'chatgpt')

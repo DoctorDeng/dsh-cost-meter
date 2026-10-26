@@ -34,8 +34,9 @@ export async function buildBillionCompatibility(input, destination, { pack = tru
     else writeFileSync(nativePath, result.source)
   }
   cpSync(join(sourceRoot, 'lib/billion-context-proxy.js'), join(target, 'dist/cost-meter-proxy.js'))
+  cpSync(join(sourceRoot, 'lib/journal-storage.js'), join(target, 'dist/journal-storage.js'))
   cpSync(join(sourceRoot, 'lib/billion-context-native.js'), join(target, 'dist/agent/cost-meter-native.js'))
-  for (const file of ['dist/index.js', 'dist/agent/dsh-native.js', 'dist/cost-meter-proxy.js', 'dist/agent/cost-meter-native.js']) execFileSync(process.execPath, ['--check', join(target, file)], { stdio: 'pipe' })
+  for (const file of ['dist/index.js', 'dist/agent/dsh-native.js', 'dist/cost-meter-proxy.js', 'dist/journal-storage.js', 'dist/agent/cost-meter-native.js']) execFileSync(process.execPath, ['--check', join(target, file)], { stdio: 'pipe' })
   const base = baseVersion.split('+')[0]
   pkg.version = base + (base.includes('-') ? '.' : '-') + 'cost-meter.1'
   pkg.dshCostMeterCompatibility = { protocol: 1, adapter: 2, baseVersion, sourceHashes, capabilities }

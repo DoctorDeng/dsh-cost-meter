@@ -25,8 +25,8 @@ try {
   const result = await queryCodingPlan('workbuddy', key, 'en', t)
   assert.equal(result.windows.balance.text, '1,011')
   assert.equal(JSON.stringify(result).includes('DO_NOT_COPY'), false)
-  assert.equal(requestLog.length, 3)
-  assert.deepEqual(requestLog[2], { path: '/plugins/dsh-workbuddy-connect/status', method: 'GET', authorization: undefined })
+  assert.equal(requestLog.length, 5)
+  assert.deepEqual(requestLog[4], { path: '/plugins/dsh-workbuddy-connect/status', method: 'GET', authorization: undefined })
   status = { status: 'signed-in', credits: { total: 0, accounts: [] } }
   assert.equal((await queryCodingPlan('workbuddy', key, 'en', t)).windows.balance.text, '0')
   status.credits = { total: 0, unlimited: true, accounts: [] }
@@ -49,7 +49,7 @@ try {
     await assert.rejects(queryCodingPlan('workbuddy', { hostOrigin, readFile: () => encrypted }, 'en', t), e => e.soft && e.message === 'workbuddyAuthEncrypted')
   }
   html = false; httpStatus = 302
-  await assert.rejects(queryCodingPlan('workbuddy', key, 'en', t), /fetch failed/)
+  await assert.rejects(queryCodingPlan('workbuddy', key, 'en', t), e => e.soft && e.message === 'workbuddyConnectUnavailable')
   assert.equal(requestLog.some(r => r.path === '/must-not-follow'), false)
   for (const url of ['https://example.com', 'http://example.com', 'http://user@127.0.0.1:1234', hostOrigin + '/unexpected']) {
     await assert.rejects(fetchWorkBuddyConnectCredits(url), e => e.code === 'workbuddyConnectUnavailable')
@@ -62,7 +62,7 @@ try {
   const zero = await queryCodingPlan('workbuddy', key, 'en', t)
   assert.equal(zero.windows.balance.text, '0', 'use selected account total, including zero, rather than unrelated pool fields')
   assert.equal(JSON.stringify(zero).includes('DO_NOT_COPY'), false)
-  assert.deepEqual(requestLog.map(row => row.path), ['/plugins/dsh-connect-workbuddy/account-credits?region=cn', '/plugins/dsh-connect-workbuddy/account-credits?region=global', '/plugins/dsh-workbuddy-connect/status', '/plugins/dsh-workbuddy-connect/ai/status', cn])
+  assert.deepEqual(requestLog.map(row => row.path), ['/plugins/dsh-connect-workbuddy/account-credits?region=cn', '/plugins/dsh-connect-workbuddy/account-credits?region=global', '/plugins/dsh-xdpool/status?region=cn', '/plugins/dsh-xdpool/status?region=global', '/plugins/dsh-workbuddy-connect/status', '/plugins/dsh-workbuddy-connect/ai/status', cn])
   assert.ok(requestLog.every(row => row.method === 'GET' && row.authorization === undefined))
   connectRoutes.set(cn, { status: 'signed-out', accounts: [], selectionExplicit: false })
   connectRoutes.set(global, { status: 'signed-in', region: 'global', credits: { total: 700, nearestExpiryMs: Date.parse('2030-01-01T00:00:00Z') } })

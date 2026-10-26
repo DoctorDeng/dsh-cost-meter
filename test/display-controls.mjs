@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { sanitizeConfig, applyConfigPatch } from '../lib/store.js'
 import { stateSchema } from '../lib/typert.host.js'
+import { quotaPlacementHelpers } from './quota-placement.mjs'
 
 const el = (type, props, ...children) => ({ type, props: props ?? {}, children })
 const React = { cloneElement: (node, props) => ({ ...node, props: { ...node.props, ...props } }) }
@@ -23,6 +24,7 @@ const set = patch => {
   config = stateSchema.shape.config.parse(result.config)
 }
 const inspect = selected => Inspector({ props: {
+  ...quotaPlacementHelpers,
   t: key => key, numInput: () => null, displayOptions: () => ['sidebar','settings','both','off'].map(value => el('option', { value }, value)),
   planOptions: [['minimax','MiniMax'],['kimi','Kimi']], state: {},
 }, config, selected, selectedPlan, selectPlan: value => { selectedPlan = value }, openQuota: () => { navigated = selectedPlan },

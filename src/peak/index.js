@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
     }
 
     function mount(helpers) {
-      const { peakView, peakPhaseAt, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip, FloatingCard, renderSidebarFooter } = helpers
+      const { peakView, peakPhaseAt, peakPhaseForConfig = (config, now) => peakPhaseAt(now, config.peakWindows, config.peakHolidays), peakConfigForState = state => state?.config, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip, FloatingCard, renderSidebarFooter } = helpers
       let style = document.getElementById('dsh-cost-meter-peak-style')
       if (!style) { style = document.createElement('style'); style.id = 'dsh-cost-meter-peak-style'; document.head.appendChild(style) }
       style.textContent = css

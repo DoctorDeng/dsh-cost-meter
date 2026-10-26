@@ -2,7 +2,7 @@
 window.__ModuleLoader__.load({ id: 'dsh-cost-meter', chunk: 'client.plan-settings.js', factory: require => {
   const { createElement: el, useState, Fragment } = require('react')
   return { mount(helpers) {
-    const { useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd } = helpers
+    const { useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, codingPlanWindowEntries, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions } = helpers
     function WorkBuddyAccounts({ live, config, setPlan, state }) {
       const text = (zh, en) => resolveLocale(state.config) === 'en' ? en : zh
       const data = live.workbuddy, rows = data?.accounts ?? [], scope = config.accountScope ?? 'current'
@@ -10,8 +10,12 @@ window.__ModuleLoader__.load({ id: 'dsh-cost-meter', chunk: 'client.plan-setting
       const selected = rows.filter(row => scope === 'all' || (scope === 'current' ? row.current : ids.has(row.id)))
       const number = value => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'
       const sum = key => selected.length && selected.every(row => typeof row[key] === 'number') ? selected.reduce((sum, row) => sum + row[key], 0) : null
-      const equiv = bucket => Object.entries(bucket?.byProviderModel ?? {}).reduce((sum, [key, row]) => /^(workbuddy|workbuddy-ai|workbuddy-global|workbuddy-subscription):/.test(key) ? sum + (row.cost ?? 0) : sum, 0)
+      const equiv = bucket => Object.entries(bucket?.byProviderModel ?? {}).reduce((sum, [key, row]) => /^(workbuddy|workbuddy-ai|workbuddy-global|workbuddy-subscription|xdpool|xdpool-global):/.test(key) ? sum + (row.cost ?? 0) : sum, 0)
       return el('section', { className: 'cm-workbuddy-accounts', style: { minWidth: 0 } },
+        el('div', { className: 'cm-field' }, el('label', null, text('积分来源', 'Credit source')),
+          el('select', { className: 'cm-input', 'aria-label': text('积分来源', 'Credit source'), value: config.accountSource ?? 'auto', onChange: e => setPlan('accountSource', e.target.value) },
+            ...[['auto', text('自动识别', 'Automatic')], ['connect', text('WorkBuddy 连接插件', 'WorkBuddy connectors')], ['xdpool', 'dsh-xdpool']].map(([value, label]) => el('option', { value, key: value }, label))),
+          el('p', { className: 'cm-note' }, text('自动识别优先读取连接插件的账号列表，其次读取 XD Pool。两者同时使用时可指定来源。', 'Automatic uses connector accounts first, then XD Pool. Select a source when using both.'))),
         el('div', { className: 'cm-field' }, el('label', null, text('统计账号', 'Accounts to include')),
           el('select', { className: 'cm-input', 'aria-label': text('统计账号', 'Accounts to include'), value: scope, onChange: e => setPlan('accountScope', e.target.value) },
             ...[['current', text('当前账号（各区域）', 'Current account per region')], ['all', text('全部账号', 'All accounts')], ['selected', text('勾选账号', 'Select accounts')]].map(([value, label]) => el('option', { value, key: value }, label)))),
@@ -95,7 +99,7 @@ window.__ModuleLoader__.load({ id: 'dsh-cost-meter', chunk: 'client.plan-setting
                   wide: true,
                   direction: barDirectionOf(config, 'plan'),
                 })
-                : Object.entries(windows).map(([name, win]) => quotaWindowRow(t, codingPlanWindowLabel(name, t), win, barDirectionOf(config, 'plan'), false, name)))
+                : codingPlanWindowEntries(windows, planId).map(([name, win]) => quotaWindowRow(t, codingPlanWindowLabel(name, t), win, barDirectionOf(config, 'plan'), false, name)))
               : el('div', { className: 'cm-bal-line' }, t('codingPlanNotQueried')),
             el('div', { className: 'cm-go-time' }, t('goQuotaFetchedAt', {
               time: live.fetchedAt > 0 ? new Date(live.fetchedAt).toLocaleTimeString() : '—',
@@ -136,13 +140,15 @@ window.__ModuleLoader__.load({ id: 'dsh-cost-meter', chunk: 'client.plan-setting
           el('label', null, t('codingPlanDisplayLabel')),
           el('select', {
             className: 'cm-input',
-            value: typeof cfgEntry.display === 'string' ? cfgEntry.display : (planId === 'minimax' ? 'both' : 'settings'),
-            onChange: event => setPlan('display', event.target.value),
+            'aria-label': t('codingPlanDisplayLabel'),
+            value: quotaPlacementValue(cfgEntry, (draft ?? config).quotaStrip, 'plans'),
+            onChange: event => {
+              if (draft === null) return
+              const base = draft.codingPlans ?? config.codingPlans ?? {}
+              setDraft({ ...draft, codingPlans: { ...base, [planId]: { ...cfgEntry, ...quotaPlacementPatch(event.target.value) } } })
+            },
           },
-            el('option', { value: 'sidebar' }, t('balanceSidebar')),
-            el('option', { value: 'settings' }, t('balanceSettings')),
-            el('option', { value: 'both' }, t('balanceBoth')),
-            el('option', { value: 'off' }, t('off'))),
+            ...quotaPlacementOptions(t)),
           el('span', { className: 'cm-hint' }, t('codingPlanDisplayNote'))),
         // 刷新间隔(issue #33):进程内缓存过期分钟数,1-1440,保存后生效;
         // 本地估算无缓存间隔；千问 CLI 使用可配置的查询间隔。

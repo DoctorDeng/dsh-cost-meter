@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Ledger, sanitizeConfig } from '../lib/store.js'
@@ -20,6 +20,7 @@ for (const data of [[], badRows]) assert.throws(() => parseOpenRouterModels({ da
 const root = mkdtempSync(join(tmpdir(), 'cm-openrouter-'))
 const oldHome = process.env.DSH_HOME, originalFetch = globalThis.fetch
 const nativeTimers = { setTimeout, clearTimeout, setInterval, clearInterval }, lifecycleTimers = new Map()
+const retryTimers = []
 const ledgers = [], controllers = [], cleanups = []
 const makeLedger = (path = join(root, 'ledger.json')) => {
   const ledger = new Ledger(sanitizeConfig({ hideOfficialBalance: true, legacyAutoImportedAt: 1, goQuota: { enabled: false } }), {}, path)
@@ -139,13 +140,16 @@ try {
   ]) await assert.rejects(globalThis.fetch(url), /unexpected test request/, 'reject a spoofed official pricing URL')
   for (const [set, clear, delay] of [['setTimeout', 'clearTimeout', 3000], ['setInterval', 'clearInterval', 3600_000]]) {
     globalThis[set] = (fn, ms, ...args) => {
+      if (set === 'setTimeout' && ms > 3500_000 && ms <= 3600_000) {
+        const handle = { fn, ms, unref() {}, cleared: false }; retryTimers.push(handle); return handle
+      }
       if (ms !== delay) return nativeTimers[set](fn, ms, ...args)
       const handle = { fn, unref() {}, cleared: false }
       lifecycleTimers.set(delay, handle)
       return handle
     }
     globalThis[clear] = handle => {
-      if (handle === lifecycleTimers.get(delay)) handle.cleared = true
+      if (handle === lifecycleTimers.get(delay) || retryTimers.includes(handle)) handle.cleared = true
       else nativeTimers[clear](handle)
     }
   }
@@ -209,17 +213,23 @@ try {
   directoryOk = true
   let beforeTimer = directoryCalls
   await lifecycleTimers.get(3000).fn()
-  assert.equal(directoryCalls, beforeTimer + 1, 'startup refresh reaches the public directory')
+  assert.equal(directoryCalls, beforeTimer, 'startup reuses the fresh snapshot from manual sync')
+  const retry = retryTimers.at(-1)
+  assert.ok(retry?.ms > 3500_000, 'fresh startup schedules the remaining cooldown')
+  writeFileSync(join(process.env.DSH_HOME, 'storages/cost-meter/ledger.json.openrouter-prices.json'), JSON.stringify({ fetchedAt: Date.now() - 3600_001 }))
+  await retry.fn()
+  assert.equal(directoryCalls, beforeTimer + 1, 'deferred callback refreshes after cooldown expiry')
   beforeTimer = directoryCalls
   lifecycleTimers.get(3600_000).fn()
   for (let n = 0; n < 20; n++) await Promise.resolve()
-  assert.equal(directoryCalls, beforeTimer + 1, 'hourly timer refreshes the directory')
-  for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+  assert.equal(directoryCalls, beforeTimer, 'timer also observes the persisted cooldown')
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
   assert.ok([...lifecycleTimers.values()].every(timer => timer.cleared))
+  assert.ok(retryTimers.every(timer => timer.cleared), 'unload clears all deferred refreshes')
   lifecycleTimers.get(3600_000).fn()
-  assert.equal(directoryCalls, beforeTimer + 1, 'disposed timer cannot issue another request')
+  assert.equal(directoryCalls, beforeTimer, 'disposed timer cannot issue another request')
 } finally {
-  for (const cleanup of cleanups.reverse()) cleanup()
+  for (const cleanup of cleanups.reverse()) await cleanup()
   Object.assign(globalThis, nativeTimers)
   for (const controller of controllers) controller.dispose()
   for (const ledger of ledgers) ledger.close()

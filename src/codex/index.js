@@ -35,6 +35,21 @@ window.__ModuleLoader__.load({
       } catch { return null }
     }
 
+    // This similarly named plugin exposes binding status, not a quota HTTP route.
+    // Confirm its active binding before asking our host for sanitized quota facts.
+    async function readChatgptSubQuota(readQuota) {
+      try {
+        const response = await fetch('/_dsh/dsh-chatgpt-sub/getCodexBridgeStatus', {
+          credentials: 'same-origin', redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000),
+        })
+        if (!response.ok) return null
+        const status = await response.json()
+        if (status?.ok !== true || status.bound !== true || status.routeConfigured !== true) return null
+        const result = await readQuota?.()
+        return result?.ok === true ? result.value : null
+      } catch { return null }
+    }
+
     // Dialog geometry/head/body are reused from the always-loaded .cm-stat-dialog rules;
     // the chunk narrows the width itself (chunk bytes are not billed against client.js).
     const DIALOG_CLASS = 'cm-stat-dialog cm-codex-compat-dialog'
@@ -174,6 +189,6 @@ window.__ModuleLoader__.load({
     function mount() {
       return props => el(props.view === 'prompt' ? CodexCompatPrompt : CodexCompatPanel, props)
     }
-    return { mount, CodexCompatPrompt, CodexCompatPanel, readChatgptQuota }
+    return { mount, CodexCompatPrompt, CodexCompatPanel, readChatgptQuota, readChatgptSubQuota }
   },
 })

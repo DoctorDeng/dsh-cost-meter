@@ -126,7 +126,7 @@ try {
   release?.()
   globalThis.fetch = previousFetch
   globalThis.setTimeout = previousTimeout
-  for (const cleanup of cleanups.reverse()) cleanup()
+  for (const cleanup of cleanups.reverse()) await cleanup()
   if (oldHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = oldHome
   rmSync(root, { recursive: true, force: true })
 }

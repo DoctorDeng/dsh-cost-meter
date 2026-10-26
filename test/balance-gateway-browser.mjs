@@ -193,7 +193,7 @@ try {
 } finally {
   if (page) await page.evaluate(() => window.dispose?.()).catch(() => {})
   if (browser) await browser.close()
-  for (const fn of cleanups.reverse()) fn()
+  for (const fn of cleanups.reverse()) await fn()
   globalThis.fetch = previousFetch
   if (previousHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = previousHome
   await new Promise(done => server.close(done))

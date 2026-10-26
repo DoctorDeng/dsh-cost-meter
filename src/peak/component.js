@@ -4,7 +4,7 @@
       let start = view.prevAtMs
       // Weekends/holidays can begin inside an already active off-peak interval.
       for (let i = 0; i < 16; i++) {
-        const before = peakPhaseAt(start - 1, config.peakWindows, config.peakHolidays)
+        const before = peakPhaseForConfig(config, start - 1)
         if (!before || before.inPeak !== view.inPeak || before.prevAtMs >= start) break
         start = before.prevAtMs
       }
@@ -33,7 +33,7 @@
         }
         tick(); document.addEventListener('visibilitychange', tick)
         return () => { window.clearTimeout(timer); document.removeEventListener('visibilitychange', tick) }
-      }, [fixedNow, config.peakWindows, config.peakHolidays])
+      }, [fixedNow, config.peakWindows, config.peakHolidays, config.peakProvider])
       const now = fixedNow ?? clock, view = peakProgressData(config, now)
       if (!view) return null
       const en = resolveLocale(config) === 'en', keys = phaseLabelKeys(view)

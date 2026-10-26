@@ -63,7 +63,7 @@ function mount({ account = null, accountState, describe, proxyAccount = false, s
   const instance = { service, requests, accountCalls,
     emit: (name, ...args) => { for (const fn of events.get(name) ?? []) fn(...args) },
     replaceAccount: value => { currentAccount = value },
-    dispose: () => { for (const fn of cleanups.splice(0).reverse()) fn() },
+    dispose: async () => { for (const fn of cleanups.splice(0).reverse()) await fn() },
   }
   instances.push(instance)
   return instance
@@ -237,7 +237,7 @@ try {
     fail = true
     lifecycle.emit(event, 'deepseek-account-platform/default')
     assert.equal((await lifecycle.service.getState()).balance.status, 'error')
-    lifecycle.dispose()
+    await lifecycle.dispose()
     const disk = JSON.parse(readFileSync(join(home, 'storages', 'cost-meter', 'ledger.json'), 'utf8'))
     assert.equal(disk.balanceRef, null, '失败查询后的显式基准清空持久化')
     const reopened = Ledger.load(join(home, 'storages', 'cost-meter', 'ledger.json'))
@@ -249,7 +249,7 @@ try {
   const restartHome = process.env.DSH_HOME
   const restart = mount({ account: () => ({ status: 'failed' }) })
   assert.equal((await restart.service.getState()).balance.status, 'error')
-  restart.dispose()
+  await restart.dispose()
   assert.equal(JSON.parse(readFileSync(join(restartHome, 'storages', 'cost-meter', 'ledger.json'), 'utf8')).balanceRef, null, '重挂载无法确认旧账号身份时丢弃磁盘基准')
 
   const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
@@ -272,7 +272,7 @@ try {
     gate.resolve(); await old
     assert.equal((await pending.service.getState()).balance.totalBalance, 10, '晚到旧账号结果不能污染新缓存')
     assert.equal(pending.requests.length, 0, '失效中的 null/异常不能触发模型 Key 请求')
-    pending.dispose()
+    await pending.dispose()
   }
   for (const method of ['getState', 'refreshBalance']) {
     useHome('snapshot-race-' + method)
@@ -298,7 +298,7 @@ try {
     assert.equal(state.reconcile.ok, true)
     if (method === 'refreshBalance') assert.equal(assembled.ok, false, '退出后刷新不再沿用旧成功状态')
     stateSchema.parse(state)
-    snapshot.dispose()
+    await snapshot.dispose()
   }
   useHome('replacement')
   const replacement = mount({ account: () => ({ status: 'ready', value: [cnyMain], bonusWallets: [] }) })
@@ -331,7 +331,7 @@ try {
     gate.resolve(); await previous
     assert.equal((await replaced.service.getState()).balance.totalBalance, 1, '旧 proxy target 在途结果不能覆盖新服务余额')
     assert.equal(replaced.requests.length, 0, '旧 proxy target 的 null 不得触发模型 Key 回退')
-    replaced.dispose()
+    await replaced.dispose()
   }
 
   useHome('dispose-pending')
@@ -341,7 +341,7 @@ try {
   const closingRequest = closing.service.refreshBalance()
   for (let n = 0; n < 100 && !closingStarted; n++) await tick()
   assert.ok(closingStarted)
-  closing.dispose(); closingGate.resolve(); await closingRequest
+  await closing.dispose(); closingGate.resolve(); await closingRequest
   assert.equal(closing.requests.length, 0, '卸载后旧账号请求不得继续回退')
 
   const base = { version: 1, days: {}, config: {}, balanceRef: { date: localDayKey(), total: 100, at: 10 }, migrations: [], planSamples: {}, planHourBuckets: {}, openrouterPriceHashes: {} }
@@ -378,7 +378,7 @@ try {
   assert.equal(accountResult.state.reconcile.ok, true, '账号用量与官方余额变动接近时不再误报：¥10.08 对 ¥10，而非 ¥0.072 对 ¥10')
   assert.ok(Math.abs(accountResult.state.today.cost - 4.4) < 1e-12, '对账筛选不修改完整账本及第三方费用')
   stateSchema.parse(accountResult.state)
-  reconciled.dispose()
+  await reconciled.dispose()
 
   // Execute the actual client components against a failed RPC snapshot in both languages.
   const dir = new URL('../src/client/', import.meta.url)
@@ -407,7 +407,7 @@ try {
   console.log('[ok] 账号渠道余额(优先级/脱敏可见错误/重试节流/钱包校验/账号生命周期/取消/磁盘基准/UI 渲染)通过')
 } finally {
   Date.now = originalNow
-  for (const instance of instances.reverse()) instance.dispose()
+  for (const instance of instances.reverse()) await instance.dispose()
   globalThis.fetch = originalFetch
   for (const [name, value] of Object.entries(saved)) value === undefined ? delete process.env[name] : process.env[name] = value
   rmSync(root, { recursive: true, force: true })

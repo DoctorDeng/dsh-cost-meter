@@ -10,7 +10,7 @@ import { stateSchema } from '../lib/typert.host.js'
 // 执行真实组件和事件回调，再经过服务端清洗与客户端读取；不向发布产物暴露接口。
 const dir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(dir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, dir), 'utf8')).join('')
-const code = source.replace('exports.apply = apply', 'exports.test = { TurnCost, PlanQuotaCard, CostSection, parseConfig, makeT, codingPlanWindowLabel, useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd }; exports.apply = apply')
+const code = source.replace('exports.apply = apply', 'exports.test = { TurnCost, PlanQuotaCard, CostSection, parseConfig, makeT, codingPlanWindowLabel, codingPlanWindowEntries, useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions }; exports.apply = apply')
 let active, pricing, display
 const react = {
   Component: class {},

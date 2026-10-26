@@ -106,13 +106,13 @@
 
 | 归属 | 识别方式与显示范围 |
 |---|---|
-| Codex / ChatGPT | codex、openai-codex 或明确的 Codex / ChatGPT 套餐名；auto 跟随 Codex 额度开关，普通 openai API 保持 API |
+| Codex / ChatGPT | codex、openai-codex 或明确的 Codex / ChatGPT 套餐名；auto 沿用保存的自动套餐集合，普通 openai API 保持 API |
 | 火山 Agent Plan | 与原火山 Coding Plan 分开；匹配 ark-agent-plan 等名称，统计本地 Token 与等值费用 |
 | 腾讯 Coding Plan / Token Plan | 两种独立归属；同时出现两种产品的名称不自动选择 |
 | 百度千帆 Coding Plan | 匹配 baidu-coding-plan、千帆套餐等明确名称，普通 baidu API 保持 API |
 | OpenCode Go / Go Plus | 共用 Go 归属与该渠道参考价，opencode-go-plus 别名保留其手动价格优先级 |
 
-手动选择套餐或 API 始终优先。新增归属可用于本地调用分类；火山 Agent Plan、腾讯两种套餐、百度千帆尚未接入服务端额度查询，不显示推测的剩余额度或每 1% 总量。Codex 继续通过已安装的 dsh-openai-codex 插件只读获取额度。
+手动选择套餐或 API 始终优先。新增归属可用于本地调用分类；火山 Agent Plan、腾讯两种套餐、百度千帆尚未接入服务端额度查询，不显示推测的剩余额度或每 1% 总量。Codex 可直接从 DSH pi-ai 登录读取额度，也可通过已安装的订阅连接插件只读获取。
 
 来源：[Codex / ChatGPT 方案](https://learn.chatgpt.com/docs/pricing)、[火山 Agent Plan](https://docs.volcengine.com/docs/ark/agent-plan-personal-plan-overview?lang=zh)、[腾讯两种独立套餐](https://cloud.tencent.com/document/product/1823/130103)、[百度千帆 Coding Plan](https://qianfan.cloud.baidu.com/qianfandev/topic/687754)、[Go / Go Plus](https://opencode.ai/v2/docs/console/go/)。
 
@@ -129,16 +129,16 @@
 
 ## 二·五、Plan/API 双轨计费分类(issue #64,v1.5.51 起)
 
-账本在 day / session / byProviderModel 三级同时记录「总等值金额 cost」与「真金白银 apiCost」;预算、今日费用、概览卡片等金额展示仅统计 API 部分,订阅额度消耗以等值口径单独呈现。分类优先级:**模型级覆盖(planBilling.models[provider:model])> 原始渠道配置(planBilling.providers[provider])> 套餐厂商配置 > auto**(该家额度查询启用即 plan,否则 api)。原始渠道名按请求中的 provider 精确匹配，可为未内置的渠道显式配置 plan/api；auto 表示继续按套餐厂商配置和启用状态判断。DeepSeek 官方搜索、抓取请求费始终归 API。
+账本在 day / session / byProviderModel 三级同时记录「总等值金额 cost」与「真金白银 apiCost」;预算、今日费用、概览卡片等金额展示仅统计 API 部分,订阅额度消耗以等值口径单独呈现。分类优先级:**模型级覆盖(planBilling.models[provider:model])> 原始渠道配置(planBilling.providers[provider])> 套餐厂商配置 > auto**(按保存的 planBilling.autoProviders 判断)。原始渠道名按请求中的 provider 精确匹配，可为未内置的渠道显式配置 plan/api；auto 表示继续按套餐厂商配置和保存的自动套餐集合判断。从 1.9.28 起，旧配置首次读取时沿用原查询开关对应的归属，之后查询及显示开关不再改变历史金额；新增套餐应在计费方式中显式选择 plan。DeepSeek 官方搜索、抓取请求费始终归 API。
 
 | 厂商 | 默认(auto 行为)| 说明 |
 |---|---|---|
-| anthropic / zai / minimax / commandcode / clinepass / scnet / volcengine | 启用额度查询 → plan | 窗口百分比制订阅 |
-| kimi | 启用额度查询 → plan | 订阅窗口;PAYG 余额场景请把对应模型覆盖为 api |
-| workbuddy / workbuddy-ai / workbuddy-global | 启用 WorkBuddy 积分查询 → plan | 两种 WorkBuddy 连接插件的国内版、国际版沿用 workbuddy 套餐配置；也可显式设置 providers.workbuddy=plan |
+| anthropic / zai / minimax / commandcode / clinepass / scnet / volcengine | 已保存为自动套餐 → plan | 窗口百分比制订阅 |
+| kimi | 已保存为自动套餐 → plan | 订阅窗口;PAYG 余额场景请把对应模型覆盖为 api |
+| workbuddy / workbuddy-ai / workbuddy-global | 已保存为自动套餐 → plan | 两种 WorkBuddy 连接插件的国内版、国际版沿用 workbuddy 套餐配置；也可显式设置 providers.workbuddy=plan |
 | openrouter / siliconflow | api | credits/余额为真实扣费 |
-| OpenCode Go(zen/opencode 路由)| 启用 Go 额度 → plan | Go 订阅包含模型;Zen 按量用户请覆盖为 api |
-| Codex(ChatGPT 订阅)| api(手动标记)| 无 API-Key 化额度端点,可在设置中按 provider:model 标记为 plan |
+| OpenCode Go(zen/opencode 路由)| 已保存为自动套餐 → plan | Go 订阅包含模型;Zen 按量用户请覆盖为 api |
+| Codex(ChatGPT 订阅)| 保存的套餐归属或手动标记 | 支持 pi-ai 登录及连接插件额度；可在设置中按 provider:model 标记为 plan |
 
 每 1% 额度与满窗的 token/等值金额估算由**百分比采样历史**差分推算(每次额度刷新成功记录一条样本,每厂商×窗口上限 400 条 / 90 天);样本不足时回退「本周期实际 ÷ 当前已用%」折算。SCNet 为本地 Credits 自估,不参与采样估算。
 

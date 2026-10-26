@@ -15,7 +15,7 @@ for (const [source, selector] of [
   [main, '.cm-section'], [main, '.cm-stat-dialog'], [main, '.cm-qguide'],
   [main, '.cm-peak-alert'], [main, '.cm-footer-stack.simple'], [main, '.cm-simple-summary'],
   [statistics, '.cm-stat'], [statistics, 'dialog.cm-fee-dialog'],
-  [statistics, '.cm-context-intro'], [statistics, '.cm-billion-notice'],
+  [statistics, '.cm-context-intro'],
   [pricing, '.cm-combo-panel'],
 ]) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -23,4 +23,4 @@ for (const [source, selector] of [
   assert.ok(rules.some(([, body]) => body.includes('background:var(--cm-opaque-base,#fff);background:rgb(from ') && body.includes(' r g b / 1)')),
     selector + ' uses an opaque fallback and opaque skin RGB')
 }
-console.log('[ok] skin occlusion: all 11 owned surfaces have opaque backgrounds')
+console.log('[ok] skin occlusion: all 10 owned surfaces have opaque backgrounds')

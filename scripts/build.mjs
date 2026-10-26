@@ -22,6 +22,13 @@ import { javascriptLiteral } from './javascript-literal.mjs'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
+// Worker threads have no DSH module resolver. Ship their dependency graph in
+// one file, including the pure home-path helper, rather than importing host peers.
+await build({ entryPoints: [resolve(projectRoot, 'src/ledger-writer-worker.js')], outfile: resolve(projectRoot, 'lib/ledger-writer-worker.js'),
+  bundle: true, platform: 'node', format: 'esm', minify: true, target: 'node20', legalComments: 'inline',
+  banner: { js: '// Generated from src/ledger-writer-worker.js by scripts/build.mjs; do not edit.' } })
+assert.ok(Buffer.byteLength(readFileSync(resolve(projectRoot, 'lib/ledger-writer-worker.js'))) <= 262144, 'ledger worker exceeds DSH STORE bound')
+
 // A single import installs the local proxy observer before loading price/UI
 // dependencies. Bundle its parser too, avoiding asynchronous dependency loading
 // while the host starts other plugins in parallel.
@@ -184,7 +191,7 @@ console.log('✓ lib/client.js within DSH STORE per-file bound (262144)')
 
 // DSH 0.2.0-rc.2 package-local chunks use the host's require.async contract.
 // Each on-demand screen has readable source and a bounded runtime asset.
-for (const chunk of ['statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak', 'session-list', 'sidebar-order', 'plan-settings']) {
+for (const chunk of ['billing-storage', 'settings-overview', 'statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak', 'session-list', 'sidebar-order', 'plan-settings']) {
   let source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
   if (chunk === 'display') {
     source = source.replace('/* DISPLAY_NATIVE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/native.js'), 'utf8'))

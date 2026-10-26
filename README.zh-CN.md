@@ -6,7 +6,7 @@
 
 **DeepSeek Harness 会话费用统计插件(界面中英双语)**
 
-[![version](https://img.shields.io/badge/version-1.9.26-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.9.40-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![dshfind](https://dshfind.com/api/badge/Han-1413141/dsh-cost-meter?metric=downloads&lang=zh)](https://dshfind.com/zh/plugins/Han-1413141/dsh-cost-meter?ref=badge)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -16,11 +16,11 @@
 
 </div>
 
-**v1.9.26** 修复 OpenDesign 的 5h 与每周额度颠倒问题，额度百分比与各自重置时间保持对应。
+**v1.9.40** 将费用误差说明移入设置页，并优化余额查询等待策略，减少无效重复请求及相关使用风险。
 
 **宿主要求：DSH 0.2.0 起支持** · 适配目标 **0.2.1-rc.2**（npm `next`）。完整声明、历史记录与安装排障见下方展开项。
 
-更新说明：[v1.9.26](docs/update-notes-1.9.26.md#中文)。更新后完全重启 DSH。
+更新说明：[v1.9.40](docs/update-notes-1.9.40.md#中文)。更新后完全重启 DSH。
 
 ![宣传图](docs/promo.png)
 
@@ -65,7 +65,7 @@
 | OpenCode Go 额度 | 侧边栏 / 设置页 / 右下角(dock,可配) | 滚动 5 小时 / 本周 / 本月用量百分比与重置时间,三档可分别开关,可同时显示预算已用%;Key 自动发现(专用引用 / 官方 Go 路由 apiKeyEnv / 环境变量 / opencode 登录态)或手动填写 |
 | Coding Plan 额度 | 侧边栏 / 设置页(每家可配) | 多厂商 coding plan 订阅额度查询(Anthropic Claude Pro/Max、Z.ai/智谱 GLM、MiniMax Token Plan、Kimi Code 本周/5 小时配额(无订阅 Key 时回落 PAYG 余额)、OpenRouter credits、SiliconFlow 余额、CommandCode 5h/周窗口与月度 Credits 余额、Cline Pass 5 小时/周/月三窗口用量%、小米 MiMo Token Plan 套餐/补偿积分窗口与周期截止重置、余额(控制台 Cookie 凭据)、火山方舟 Volcano Ark 5h/周/月三档(需 AK/SK 管控面 HMAC 签名,需 ArkReadOnlyAccess + BillingCenterReadOnlyAccess)),各家独立启用开关、凭据、显示位置与刷新间隔(侧边栏卡片与 Go 额度同款,收起窄栏显示百分比),默认使用官方端点，MiniMax 可[配置可信查询域名](docs/minimax-quota-endpoint.md);无凭据/无订阅为中性提示;SCNet 超算互联网 Token Plan 支持[外部控制台额度快照](docs/scnet-official-snapshot.md)，无有效快照时按官方 Credits 抵扣表由本地账本估算月度用量(无需凭据) |
 | 订阅插件兼容 | 设置 → 费用 → Codex / 侧边栏与额度卡片 | 自动检测已安装的 Codex / ChatGPT 订阅插件，把其订阅调用归为 Plan 订阅额度、不计入 API 按量花费；新用量在记账时直接归类，历史 Codex 计费由一次性可关闭提示确认后重算（幂等）。显式 plan/API 配置不被覆盖。[说明](docs/update-notes-1.9.0.md#中文) |
-| Codex 额度显示 | 设置 → 显示 → Codex / 侧边栏与额度横条 | 读取 `dsh-codex-subscription`、`@eddyskywalker/dsh-chatgpt-subscription` 的实际 5 小时与 7 天窗口，兼容 `dsh-codex-connect`；数据源可选 `auto`（依次尝试上述三个插件）/ `subscription` / `chatgpt` / `connect`。固定来源只显示该插件当前账号的额度；与「订阅插件兼容」的计费归类设置互不影响。 |
+| Codex 额度显示 | 设置 → 显示 → Codex / 侧边栏与额度横条 | 读取 `dsh-codex-subscription`、DSH 内置 pi-ai 登录、`dsh-chatgpt-sub`、`@eddyskywalker/dsh-chatgpt-subscription`、`dsh-codex-connect` 的实际额度窗口；数据源可选 `auto`（按上述顺序尝试）/ `subscription` / `pi-ai` / `chatgpt-sub` / `chatgpt` / `connect`。开启额度显示并选择 `dsh-chatgpt-sub`，即可查看其绑定账号的剩余进度条和重置时间。只有周额度的账号不显示 5h 条。固定来源只查询该来源的当前账号，与计费归类设置互不影响。 |
 | SQLite 会话存储（better-session） | 宿主集成 | 自动探测宿主会话后端；当 `@morlay/better-session` / `@morlay/session-rdb`（SQLite）接管存储时，历史回填、旧账本导入、历史重定价、小时桶修复、fork 清洗与逐会话费用/轨迹/调用详情继续可用。JSONL 路径行为不变；旧 JSONL 与 RDB 历史不自动合并。[说明](docs/better-session.md) |
 | OpenDesign 额度 | 侧边栏 / 设置页（OpenDesign 厂商） | 从控制台 API 读取工作区 coding plan 窗口；使用 Control Key 时主端点 401/403 会保守回退一次 `/billing/preflight`，窗口与钱包读取独立降级。[排查说明](docs/opendesign-billing.md#中文) |
 | 手机端适配（dsh-pocket） | 全部费用界面 | ≤1023px 窄屏与 dsh-pocket 移动布局下：卡片单列、标签横向滚动、36px 触控高度、对话框不超过 90vh 并避开安全区、宽表横向滚动；桌面布局不变 |
@@ -130,6 +130,8 @@ CLIProxyAPI 网关来源卡片可勾选「只显示 Gemini 额度」，仅影响
 - **本机回环端点支持明文 HTTP**:端点主机为 `127.0.0.1` / `localhost` / `[::1]` 时允许 `http://`(流量不出网卡),用于只监听回环、不提供 TLS 的本地只读路由(如 `dsh-workbuddy-connect` 的 `/plugins/dsh-workbuddy-connect/status`)。**非回环主机仍强制 https**,明文请求一律拒绝。
 
 ### WorkBuddy 积分示例(本机插件路由)
+
+“费用 → 额度”的 **WorkBuddy 积分** 卡现已支持 dsh-xdpool。多个连接插件同时使用时，可将“积分来源”选为 dsh-xdpool；支持国内／国际池的当前、全部或勾选账号。详见[适配说明](docs/update-notes-1.9.38.md#中文)。
 
 已安装 `dsh-workbuddy-connect` 时,其 Web 状态路由直接返回聚合积分,无需复制任何凭据:
 
@@ -352,22 +354,22 @@ Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安�
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.9.26`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.9.40`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.26/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.40/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.26
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.40
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.26.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.40.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):
@@ -432,7 +434,7 @@ DSH **0.2.1-rc.1 / 0.2.1-rc.2** 宿主自带 pnpm **11.28.5**，默认启用内�
 
    ```yaml
    minimumReleaseAgeExclude:
-     - dsh-cost-meter@1.9.26
+     - dsh-cost-meter@1.9.40
    ```
 
 3. 仅本次操作用 CLI 透传 pnpm 参数：`dsh plugin --profile desktop remove dsh-cost-meter --config.minimum-release-age=0`；若只是 lockfile 校验阶段失败，可改用 `--trust-lockfile`。这两个参数已在本机 pnpm 11.28.5 临时 Profile 上实测可用。
@@ -565,8 +567,8 @@ dsh --profile web --port 3099                           # 真机启动(观察启
 使用交流、问题反馈和功能建议，欢迎加入微信交流群。
 
 <p align="center">
-  <a href="docs/community-wechat.jpg"><img src="docs/community-wechat.jpg" alt="dsh-cost-meter 微信交流群二维码" width="320" /></a><br />
-  <a href="docs/community-wechat.jpg">查看二维码大图</a>
+  <a href="docs/community-wechat.png"><img src="docs/community-wechat.png" alt="dsh-cost-meter 微信交流群二维码" width="320" /></a><br />
+  <a href="docs/community-wechat.png">查看二维码大图</a>
 </p>
 
 ## 更新历史

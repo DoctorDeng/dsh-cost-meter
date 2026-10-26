@@ -44,7 +44,7 @@ window.renderFooter=options=>{
   skinState={config:{...skinState.config,sidebarTodayBalanceInline:config.sidebarTodayBalanceInline}};for(const fn of skinListeners)fn();
   root.render(window.chunks.main.skinPreview.renderSidebarFooter({config,today:day,total:day,month:day,history:[],balance:{status:'ok',totalBalance:187.92,grantedBalance:0,toppedUpBalance:187.92,currency:'CNY'},customBalances:[{status:'ok',remaining:88,spend:12,maxBudget:100,unit:'CNY'}],codingPlans:{zai:{status:'ok',windows:{'5h':{percent:7},weekly:{percent:35}}}},goQuota:{status:'ok',rolling:{percent:7},weekly:{percent:35},monthly:{percent:14}},budgetUsed:28.5951},true,undefined,true));
 };
-window.renderSpecial=name=>{root.render(name==='fee'?React.createElement(ui.FeeDialog,{title:'费用明细',text:(zh,en)=>zh,onClose:()=>{}},React.createElement('div',{className:'cm-stat'},'合成测试数据')):React.createElement(ui.BillionCompatibilityNotice,{locale:'zh',meter:{version:'0.1.180',compatibility:'needs_update',noticeId:'opacity-fixture'}}))};
+window.renderSpecial=()=>{root.render(React.createElement(ui.FeeDialog,{title:'费用明细',text:(zh,en)=>zh,onClose:()=>{}},React.createElement('div',{className:'cm-stat'},'合成测试数据')))};
 window.clear=()=>root.render(null);window.ready=true;
 `
 const compiled = await build({ stdin: { contents: source, resolveDir: process.cwd(), loader: 'js' }, bundle: true, write: false, format: 'iife', platform: 'browser' })
@@ -58,7 +58,7 @@ const page = await browser.newPage({ viewport: { width: 960, height: 720 }, devi
 const output = resolve('.tmp-skin-opacity' + (baseline ? '-before' : '-after')); mkdirSync(output, { recursive: true })
 page.on('pageerror', error => errors.push(String(error)))
 await page.route('**/*', route => new URL(route.request().url()).origin === url ? route.continue() : route.abort())
-const classes = ['cm-section', 'cm-stat-dialog', 'cm-qguide', 'cm-peak-alert', 'cm-footer-stack simple', 'cm-simple-summary', 'cm-combo-panel', 'cm-context-intro', 'cm-stat', 'cm-fee-dialog', 'cm-billion-notice']
+const classes = ['cm-section', 'cm-stat-dialog', 'cm-qguide', 'cm-peak-alert', 'cm-footer-stack simple', 'cm-simple-summary', 'cm-combo-panel', 'cm-context-intro', 'cm-stat', 'cm-fee-dialog']
 try {
   await page.goto(url); await page.waitForFunction(() => window.ready)
   for (const theme of ['light', 'dark', 'dark-skin-light-host']) {
@@ -75,8 +75,8 @@ try {
         root.style.setProperty('--dsw-alias-border-l1', '#888')
       }, { theme, alpha })
       for (const name of classes) {
-        if (name === 'cm-fee-dialog' || name === 'cm-billion-notice') {
-          await page.evaluate(name => window.renderSpecial(name === 'cm-fee-dialog' ? 'fee' : 'billion'), name)
+        if (name === 'cm-fee-dialog') {
+          await page.evaluate(() => window.renderSpecial())
           await page.locator('.' + name).waitFor({ state: 'attached' })
         } else {
           await page.evaluate(name => {
@@ -84,7 +84,7 @@ try {
             document.body.append(el)
           }, name)
         }
-        const selector = name === 'cm-fee-dialog' || name === 'cm-billion-notice' ? '.' + name : '#surface'
+        const selector = name === 'cm-fee-dialog' ? '.' + name : '#surface'
         await page.locator(selector).evaluate(el => {
           Object.assign(el.style, { position: 'fixed', top: '100px', left: '100px', right: 'auto', bottom: 'auto', margin: '0', transform: 'none', width: '600px', height: '260px', maxHeight: 'none', minHeight: '0', padding: '40px', transition: 'none', animation: 'none' })
         })
@@ -111,8 +111,8 @@ try {
         for (const key of ['bg-base','bg-layer-1','bg-layer-2']) document.documentElement.style.setProperty('--dsw-alias-' + key, `rgba(${theme === 'light' ? '242,246,255' : '13,21,36'},${alpha})`)
       }, { theme, alpha })
       for (const name of classes) {
-        const special = name === 'cm-fee-dialog' || name === 'cm-billion-notice'
-        if (special) await page.evaluate(name => window.renderSpecial(name === 'cm-fee-dialog' ? 'fee' : 'billion'), name)
+        const special = name === 'cm-fee-dialog'
+        if (special) await page.evaluate(() => window.renderSpecial())
         else await page.evaluate(name => { const node=document.createElement('div');node.id='surface';node.className=name;document.body.append(node) }, name)
         const node = page.locator(special ? '.' + name : '#surface')
         await node.waitFor({ state: 'attached' })

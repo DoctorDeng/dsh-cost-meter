@@ -16,6 +16,12 @@ This lookup only sends an unauthenticated `GET` to [OpenRouter's public models e
 
 The catalog is a reference, not a binding quote for the next request. Provider routing, price tiers, promotions and additional image/search/request fees can affect the actual bill. Open the model's official page for those details. The UI uses the existing DSH theme variables and controls, supports Chinese and English, and requires the host's asynchronous module loader (also used by Cost statistics).
 
+### Background billing-price synchronization
+
+Startup and hourly checks share a persistent one-hour cooldown. The last attempt is saved before downloading, so restart loops, failures and interrupted requests cannot bypass it. Parallel hosts sharing a ledger admit one automatic task per cooldown. Fresh startup checks only read the state and do not rewrite it or the ledger. Manual billing-price synchronization still runs immediately and retains the existing in-flight request sharing.
+
+The private `ledger.json.openrouter-prices.json` file beside the ledger stores only `fetchedAt` and `attemptedAt` timestamps. A successful price snapshot is persisted before recording its successful fetch time. Failed downloads retain the previous prices. The separately opened read-only price panel and model tooltip keep their foreground polling behavior.
+
 ## 中文
 
 打开输入框旁的模型选择菜单，悬停 **OpenRouter** 模型，DSH 原有提示中会显示输入、输出、缓存读取和缓存写入单价、上下文长度以及最近成功更新时间。模型列表出现时查询价格，菜单与浏览器处于前台时每分钟刷新；悬停模型或返回前台也会检查更新，两次请求至少间隔 15 秒。关闭菜单后停止价格请求，无需先进入设置。
@@ -31,3 +37,9 @@ The catalog is a reference, not a binding quote for the next request. Provider r
 查询仅对 [OpenRouter 公开模型接口](https://openrouter.ai/api/v1/models) 发送不带凭据的 `GET` 请求，无需 API Key，不发送模型推理请求，不产生模型使用费用。浏览价格不会修改计费单价配置、凭据或历史账本。原有后台计费价格同步继续独立运行。
 
 目录价格是参考价，具体路由、价格阶梯、优惠以及图片、搜索、请求等附加费用以 OpenRouter 为准，可点击模型查看详情。界面沿用 DSH 主题变量和控件，支持中英文；需要宿主支持异步模块加载，与费用统计页要求一致。
+
+### 后台计费价格同步
+
+启动与小时级定时检查共用持久化的一小时冷却。下载前保存最近尝试时间，重启循环、请求失败或下载途中退出均不能绕过冷却。共用账本的并行宿主在一个冷却周期内只放行一次自动任务。快照仍新时只读取刷新状态，不改写它或账本。手动同步计费价格仍可立即执行，保留已有的在途请求合并。
+
+账本旁的私有文件 `ledger.json.openrouter-prices.json` 只保存 `fetchedAt` 和 `attemptedAt` 两个时间戳。价格快照落盘后才记录成功时间；下载失败保留旧价格。单独打开的只读价格面板和模型提示仍沿用各自的前台刷新行为。

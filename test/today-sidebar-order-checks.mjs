@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 
 export async function checkTodayAndOrder(page, output) {
+  await page.evaluate(async () => { await window.configure({ sidebarTodayMetric: 'cost' }); window.remount() })
+  await page.getByRole('tab', { name: '显示', exact: true }).click()
   const target = key => page.locator('.cm-preview .cm-sidebar-target[data-cm-order-key="' + key + '"]')
   await target('today').click()
   await page.locator('input[data-display-option=today-tokens]').check()

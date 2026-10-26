@@ -59,7 +59,7 @@ try {
   await queryCustomBalance({ get: () => undefined }, { customBalance: { ...row, request: { ...row.request, method: 'GET', body: raw } } })
   assert.equal(received.at(-1).body, '')
   assert.equal(received.at(-1).headers['content-type'], undefined)
-  for (const dispose of cleanups.splice(0).reverse()) dispose()
+  for (const dispose of cleanups.splice(0).reverse()) await dispose()
   const disk = JSON.parse(readFileSync(join(root, 'storages', 'cost-meter', 'ledger.json'), 'utf8'))
   assert.equal(disk.config.customBalances[0].request.body, undefined, 'clearing a saved body survives disk serialization')
   assert.deepEqual(disk.config.customBalances[1].request.body, { second: true })
@@ -70,7 +70,7 @@ try {
   const legacy = sanitizeConfig({ customBalance: { ...row, request: { ...row.request, body: raw } } })
   assert.equal(legacy.customBalances[0].request.body, raw, 'legacy configuration migration preserves the body')
 } finally {
-  for (const dispose of cleanups.reverse()) dispose()
+  for (const dispose of cleanups.reverse()) await dispose()
   if (oldHome === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = oldHome
   server.closeAllConnections()

@@ -171,7 +171,7 @@ try {
     inject() {}, provide: (name, value) => { provided[name] = value }, logger: console,
     get: key => key === 'settings' ? { get: () => ({}) } : undefined,
   })
-  await provided.costMeter.updateConfig({ hideOfficialBalance: true, goQuota: { enabled: false }, codingPlans: { qwen: { enabled: true, rates: { 'qwen3.8-flash': { input: 100, cachedInput: 10, output: 200 } } } } })
+  await provided.costMeter.updateConfig({ hideOfficialBalance: true, planBilling: { providers: { qwen: 'plan' } }, goQuota: { enabled: false }, codingPlans: { qwen: { enabled: true, rates: { 'qwen3.8-flash': { input: 100, cachedInput: 10, output: 200 } } } } })
   assert.ok((await provided.costMeter.getState()).config.prices.default.peak, '启动注册服务前修正默认峰价，无需等待延迟回填')
   for (const provider of ['qianwen', 'qianwen-tokenplan']) {
     for await (const chunk of streamHandler({ provider, model: 'qwen3.8-flash', sessionId: provider }, () => (async function* () {

@@ -127,6 +127,24 @@ for (const initial of [false, true]) {
     assert.equal(view.enabled(), true, 'the second startup read cannot overwrite a setting saved after the local first paint')
   } finally { view.close() }
 }
+{
+  const view = await fixture()
+  try {
+    const gate = view.blockWrite(), first = view.update(true)
+    await settle()
+    const second = view.update(false)
+    await settle()
+    gate.resolve(); await Promise.all([first, second])
+    assert.equal(view.enabled(), false, 'two mounted settings entries retain the latest requested value')
+    assert.equal(view.counts().writes, 2, 'queued saves are each sent exactly once')
+    const failure = view.blockWrite(), rejected = view.update(true)
+    await settle()
+    const recovery = view.setWorkspace('after-failure')
+    failure.reject(new Error('save rejected'))
+    await assert.rejects(rejected, /save rejected/); await recovery
+    assert.equal(view.workspace(), 'after-failure', 'one failed queued write does not block the next entry')
+  } finally { view.close() }
+}
 if (!baseline) for (const initialSkin of [false, true]) {
   const view = await fixture({ initialSkin })
   try {
