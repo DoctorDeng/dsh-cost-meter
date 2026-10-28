@@ -14,6 +14,7 @@ import { checkInlineBalance } from './inline-balance-checks.mjs'
 import { checkTodayAndOrder } from './today-sidebar-order-checks.mjs'
 import { checkDisplayPreview } from './display-preview-checks.mjs'
 import { checkFeedbackSidebar } from './feedback-sidebar-checks.mjs'
+import { checkSidebarTextOnly } from './sidebar-text-only-checks.mjs'
 
 const modules = resolve(process.env.DSH_TEST_UI_MODULES ?? '.tmp-pr240-host/node_modules')
 const req = createRequire(join(modules, '__display.cjs'))
@@ -23,7 +24,7 @@ const output = resolve('.tmp-display-review'); mkdirSync(output, { recursive: tr
 let saved = sanitizeConfig({ locale: 'zh', exchangeRate: 1, currency: 'CNY', symbol: '¥', sidebarSimple: false, budget: { enabled: true, amount: 100 },
   sidebarModels: { enabled: true }, goQuota: { enabled: false }, quotaStrip: { enabled: true, budget: true, go: false, plans: true }, peakEnabled: true, peakNotice: true, position: 'off' })
 const client = readdirSync('src/client').filter(n => n.endsWith('.js')).sort().map(n => readFileSync('src/client/' + n, 'utf8')).join('')
-  .replace('exports.apply = apply', 'exports.preview = { CostSection, parseConfig, SidebarFooter, SidebarSummaryGuide, renderSidebarFooter }; exports.apply = apply')
+  .replace('exports.apply = apply', 'exports.preview = { CostSection, parseConfig, SidebarFooter, renderSidebarFooter }; exports.apply = apply')
 const day = { ...zeroDay(), cost: 1.28, apiCost: 1.28 }
 const state = { config: saved, today: day, month: day, total: day, history: [], balance: { status: 'error', message: 'Synthetic balance error' }, codingPlans: {}, budgetUsed: 32 }
 const code = `
@@ -40,19 +41,19 @@ ${readFileSync('lib/client.display.js', 'utf8')}
 window.__ModuleLoader__={load:mod=>window.orderUI=mod.factory(()=>React)};
 ${readFileSync('lib/client.sidebar-order.js', 'utf8')}
 const {CostSection,parseConfig,SidebarFooter}=window.mainUI.preview;
-let state=${literal(state)};state.config=parseConfig(state.config,'config');window.patches=[];window.listeners=new Set();window.failSave=false;window.mounts=0;
+let state=${literal(state)};state.config=parseConfig(window.__savedConfig??state.config,'config');window.patches=[];window.listeners=new Set();window.failSave=false;window.mounts=0;
 const Display=window.displayUI.mount({effect:()=>{}},{getSnapshot:()=>({state}),subscribe:fn=>{window.listeners.add(fn);return()=>window.listeners.delete(fn)}});
 const publish=()=>{for(const fn of window.listeners)fn({...state});return state};
 window.current=()=>state.config;window.setConfig=patch=>{state={...state,config:parseConfig({...state.config,...patch},'config')};publish()};
 window.changeLocale=locale=>window.setConfig({locale});window.setFixtureState=patch=>{state={...state,...patch};publish()};
-const api={refreshBalance:async()=>{window.balanceRefreshes=(window.balanceRefreshes??0)+1;await new Promise(done=>setTimeout(done,50))},loadDisplay:async()=>Display,loadCommunity:async()=>()=>null,loadPricing:async()=>()=>null,loadStatistics:async()=>()=>null,updateConfig:async patch=>{
+const api={refreshCodingPlan:async id=>{window.planRefreshes=(window.planRefreshes??0)+1;await new Promise(done=>setTimeout(done,50))},refreshBalance:async()=>{window.balanceRefreshes=(window.balanceRefreshes??0)+1;await new Promise(done=>setTimeout(done,50))},loadDisplay:async()=>Display,loadCommunity:async()=>()=>null,loadPricing:async()=>()=>null,loadStatistics:async()=>()=>null,updateConfig:async patch=>{
   if(window.failSave)throw Error('synthetic save failure');const config=await window.saveConfig(patch);window.patches.push(patch);state={...state,config:parseConfig(config,'config')};return publish()}};
 window.configure=patch=>api.updateConfig(patch);
 window.orderUI.mount({effect:()=>{}},{getSnapshot:()=>({state}),subscribe:fn=>{window.listeners.add(fn);return()=>window.listeners.delete(fn)}},config=>config?.locale??'zh',{updateConfig:patch=>api.updateConfig(patch)});
 function useCost(){const[value,setValue]=React.useState(state);React.useEffect(()=>{window.listeners.add(setValue);return()=>window.listeners.delete(setValue)},[]);return{state:value,status:'ready'}}
-let guideRoot;window.showSummaryGuide=()=>{const host=document.createElement('div');document.body.append(host);guideRoot=createRoot(host);guideRoot.render(h(window.mainUI.preview.SidebarSummaryGuide,{useCost,api}))};window.disposeSummaryGuide=()=>guideRoot?.unmount();
 function FixturePreview(){return window.mainUI.preview.renderSidebarFooter(useCost().state,true,undefined,true)}
 window.attachFixtureSidebar=(container,preview=false)=>createRoot(container).render(preview?h(FixturePreview):h(SidebarFooter,{useCost,api,wide:true}));
+window.attachFixtureRail=container=>{const root=createRoot(container);root.render(h(SidebarFooter,{useCost,api,wide:false}));return()=>root.unmount()};
 function App(){return h(React.Fragment,null,h(CostSection,{useCost,api}),h('div',{id:'actual-sidebar',style:{position:'fixed',left:-2000,width:352,fontSize:14,lineHeight:1.6}},h(SidebarFooter,{useCost,api,wide:true})))}
 const root=createRoot(document.getElementById('root'));window.remount=()=>root.render(h(App,{key:++window.mounts}));window.remount();
 `
@@ -62,9 +63,10 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewp
 html[data-theme=dark]{color-scheme:dark;--dsw-alias-label-primary-inverted:#202022;--dsw-alias-border-l2:#38383c;--dsw-specific-sidebar-fill:#252527;--dsw-specific-input-major:#303033;--dsw-alias-button-elevated-fill:#303033;--dsw-specific-selector:#353538;--dsw-alias-label-primary:#ececee;--dsw-alias-label-secondary:#a6a6ad;--dsw-alias-label-tertiary:#92929c;--dsw-alias-border-l1:#38383c;--dsw-alias-border-l3:#38383c;--dsw-alias-bg-base:#202022;--dsw-alias-bg-layer-1:#29292c;--dsw-alias-bg-layer-2:#29292c;--dsw-alias-bg-layer-3:#36363c;--dsw-alias-state-business-primary:#6a83ff;--dsw-alias-interactive-bg-hover:#38383c}
 body{margin:0;padding:24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:13px/1.6 system-ui}#root{max-width:960px;margin:auto}button{font:inherit}@media(max-width:480px){body{padding:12px}}
 </style></head><body><div id="root"></div><script src="/app.js"></script></body></html>`
+if (process.argv.includes('--compile-only')) { console.log('[ok] display settings fixture bundled'); process.exit(0) }
 const server = createServer((request, response) => {
   if (request.url === '/app.js') { response.setHeader('content-type', 'text/javascript'); response.end(compiled.outputFiles[0].contents) }
-  else if (request.url === '/') { response.setHeader('content-type', 'text/html; charset=utf-8'); response.end(html) }
+  else if (request.url === '/') { response.setHeader('content-type', 'text/html; charset=utf-8'); response.end(html.replace('<script src="/app.js">', '<script>window.__savedConfig=' + literal(saved) + '</script><script src="/app.js">')) }
   else { response.statusCode = 404; response.end() }
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -93,6 +95,11 @@ try {
     const result = await checkFeedbackSidebar(page, output)
     assert.deepEqual(errors, []); assert.deepEqual(external, [])
     console.log('[ok] feedback ' + JSON.stringify(result))
+  } else if (process.argv.includes('--text-only-only')) {
+    await page.getByRole('tab', { name: '显示', exact: true }).click()
+    const result = await checkSidebarTextOnly(page, output, { reload: true })
+    assert.deepEqual(errors, []); assert.deepEqual(external, [])
+    console.log('[ok] sidebar text-only ' + JSON.stringify(result))
   } else {
   await page.evaluate(()=>{
     const host=document.createElement('div');host.id='host-fixture';host.style.cssText='position:absolute;top:5000px;height:1px;contain:strict;overflow:hidden'
@@ -123,6 +130,7 @@ try {
   await page.evaluate(() => window.scrollTo(0, 0))
   await page.screenshot({ path: join(output, 'display-compact-header.png') })
   await checkInlineBalance(page, output)
+  await checkSidebarTextOnly(page, output)
   await checkTodayAndOrder(page, output)
   const region=async name=>page.getByRole('tab',{name,exact:true}).click()
   const item=key=>page.locator('.cm-preview [data-display="'+key+'"]')

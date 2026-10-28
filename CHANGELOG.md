@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.9.43] - 2026-10-28
+
+- 移除 billion-context 识别中的宿主全量清单扫描，改用运行中原生实例、异步目标读取与模块身份缓存；覆盖停用、失败、卸载、重载和磁盘升级尚未生效的情况，保留计费补记与去重。感谢 [@ZiYuan258](https://github.com/ZiYuan258) 在 [#432](https://github.com/Han-1413141/dsh-cost-meter/issues/432) 提供复现、I/O 测量、根因定位和目标读取建议。
+- 五个首次显示介绍合并为一个可关闭提示，统一指向「设置 → 费用 → 显示」；保留已有已读记录和用户设置，不关闭必要警告或第三方集成授权。感谢 [@L33Z22L11](https://github.com/L33Z22L11) 在 [#429](https://github.com/Han-1413141/dsh-cost-meter/issues/429) 报告叠加问题并提出统一入口建议。
+- 补测真实 dsh-codex-subscription 3.1.8、3.1.9、3.2.0 发布包的额度、RPC 和生命周期，更新兼容基线并增加用量读取函数指纹；响应 `github-actions[bot]` 的 [#430](https://github.com/Han-1413141/dsh-cost-meter/issues/430) 告警。
+- Remove idle full-plugin scans, consolidate display onboarding without changing preferences, and validate published Codex subscription packages through 3.2.0 before updating the compatibility baseline.
+
+[更新说明 / Release notes](docs/update-notes-1.9.43.md)
+
+## [1.9.42] - 2026-10-28
+
+- 修复“余额图框点击刷新”提醒的按钮被侧栏裁剪、拖动区域或浮动插件拦截的问题，改用现有顶层浮卡；已读标记不再因保存失败重新弹出，兼容重复挂载、旧版宿主及本地存储不可用的页面内重挂。
+- 新增“隐藏进度条，仅显示紧凑文本”侧栏开关，保留额度百分比、计价时段、悬停说明与刷新操作；关闭开关恢复原有样式。
+- 官方价格同步切换币种时，若页面未覆盖仍保留的模型，拒绝整个同步，避免人民币数值被误标为美元并再次乘汇率。历史金额与价格版本不会自动改写。[安全核对与历史修复](docs/official-price-sync-safety.md)。
+- Fix the balance-refresh notice's intercepted clicks and persistent dismissal; add reversible compact text-only sidebar display; reject partial official-price currency switches atomically without rewriting historical charges.
+
 - 支持同一来源保存多个查询账号，在设置中选择余额或额度展示账号；凭据分开存储，切换时取消旧请求并清除缓存及采样基准。感谢 [@376797822](https://github.com/376797822) 在 [#427](https://github.com/Han-1413141/dsh-cost-meter/issues/427) 提出多账号查询和展示选择需求。[使用说明](docs/query-accounts.md)。
 - Add named query accounts with isolated credentials and a selected account for balances/quotas; cancel old requests and reset observation baselines on switching.
 
@@ -17,6 +33,8 @@
 - Add Baidu Qianfan Token Plan Personal quota via console Cookie, with separate credits/Token units; validate the latest billion-context and Codex subscription packages.
 - 新增官方余额“仅官方渠道显示”开关，默认关闭；按当前会话渠道显示侧栏官方余额，无渠道投影时参考今日官方调用，设置页与预览不受渠道限制。感谢 [@littleyellowbicycle](https://github.com/littleyellowbicycle) 在 [#421](https://github.com/Han-1413141/dsh-cost-meter/issues/421) 提出需求与判定规则。
 - Add an opt-in official-channel filter for the sidebar balance, with current-session precedence and today's official-call fallback; keep settings and previews accessible.
+
+[更新说明 / Release notes](docs/update-notes-1.9.42.md)
 
 ## [1.9.41] - 2026-10-26
 
