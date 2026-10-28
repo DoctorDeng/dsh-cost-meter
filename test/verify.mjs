@@ -7040,3 +7040,5 @@ await import('./balance-notice-loading.mjs')
 await import('./display-onboarding.mjs')
 
 await import('./official-price-sync-currency.mjs')
+
+await import('./catalog-october-28.mjs')

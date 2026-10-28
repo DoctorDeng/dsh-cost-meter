@@ -1,14 +1,7 @@
     function peakProgressData(config, now) {
       const view = peakView(config, now)
       if (!view) return null
-      let start = view.prevAtMs
-      // Weekends/holidays can begin inside an already active off-peak interval.
-      for (let i = 0; i < 16; i++) {
-        const before = peakPhaseForConfig(config, start - 1)
-        if (!before || before.inPeak !== view.inPeak || before.prevAtMs >= start) break
-        start = before.prevAtMs
-      }
-      const progress = Math.max(0, Math.min(100, (now - start) / Math.max(1, view.nextAtMs - start) * 100))
+      const { start, progress } = peakPeriodProgress(config, view, now)
       const locale = resolveLocale(config) === 'en' ? 'en' : 'zh-CN'
       const time = at => new Intl.DateTimeFormat(locale, { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
       const day = at => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at)
@@ -20,21 +13,7 @@
       return { ...view, start, progress, startText: label(start), switchTime: label(view.nextAtMs) }
     }
     function PeakProgress({ config, t, now: fixedNow, rail = false }) {
-      const [clock, setClock] = useState(Date.now())
-      useEffect(() => {
-        if (fixedNow !== undefined) return
-        let timer
-        const tick = () => {
-          window.clearTimeout(timer)
-          if (document.hidden) return
-          const stamp = Date.now(), phase = peakView(config, stamp)
-          setClock(stamp)
-          timer = window.setTimeout(tick, Math.max(100, Math.min(30000, (phase?.nextAtMs ?? stamp + 30000) - stamp)))
-        }
-        tick(); document.addEventListener('visibilitychange', tick)
-        return () => { window.clearTimeout(timer); document.removeEventListener('visibilitychange', tick) }
-      }, [fixedNow, config.peakWindows, config.peakHolidays, config.peakProvider])
-      const now = fixedNow ?? clock, view = peakProgressData(config, now)
+      const now = usePeakClock(config, fixedNow), view = peakProgressData(config, now)
       if (!view) return null
       const en = resolveLocale(config) === 'en', keys = phaseLabelKeys(view)
       const next = t(view.nextIntoPeak ? 'peakShort' : 'offPeakShort')

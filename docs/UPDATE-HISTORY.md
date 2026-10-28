@@ -1,5 +1,13 @@
 # dsh-cost-meter 版本更新历史
 
+## v1.9.44(2026-10-28)—— 峰谷游标与模型、套餐目录
+
+- 修复 [#434](https://github.com/Han-1413141/dsh-cost-meter/issues/434) 的固定游标；报告者为 [@shutongX](https://github.com/shutongX)。
+- 补入 Kimi K3.1 Pro / Highspeed、MiniMax M3.1 Flash 等模型及 OpenCode Go / Zen、OpenRouter 的新条目。
+- 更新 Kimi 新套餐与 MiniMax M Plan 说明，并兼容 Kimi 新旧额度响应。
+
+[更新说明](update-notes-1.9.44.md) · [目录与来源](catalog-2026-10-28.md)
+
 ## v1.9.43(2026-10-28)—— 空闲扫描修复、统一显示引导与订阅兼容验证
 
 - billion-context 使用运行中实例与异步目标元数据识别，空闲不再调用全量插件清单；账本格式和补记机制不变。
