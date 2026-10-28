@@ -29,12 +29,12 @@ jobs:
           npm install -g pnpm
           pnpm install --frozen-lockfile
           mkdir -p .tmp-billion-matrix
-          npm pack billion-context@0.1.181 billion-context@0.1.190 billion-context@0.1.197 billion-context@0.1.201 billion-context@0.1.202 billion-context@0.1.204 billion-context@0.1.205 billion-context@0.1.206 --ignore-scripts --pack-destination .tmp-billion-matrix
+          npm pack billion-context@0.1.181 billion-context@0.1.190 billion-context@0.1.197 billion-context@0.1.201 billion-context@0.1.202 billion-context@0.1.204 billion-context@0.1.205 billion-context@0.1.206 billion-context@0.1.208 --ignore-scripts --pack-destination .tmp-billion-matrix
       - name: Verify automatic interface compatibility and actual native/proxy billing
         run: |
           node test/billion-context-compatibility.mjs
           node test/billion-null-usage.mjs
-          for version in 0.1.181 0.1.190 0.1.197 0.1.201 0.1.202 0.1.204 0.1.205 0.1.206; do
+          for version in 0.1.181 0.1.190 0.1.197 0.1.201 0.1.202 0.1.204 0.1.205 0.1.206 0.1.208; do
             DSH_TEST_BILLION_PACKAGE="$PWD/.tmp-billion-matrix/billion-context-$version.tgz" node test/billion-context-billing.mjs
             DSH_TEST_BILLION_PACKAGE="$PWD/.tmp-billion-matrix/billion-context-$version.tgz" node test/billion-context-auto.mjs
           done
@@ -78,8 +78,9 @@ jobs:
           DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.2.tgz" node test/codex-subscription-published.mjs
           npm pack dsh-codex-subscription@3.1.4 --ignore-scripts --pack-destination .tmp-billion-matrix
           DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.4.tgz" node test/codex-subscription-published.mjs
-          npm pack dsh-codex-subscription@3.1.6 dsh-codex-connect@0.2.0-alpha.10 --ignore-scripts --pack-destination .tmp-billion-matrix
+          npm pack dsh-codex-subscription@3.1.6 dsh-codex-subscription@3.1.7 dsh-codex-connect@0.2.0-alpha.10 --ignore-scripts --pack-destination .tmp-billion-matrix
           DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.6.tgz" node test/codex-subscription-published.mjs
+          DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.7.tgz" node test/codex-subscription-published.mjs
           DSH_TEST_CONNECT_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-connect-0.2.0-alpha.10.tgz" node test/codex-connect-published.mjs
           npm pack @eddyskywalker/dsh-chatgpt-subscription@0.29.0 --ignore-scripts --pack-destination .tmp-billion-matrix
           DSH_TEST_CHATGPT_PACKAGE="$PWD/.tmp-billion-matrix/eddyskywalker-dsh-chatgpt-subscription-0.29.0.tgz" node test/chatgpt-subscription-quota.mjs
@@ -103,6 +104,7 @@ jobs:
           node test/session-list-browser.mjs
           node test/session-costs-browser.mjs
           node test/billing-export-browser.mjs
+          node test/query-accounts-browser.mjs
           node test/session-costs-performance-browser.mjs
           node test/statistics-cache.mjs
           node test/statistics-warmup.mjs
@@ -313,8 +315,9 @@ jobs:
           DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.2.tgz" node test/codex-subscription-published.mjs
           npm pack dsh-codex-subscription@3.1.4 --ignore-scripts --pack-destination .tmp-billion-matrix
           DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.4.tgz" node test/codex-subscription-published.mjs
-          npm pack dsh-codex-subscription@3.1.6 dsh-codex-connect@0.2.0-alpha.10 --ignore-scripts --pack-destination .tmp-billion-matrix
+          npm pack dsh-codex-subscription@3.1.6 dsh-codex-subscription@3.1.7 dsh-codex-connect@0.2.0-alpha.10 --ignore-scripts --pack-destination .tmp-billion-matrix
           DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.6.tgz" node test/codex-subscription-published.mjs
+          DSH_TEST_CODEX_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-subscription-3.1.7.tgz" node test/codex-subscription-published.mjs
           DSH_TEST_CONNECT_PACKAGE="$PWD/.tmp-billion-matrix/dsh-codex-connect-0.2.0-alpha.10.tgz" node test/codex-connect-published.mjs
           node test/context-costs.mjs --host
           node test/context-costs-regression-browser.mjs

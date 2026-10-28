@@ -131,7 +131,8 @@ vm.runInNewContext(source.replace('exports.apply = apply', 'exports.testing = { 
 const ui = factory(name => name === 'react' ? React : {}).testing
 let plansFactory
 vm.runInNewContext(readFileSync(new URL('../src/plan-settings/index.js', import.meta.url), 'utf8'), { window: { __ModuleLoader__: { load: value => { plansFactory = value.factory } } } })
-ui.PlanQuotaCard = plansFactory(() => React).mount(ui)
+const planPage = plansFactory(() => React).mount(ui)
+ui.PlanQuotaCard = props => { const node = planPage(props); return node.type(node.props) }
 const clientConfig = ui.parseConfig({ ...config, codingPlans: { ...config.codingPlans, opendesign: { ...config.codingPlans.opendesign, workspaceId: 'ws-1' } } })
 assert.equal(clientConfig.codingPlans.opendesign.workspaceId, 'ws-1')
 for (const provider of OPENDESIGN_PROVIDER_IDS) {

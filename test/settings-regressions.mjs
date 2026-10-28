@@ -55,7 +55,8 @@ const ui = factory(name => name === 'react' ? react : {}).test
 vm.runInNewContext(readFileSync(new URL('../src/plan-settings/index.js', import.meta.url), 'utf8'), {
   window: { __ModuleLoader__: { load: value => { factory = value.factory } } },
 })
-ui.PlanQuotaCard = factory(name => name === 'react' ? react : {}).mount(ui)
+const planPage = factory(name => name === 'react' ? react : {}).mount(ui)
+ui.PlanQuotaCard = props => { const node = planPage(props); return node.type(node.props) }
 vm.runInNewContext(readFileSync(new URL('../src/pricing/index.js', import.meta.url), 'utf8').replace('return { mount, CONTRIBUTION }', 'return { Matching, Catalog, RestorePrices, SearchPriceSelect }'), {
   window: { __ModuleLoader__: { load: value => { factory = value.factory } } },
 })

@@ -850,7 +850,7 @@
     /** Plan 提供商显示名(复用额度面板的 labelKey;Go 单独)。 */
     function planProviderLabelOf(id, t) {
       if (id === 'go') return 'OpenCode Go / Go Plus'
-      const added = { codex: 'Codex / ChatGPT', 'volcengine-agent': 'Volcengine Agent Plan', 'tencent-coding': 'Tencent Coding Plan', 'tencent-token': 'Tencent Token Plan', 'baidu-coding': 'Baidu Qianfan Coding Plan' }
+      const added = { codex: 'Codex / ChatGPT', 'volcengine-agent': 'Volcengine Agent Plan', 'tencent-coding': 'Tencent Coding Plan', 'tencent-token': 'Tencent Token Plan' }
       if (added[id]) return added[id]
       const row = CODING_PLAN_ROWS.find(r => r.id === id)
       return row !== undefined ? t(row.labelKey) : id
@@ -1118,7 +1118,7 @@
           el('button', { className: 'cm-btn small', onClick: doRefresh, disabled: busy }, busy ? t('refreshing') : t('refreshBalance'))),
         body,
         el('label', null, t('balanceApiKey')),
-        el(CredentialField, { target: 'balance', configured: balance.keyConfigured, source: balance.keySource, t, api, placeholder: 'sk-…' }),
+        el(AccountCredentialLauncher, { state, draft, setDraft, target: 'balance', configured: balance.keyConfigured, source: balance.keySource, t, api, placeholder: 'sk-…' }),
         el('p', { className: 'cm-hint' }, t('balanceKeyHint')),
         reconcile !== undefined && reconcile.ok === false ? el('div', { className: 'cm-bal-line warn' }, '⚠ ' + reconcile.message) : null,
         el('label', { className: 'cm-check' },
@@ -1303,6 +1303,8 @@
                 value: entry[field] ?? '',
                 onChange: event => setField(field, event.target.value),
               }))),
+            el('label', { className: 'cm-field' }, el('span', null, resolveLocale(config) === 'en' ? 'Dashboard link (optional)' : '跳转链接（可选）'),
+              el('input', { className: 'cm-input', type: 'url', 'aria-label': resolveLocale(config) === 'en' ? 'Dashboard link' : '跳转链接', value: entry.dashboardUrl ?? '', placeholder: 'https://example.com/account', onChange: event => setField('dashboardUrl', event.target.value) })),
             !fixedAdapter && el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceUnitLabel')),
               el('select', {
@@ -1396,7 +1398,7 @@
         el('div', { className: 'cm-field' }, el('label', null, t('goQuotaRefreshIntervalLabel')),
           numInput({ value: cfg.refreshMinutes }, v => set('refreshMinutes', Math.min(1440, Math.max(1, Math.floor(v)))))),
         el('label', null, t('goQuotaKeyLabel')),
-        el(CredentialField, { target: 'goQuota', configured: config.goQuota?.keyConfigured === true, source: config.goQuota?.keySource, t, api, placeholder: 'sk-…' }))
+        el(AccountCredentialLauncher, { state: { config }, draft, setDraft, target: 'goQuota', configured: config.goQuota?.keyConfigured === true, source: config.goQuota?.keySource, t, api, placeholder: 'sk-…' }))
     }
 
     function GoQuotaCard(props) {
@@ -1511,6 +1513,7 @@
       { id: 'volcengine', labelKey: 'codingPlanVolcengine' },
       { id: 'qwen', labelKey: 'codingPlanQwen' },
       { id: 'mimo', labelKey: 'codingPlanMimo' },
+      { id: 'baidu-coding', labelKey: 'codingPlanBaidu' },
       { id: 'workbuddy', labelKey: 'wbT' },
       { id: 'factory', labelKey: 'codingPlanFactory' },
     ]
@@ -1521,6 +1524,12 @@
       return planSettingsPage ??= require.async('./client.plan-settings.js').then(module => module.mount({ useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, codingPlanWindowEntries, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions })).catch(error => { planSettingsPage = null; throw error })
     }
     function PlanQuotaCard(props) { return el(BillingStatistics, { ...props, load: loadPlanSettings }) }
+    function AccountCredentialLauncher(props) {
+      const [open, setOpen] = useState(false)
+      return open || props.state.config.queryAccounts?.[props.target]?.accounts?.length
+        ? el(PlanQuotaCard, { ...props, mode: 'credential' })
+        : el(Fragment, null, el(CredentialField, props), el('button', { type: 'button', className: 'cm-btn small', onClick: () => setOpen(true) }, resolveLocale(props.state.config) === 'en' ? 'Manage accounts' : '管理账号'))
+    }
 
     /** 额度区总装:四类来源归一成同一串卡片,已启用的排前面(顺序纯由 enabled 派生,不落盘)。 */
     function QuotasSection(props) {
@@ -1966,6 +1975,7 @@
             },
           }),
           el('span', null, t('cardsTogglePlanTotal'))),
+        el(BillingStatistics, { state, api, load: api.loadPricing, mode: 'billing', draft, setDraft, locale }),
         // 今日会话
         el('div', null,
           el('button', { className: 'cm-btn', onClick: () => setTab('export') }, locale === 'en' ? 'Export cost records' : '导出费用记录'),
@@ -2310,7 +2320,7 @@
         name: 'plugins.bundle.config', key: 'dsh-cost-meter', inject: injected,
       }, CostSection))
       for (const [entryPosition, name] of [['header', 'conversation.session.header.actions'], ['dock', 'conversation.composer.dock']]) slots.inject(name, () => slots.register({ name, id: 'cost-meter-statistics', order: 1, inject: () => ({ ...injected(), entryPosition }) }, SessionStatisticsButton))
-      slots.inject('conversation.chat.turnTail', () => slots.register({ name: 'conversation.chat.turnTail', id: 'cost-meter-turn', order: 10, inject: injected }, TurnCost))
+      slots.inject('conversation.chat.turnTail', () => slots.register({ name: 'conversation.chat.turnTail', id: 'cost-meter-turn', order: 10, select: e => e, inject: injected }, TurnCost))
       // 通用插槽注册去重:共享「失效旧注册→bump gen→注入→生成期护栏→记录 dispose→卸载清理」逻辑。
       const slotActive = () => ({ gen: 0, dispose: null })
       const registerSlot = (active, slotName, options, component, enabled = true) => {

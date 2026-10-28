@@ -6,7 +6,7 @@
 
 **DeepSeek Harness 会话费用统计插件(界面中英双语)**
 
-[![version](https://img.shields.io/badge/version-1.9.40-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.9.41-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![dshfind](https://dshfind.com/api/badge/Han-1413141/dsh-cost-meter?metric=downloads&lang=zh)](https://dshfind.com/zh/plugins/Han-1413141/dsh-cost-meter?ref=badge)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -16,11 +16,11 @@
 
 </div>
 
-**v1.9.40** 将费用误差说明移入设置页，并优化余额查询等待策略，减少无效重复请求及相关使用风险。
+**v1.9.41** 修复 Web 启动报错，完善账本刷盘，并在账本损坏后从独立备份恢复配置。
 
 **宿主要求：DSH 0.2.0 起支持** · 适配目标 **0.2.1-rc.2**（npm `next`）。完整声明、历史记录与安装排障见下方展开项。
 
-更新说明：[v1.9.40](docs/update-notes-1.9.40.md#中文)。更新后完全重启 DSH。
+更新说明：[v1.9.41](docs/update-notes-1.9.41.md#中文)。更新后完全重启 DSH。
 
 ![宣传图](docs/promo.png)
 
@@ -119,6 +119,8 @@
 千问 Token Plan 可在卡片内选择[官方 CLI 订阅额度](docs/qwen-cli-quota.md)，需在 DSH 主机以同一系统账号安装 CLI 并运行 `qianwen auth login`。默认保留本地估算；CLI 模式显示账号当前 Credits，不修改本地账本。
 
 千问 Token Plan 的本地 Credits 统计归属千问套餐的 Plan 调用。保留 `qwen`、`qwen-tokenplan` 等订阅别名，自定义渠道也可在「按模型统计 → 计费方式」选择千问套餐，或使用明确的厂商名与套餐特征自动识别。显式 API 调用不计；`qianwen` 按量渠道不会仅因同名模型自动归入。模型不在抵扣表中时需补充三项费率。
+
+百度千帆 Token Plan 个人版现已支持[通过控制台 Cookie 查询额度](docs/baidu-token-plan.md)，分别显示积分制和 Token 制用量。在百度额度卡片保存 Cookie，或在 DSH 主机配置 `BAIDU_QIANFAN_COOKIE`。
 
 小米 MiMo Token Plan 的额度查询使用**控制台 Cookie**(而非 API Key):登录 `platform.xiaomimimo.com` 后按 F12 →「网络」→ 找到 `balanceAlertConfig` 请求,把请求头 `cookie` 整段粘贴进「设置 → 费用 → 额度」的 MiMo 卡片(需含 `serviceToken` 与 `userId`,DSH 凭据库以 `MIMO_COOKIE` 托管)。卡片显示套餐/补偿积分窗口与周期截止重置(北京时间)及余额行。控制台 Cookie 过期后，按卡片提示重新复制。此控制台查询不接受 Token Plan 推理专用 Key(`tp-*` / `ttp-*`)。本地套餐统计按自然月汇总；补偿积分和余额只展示查询结果，不用无法区分归属的本地调用估算。
 
@@ -354,22 +356,22 @@ Node.js 20 请改用 `npm install -g pnpm@10`。版本要求见 [pnpm 官方安�
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.9.40`**,建议先下载审阅再运行):
+**PowerShell 一键脚本**(复制整行粘贴回车;自动补齐 pnpm、自动探测 git,无需克隆仓库;安装链**固定到发布 tag `v1.9.41`**,建议先下载审阅再运行):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.40/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.41/install.ps1 | iex
 ```
 
 **或直接命令行**(机器上需已有 pnpm 与 git;同样固定到 tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.40
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.41
 ```
 
 没有 git 时可用 GitHub tag 打包直链:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.40.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.41.tar.gz
 ```
 
 安装后**重启** `dsh web`(插件行、Typert 清单与客户端 bundle 均在启动时扫描):
@@ -434,7 +436,7 @@ DSH **0.2.1-rc.1 / 0.2.1-rc.2** 宿主自带 pnpm **11.28.5**，默认启用内�
 
    ```yaml
    minimumReleaseAgeExclude:
-     - dsh-cost-meter@1.9.40
+     - dsh-cost-meter@1.9.41
    ```
 
 3. 仅本次操作用 CLI 透传 pnpm 参数：`dsh plugin --profile desktop remove dsh-cost-meter --config.minimum-release-age=0`；若只是 lockfile 校验阶段失败，可改用 `--trust-lockfile`。这两个参数已在本机 pnpm 11.28.5 临时 Profile 上实测可用。

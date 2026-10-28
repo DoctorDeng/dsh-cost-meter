@@ -10,6 +10,7 @@ const sourceDir = new URL('../src/client/', import.meta.url)
 const source = readdirSync(sourceDir).filter(name => name.endsWith('.js')).sort().map(name => readFileSync(new URL(name, sourceDir), 'utf8')).join('')
 const expose = ['SidebarModelCosts', 'sidebarModelRows', 'modelStatsRows', 'MODEL_SIDEBAR_DEFAULTS', 'MODEL_OPEN_KEY', 'QuotaCard', 'useQuotaRefresh', 'QuotasSection', 'PlanQuotaCard', 'GatewayQuotaCard', 'GoQuotaCard', 'GoQuotaSettings', 'CustomBalanceEntryPanel', 'SidebarFooter', 'CornerChips', 'parseConfig', 'makeT', 'CODING_PLAN_ROWS']
 expose.push('CostSection', 'MiniMaxPlanCard')
+expose.push('AccountCredentialLauncher')
 expose.push('quotaPlacementValue', 'quotaPlacementPatch', 'quotaPlacementOptions')
 expose.push('BalancePanel', 'CredentialField', 'parseBalance', 'miniMaxWindowsOf', 'barDirectionOf', 'quotaWindowRow', 'codingPlanWindowLabel', 'codingPlanWindowEntries', 'numInput', 'resolveLocale', 'formatMoneyUsd')
 const element = (type, props, ...children) => ({ type, props: props ?? {}, children })
@@ -59,7 +60,8 @@ function environment(fetchImpl = async () => ({ ok: false })) {
   const ui = module.test
   let plansFactory
   vm.runInNewContext(readFileSync(new URL('../src/plan-settings/index.js', import.meta.url), 'utf8'), { window: { __ModuleLoader__: { load: value => { plansFactory = value.factory } } } })
-  ui.PlanQuotaCard = plansFactory(() => React).mount(ui)
+  const planPage = plansFactory(() => React).mount(ui)
+  ui.PlanQuotaCard = props => { const node = planPage(props); return node.type(node.props) }
   const instances = []
   const mount = (render, props = {}) => {
     const owner = { hooks: [], cursor: 0, effects: [], dirty: false, disposed: false, props, tree: null }
@@ -485,7 +487,8 @@ for (const locale of ['zh', 'en']) {
   }
   const panel = env.mount(env.ui.BalancePanel, { state: { balance, config: sanitizeConfig({}) }, api, t })
   assert.ok(textOf(panel.tree).includes(t('balanceKeyHint')))
-  const input = nodes(panel.tree).find(node => node.type === env.ui.CredentialField)
+  const launcher = nodes(panel.tree).find(node => node.type === env.ui.AccountCredentialLauncher)
+  const input = nodes(env.mount(env.ui.AccountCredentialLauncher, launcher.props).tree).find(node => node.type === env.ui.CredentialField)
   assert.equal(input.props.target, 'balance')
   assert.equal(input.props.configured, true)
   const field = env.mount(env.ui.CredentialField, input.props)

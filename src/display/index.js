@@ -210,6 +210,7 @@ window.__ModuleLoader__.load({
     }
     function DetailedSettings({ state, draft, setDraft, t, locale, numInput, displayOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, open = false }) {
       const config=state.config
+      const text = (zh, en) => locale === 'en' ? en : zh
       const setField=(key,value)=>setDraft(previous=>({...previous,[key]:value}))
       return el('details', { className: 'cm-display-details', open: open || undefined },
         el('summary', null, locale === 'en' ? 'More options · layout, currency and refresh intervals' : '详细设置 · 布局、金额格式与刷新频率'),
@@ -221,7 +222,7 @@ window.__ModuleLoader__.load({
               el('span', null, t(key)))),
             USAGE_POSITION_SWITCHABLE
               ? el('div', { className: 'cm-field' },
-                  el('label', null, t('usagePositionLabel')),
+                  el('label', null, text('Token 用量统计位置', 'Token usage stats position')),
                   el('select', {
                     className: 'cm-input',
                     value: draft?.usage?.position ?? 'cost',
@@ -230,9 +231,9 @@ window.__ModuleLoader__.load({
                       setDraft({ ...draft, usage: { ...(draft.usage ?? { position: 'cost' }), position: event.target.value } })
                     },
                   },
-                    el('option', { value: 'cost' }, t('usagePositionCost')),
-                    el('option', { value: 'general' }, t('usagePositionGeneral')),
-                    el('option', { value: 'section' }, t('usagePositionSection'))))
+                    el('option', { value: 'cost' }, text('费用设置', 'Cost settings')),
+                    el('option', { value: 'general' }, text('通用设置', 'General settings')),
+                    el('option', { value: 'section' }, text('独立分节(用量)', 'Own section (Usage)'))))
               : null,
             el('div', { className: 'cm-field' },
               el('label', null, t('positionLabel')),
@@ -259,7 +260,7 @@ window.__ModuleLoader__.load({
                 checked: draft?.showSessionId === true,
                 onChange: event => setField('showSessionId', event.target.checked),
               }),
-              el('span', null, t('showSessionIdLabel'))),
+              el('span', null, text('会话列表附显会话 ID', 'Show session IDs in session lists'))),
             ...['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'sessionCostCompact'].map(key => el('label', { key, className: 'cm-check' },
               el('input', { type: 'checkbox', checked: draft?.[key] === true, onChange: event => setField(key, event.target.checked) }),
               el('span', null, t(key)))),
@@ -293,14 +294,14 @@ window.__ModuleLoader__.load({
                 checked: draft?.hideOfficialBalance === true,
                 onChange: event => setField('hideOfficialBalance', event.target.checked),
               }),
-              el('span', null, t('hideOfficialBalanceLabel'))),
+              el('span', null, text('隐藏官方账户余额(开启后侧边栏与设置页不再显示官方余额)', 'Hide official account balance (balance UI removed from sidebar and settings)'))),
             el('label', { className: 'cm-check' },
               el('input', {
                 type: 'checkbox',
                 checked: draft?.hideTodayCost === true,
                 onChange: event => setField('hideTodayCost', event.target.checked),
               }),
-              el('span', null, t('hideTodayCostLabel'))),
+              el('span', null, text('隐藏今日消耗金额(开启后侧边栏/预算明细/概览卡片不再显示今日费用)', "Hide today's cost (today's amount removed from sidebar, budget details and overview card)"))),
             el('div', { className: 'cm-grid-group' }, t('groupSidebar')),
             el('div', { className: 'cm-field' },
               el('label', null, t('sidebarTodayMetric')),
@@ -336,14 +337,14 @@ window.__ModuleLoader__.load({
                     setDraft({ ...draft, balance: { ...(draft.balance ?? { display: 'both', refreshMinutes: 5, showProgressBar: false, budgetCap: null }), showProgressBar: event.target.checked } })
                   },
                 }),
-                el('span', null, t('balanceShowProgressBar')))),
+                el('span', null, text('余额进度条 (蓝=余额,橙=当日,灰=已用)', 'Balance progress bar (blue=balance, orange=today, gray=spent)')))),
             el('div', { className: 'cm-field' },
               el('label', null, t('balanceBudgetCapLabel')),
               numInput({ value: draft?.balance?.budgetCap ?? '' }, v => {
                 if (draft === null) return
                 setDraft({ ...draft, balance: { ...(draft.balance ?? { display: 'both', refreshMinutes: 5, showProgressBar: false, budgetCap: null }), budgetCap: v > 0 ? v : null } })
               }),
-              el('span', { className: 'cm-hint' }, t('balanceBudgetCapHint'))),
+              el('span', { className: 'cm-hint' }, text('留空则优先使用 API 返回的 max_budget;仍无则显示整条浅蓝', 'Leave empty to use API max_budget; if still missing, show full light-blue bar'))),
             // 进度条方向(issue #67):四组条独立选择剩余/已用方向,默认保持各自原设计。
             el('div', { className: 'cm-field' },
               el('label', null, t('barDirectionsTitle')),
@@ -360,7 +361,7 @@ window.__ModuleLoader__.load({
                 },
                 el('option', { value: 'remaining' }, t('barDirectionRemaining')),
                 el('option', { value: 'used' }, t('barDirectionUsed'))))),
-              el('span', { className: 'cm-hint' }, t('barDirectionsHint'))),
+              el('span', { className: 'cm-hint' }, text('各组进度条可独立选择填充方向:「剩余方向」满条起步、随消耗递减;「已用方向」空条起步、随消耗填满。', 'Each group of bars can independently choose its fill direction: "Remaining" starts full and drains with usage; "Used" starts empty and fills up.'))),
             el('div', { className: 'cm-field' },
               el('label', null, t('customBalanceDisplayLabel')),
               el('select', {
@@ -378,7 +379,7 @@ window.__ModuleLoader__.load({
                 if (draft === null) return
                 setDraft({ ...draft, customBalance: { ...(draft.customBalance ?? config.customBalance ?? {}), refreshMinutes: Math.min(1440, Math.max(1, Math.floor(v))) } })
               })),
-            el('div', { className: 'cm-grid-group' }, t('quotaStripGroup')),
+            el('div', { className: 'cm-grid-group' }, text('输入框上方额度横条', 'Quota strip above the input')),
             el('div', { className: 'cm-field' },
               el('label', { className: 'cm-check' },
                 el('input', {
@@ -389,7 +390,7 @@ window.__ModuleLoader__.load({
                     setDraft({ ...draft, quotaStrip: { ...(draft.quotaStrip ?? { enabled: false, budget: true, go: true, plans: true }), enabled: event.target.checked, promptSeen: true } })
                   },
                 }),
-                el('span', null, t('quotaStripEnable')))),
+                el('span', null, text('默认启用额度横条（单家显示位置优先）', 'Enable the quota strip by default (individual placement takes priority)')))),
             draft?.quotaStrip?.enabled === true
               ? [['budget', 'quotaStripShowBudget'], ['go', 'quotaStripShowGo'], ['plans', 'quotaStripShowPlans']].map(([key, labelKey]) =>
                   el('label', { key, className: 'cm-check' },
@@ -404,7 +405,7 @@ window.__ModuleLoader__.load({
                     el('span', null, t(labelKey))))
               : null,
             el('div', { className: 'cm-field' },
-              el('span', { className: 'cm-hint' }, t('quotaStripNote'))),
+              el('span', { className: 'cm-hint' }, text('横条悬停可见各窗口重置时刻与更新时间;无可用额度数据时自动隐藏。', 'Hover a chip for reset times and the last refresh; the strip hides itself when there is no quota data.'))),
             el('div', { className: 'cm-grid-group' }, t('groupCorner')),
             el('div', { className: 'cm-field' },
               el('label', null, t('cornerLabel')),
@@ -417,7 +418,7 @@ window.__ModuleLoader__.load({
                     setDraft({ ...draft, corner: { ...(draft.corner ?? { enabled: false, goRolling: true, goWeekly: true, goMonthly: true, budget: true }), enabled: event.target.checked } })
                   },
                 }),
-                el('span', null, t('cornerEnabledLabel'))),
+                el('span', null, text('在右下角显示 OpenCode Go 额度 / 预算', 'Show OpenCode Go quota / budget at the bottom-right'))),
               draft?.corner?.enabled === true
                 ? [['goRolling', 'cornerGoRolling'], ['goWeekly', 'cornerGoWeekly'], ['goMonthly', 'cornerGoMonthly'], ['budget', 'cornerBudget']].map(([key, labelKey]) =>
                   el('label', { key, className: 'cm-check' },

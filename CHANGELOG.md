@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+- 支持同一来源保存多个查询账号，在设置中选择余额或额度展示账号；凭据分开存储，切换时取消旧请求并清除缓存及采样基准。感谢 [@376797822](https://github.com/376797822) 在 [#427](https://github.com/Han-1413141/dsh-cost-meter/issues/427) 提出多账号查询和展示选择需求。[使用说明](docs/query-accounts.md)。
+- Add named query accounts with isolated credentials and a selected account for balances/quotas; cancel old requests and reset observation baselines on switching.
+
+- 修复 Go 订阅在自动归属列表为空时仍被记入 API 花费的问题，增加历史分类修正及概览页“渠道计费方式”入口。感谢 [@ZIye1208](https://github.com/ZIye1208) 在 [#424](https://github.com/Han-1413141/dsh-cost-meter/issues/424) 提供复现、根因定位和改进建议。
+- 自定义余额新增逐条配置的跳转链接，侧栏余额行与进度卡支持打开中转站账户页面，点击链接不触发余额刷新。感谢 [@yi-Xu-0100](https://github.com/yi-Xu-0100) 在 [#425](https://github.com/Han-1413141/dsh-cost-meter/issues/425) 提出需求并提供界面示例。
+- Classify explicit Go subscription routes independently of frozen quota-query snapshots, repair historical API/Plan splits, expose channel billing controls, and add optional dashboard links to custom balance cards.
+
+- 修复 Agent Teams 在默认关闭“包含子代理”时遗漏成员费用的问题：正确读取宿主团队快照，统一会话徽章、当前对话统计、明细和会话列表的合计范围。感谢 [@KURISUNO4](https://github.com/KURISUNO4) 在 [#420](https://github.com/Han-1413141/dsh-cost-meter/issues/420) 提供复现数据、根因定位及修复建议。
+- Fix Agent Teams cost aggregation with the subagent setting off; keep badge, selected-conversation statistics, details and session-list totals consistent without duplicating ledger entries.
+
+- 新增百度千帆 Token Plan 个人版额度查询，支持积分制和 Token 制、控制台 Cookie 凭据及登录过期提示；感谢 [@minevery512](https://github.com/minevery512) 在 [#418](https://github.com/Han-1413141/dsh-cost-meter/issues/418) 提出需求。[配置说明](docs/baidu-token-plan.md)。
+- 验证 billion-context 0.1.208 与 dsh-codex-subscription 3.1.7 的实际发布包，更新兼容基线与 CI，处理自动监控 [#416](https://github.com/Han-1413141/dsh-cost-meter/issues/416)、[#417](https://github.com/Han-1413141/dsh-cost-meter/issues/417)。
+- Add Baidu Qianfan Token Plan Personal quota via console Cookie, with separate credits/Token units; validate the latest billion-context and Codex subscription packages.
+- 新增官方余额“仅官方渠道显示”开关，默认关闭；按当前会话渠道显示侧栏官方余额，无渠道投影时参考今日官方调用，设置页与预览不受渠道限制。感谢 [@littleyellowbicycle](https://github.com/littleyellowbicycle) 在 [#421](https://github.com/Han-1413141/dsh-cost-meter/issues/421) 提出需求与判定规则。
+- Add an opt-in official-channel filter for the sidebar balance, with current-session precedence and today's official-call fallback; keep settings and previews accessible.
+
+## [1.9.41] - 2026-10-26
+
+- 修复 Web 端 `conversation.chat.turnTail` 缺少 chain 插槽选择器导致的加载失败（[#413](https://github.com/Han-1413141/dsh-cost-meter/issues/413)，由 [@korion3](https://github.com/korion3) 报告、定位并在 [#414](https://github.com/Han-1413141/dsh-cost-meter/pull/414) 提供修复）。
+- 账本替换前同步临时文件，增加独立的脱敏配置备份；账本损坏或缺失时恢复自定义余额源等设置，保留损坏文件。感谢 [@kevindawn11-hash](https://github.com/kevindawn11-hash) 在 [#412](https://github.com/Han-1413141/dsh-cost-meter/issues/412) 提供故障证据和修复建议。
+- Flush ledger files before replacement and restore settings from an independent secret-free backup after ledger corruption or loss; fix Web startup chain-slot registration.
+
+[更新说明 / Release notes](docs/update-notes-1.9.41.md)
+
 ## [1.9.40] - 2026-10-26
 
 - billion-context 费用误差说明移至“设置 → 费用 → 概览”，以普通灰字按需显示，不再自动弹窗打断聊天。

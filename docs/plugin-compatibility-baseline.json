@@ -1,8 +1,8 @@
 {
-  "recordedAt": "2026-10-24T05:50:53.448Z",
+  "recordedAt": "2026-10-26T05:49:36.997Z",
   "plugins": {
     "billion-context": {
-      "version": "0.1.206",
+      "version": "0.1.208",
       "signature": {
         "main": "dist/index.js",
         "exports": {
@@ -35,10 +35,10 @@
         }
       },
       "interfaceHash": "2f1aaa2710e985da398bf493a8b0a5f9cafe511f1c67b9c974f1c28781aefe2b",
-      "integrity": "sha512-0UlwulpeHwbsuYeyWLpwAtOzHBm8kWMpW8d46rYkgb+mc6Ig5gfN8GAs5y3a7e+COeUOuRRz/2xh3VF8V7apcQ=="
+      "integrity": "sha512-UxsXmDoXRFZJ5D/hyhq33QGd0dOWqA5uo/ssJLd79NH54yU7wFlb1Bf9h+b9+nzKcrfCxEo9iIibKMUzeedwDA=="
     },
     "dsh-codex-subscription": {
-      "version": "3.1.6",
+      "version": "3.1.7",
       "signature": {
         "main": "./lib/index.js",
         "exports": {
@@ -78,12 +78,12 @@
         },
         "functions": {
           "registerSubscriptionTransport": "5a28e5ddc4b021b401f29b2cd8d0d6da44286fa66920fdd6ada161df1578f735",
-          "createSubscriptionRpcHandler": "4abdf4f9f7175f6c474c043c1f6cdb17843e9265f6b423e26e48253f1fe20b75",
+          "createSubscriptionRpcHandler": "459c5d894531d4d1048e5c3a9172e8b95fc88f2e35490e3019bca092a3ae42f2",
           "parseCodexUsage": "5c72a7a920ed4edb5f9e5610e93bfd84a4ad76f4d72e33283370c8800781df0e"
         }
       },
-      "interfaceHash": "fe4c7c5d7fcabee5776c77c0688defebfd3fecf23a3195964e3b82bd06a889b2",
-      "integrity": "sha512-NULAMY1I4tGhAoGRlc3Lj8mMkkR6471Tju/V1x/h8SwjbdBmwfd3DvbshELFMdJtPNR6HdbUeTXIcM4kYmA8Ng=="
+      "interfaceHash": "68a60aa510e0eef81428af5ca0799bd1b64d52e25b31fbfd620615c1310cfacb",
+      "integrity": "sha512-elECWoQ6R1/9J1wcmzam6pSljL/9mSGVfqRqp6KWam3NIGO7fZYe7vEZl5Agj1l3Y6wmABBmDEL5lwsVcLbL5Q=="
     },
     "dsh-codex-connect": {
       "version": "0.2.0-alpha.10",

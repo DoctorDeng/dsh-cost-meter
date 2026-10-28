@@ -40,6 +40,7 @@ window.exportRequests=[];window.chunkLoads=0;
 const Page=props=>h(props.sessionId?window.statsUI.SessionStatistics:window.statsUI.Statistics,{...props,api});Page.prefetch=props=>window.statsUI.prefetchStatistics(api,props);
 api.loadStatistics=async()=>{window.chunkLoads++;return Page};
 api.loadCommunity=async()=>()=>null;
+api.loadPricing=async()=>()=>null;
 const root=createRoot(document.getElementById('root'));
 window.render=mode=>root.render(h(React.Fragment,null,h('style',null,window.mainUI.testUI.css),mode==='session'?h(window.mainUI.testUI.SessionStatisticsButton,{key:mode,sessionId:'s0',useCost:()=>({state}),api,entryPosition:'dock'}):h(window.mainUI.testUI.CostSection,{key:mode,useCost:()=>({state}),api})));
 window.render('settings');`

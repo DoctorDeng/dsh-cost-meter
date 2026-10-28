@@ -6,7 +6,7 @@
 
 **Session cost tracking plugin for the DeepSeek Harness web GUI (bilingual UI)**
 
-[![version](https://img.shields.io/badge/version-1.9.40-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
+[![version](https://img.shields.io/badge/version-1.9.41-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 [![npm](https://img.shields.io/npm/v/dsh-cost-meter?label=npm)](https://www.npmjs.com/package/dsh-cost-meter)
 [![dshfind](https://dshfind.com/api/badge/Han-1413141/dsh-cost-meter?metric=downloads&lang=en)](https://dshfind.com/zh/plugins/Han-1413141/dsh-cost-meter?ref=badge)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -16,11 +16,11 @@
 
 </div>
 
-**v1.9.40** moves billing accuracy guidance into settings and improves balance-query backoff to reduce redundant requests and related operational risks.
+**v1.9.41** fixes Web startup and protects settings with durable ledger writes and an independent configuration backup.
 
 **Host floor: DSH 0.2.0** · Adaptation target: **0.2.1-rc.2** (npm `next`). Expand the compatibility notes below for exact declarations, host records and troubleshooting.
 
-Release notes: [v1.9.40](docs/update-notes-1.9.40.md#english). Fully restart DSH after updating.
+Release notes: [v1.9.41](docs/update-notes-1.9.41.md#english). Fully restart DSH after updating.
 
 ![Promo art](docs/promo.en.png)
 
@@ -120,6 +120,8 @@ For Qianwen / Alibaba Cloud fund accounts, use **Add Qianwen / Alibaba Cloud bal
 Qwen Token Plan can use the [official CLI subscription quota](docs/qwen-cli-quota.md#english). Install the CLI on the DSH host and run `qianwen auth login` as the same OS user. Local estimates remain the default; CLI mode shows current account credits without changing the local ledger.
 
 Local Qwen Token Plan credits include Plan calls assigned to Qwen. Existing subscription aliases such as `qwen` and `qwen-tokenplan` remain supported; custom providers can select Qwen under Model statistics → Billing class, or use an explicit vendor name and plan marker for auto detection. Explicit API calls are excluded. The pay-as-you-go `qianwen` provider is not assigned merely because its model ID is identical. Models outside the credits table need all three rates configured.
+
+Baidu Qianfan Token Plan Personal now supports [quota queries via console Cookie](docs/baidu-token-plan.md), including credits and Token modes. Store the Cookie in the Baidu quota card or set `BAIDU_QIANFAN_COOKIE` on the DSH host.
 
 Xiaomi MiMo Token Plan quotas are queried with the **MiMo console cookie**, not an API key: log in at `platform.xiaomimimo.com`, press F12 → Network → find the `balanceAlertConfig` request and paste the full `cookie` request header into the MiMo card in Settings → Cost → Quotas (it must include `serviceToken` and `userId`; the DSH credential store keeps it as `MIMO_COOKIE`). The card shows the plan/compensation credit windows with the period-end reset (Beijing time) plus a balance row. Copy a fresh console cookie when the card reports an expired login. Token Plan inference keys (`tp-*` / `ttp-*`) are not accepted by this console adapter. Local plan statistics use the calendar month; compensation and balance are displayed without estimates because local calls cannot be attributed to those pools.
 
@@ -354,22 +356,22 @@ On Node.js 20, use `npm install -g pnpm@10` instead. See [pnpm installation and 
 dsh plugin --profile web add dsh-cost-meter
 ```
 
-**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.9.40`** — review the script before running):
+**PowerShell one-click script** (copy the whole line, paste, press Enter; pnpm is provisioned automatically, git is auto-detected — no clone needed; the install chain is **pinned to the release tag `v1.9.41`** — review the script before running):
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.40/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.41/install.ps1 | iex
 ```
 
 **Or a plain command line** (the machine must already have pnpm and git; also pinned to the tag):
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.40
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.41
 ```
 
 Without git, use the GitHub tag archive:
 
 ```sh
-dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.40.tar.gz
+dsh plugin --profile web add https://github.com/Han-1413141/dsh-cost-meter/archive/refs/tags/v1.9.41.tar.gz
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):
@@ -434,7 +436,7 @@ Workarounds:
 
    ```yaml
    minimumReleaseAgeExclude:
-     - dsh-cost-meter@1.9.40
+     - dsh-cost-meter@1.9.41
    ```
 
 3. For a one-off CLI operation, forward the pnpm flag: `dsh plugin --profile desktop remove dsh-cost-meter --config.minimum-release-age=0` (or add `--trust-lockfile` when only lockfile verification fails). Both flags were verified against pnpm 11.28.5 in a temporary profile.

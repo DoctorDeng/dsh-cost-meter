@@ -2,6 +2,12 @@
 
 ## English
 
+### Configuration recovery after an abnormal shutdown
+
+The ledger and its independent `ledger.json.config-bak` are written to temporary files in the same directory, flushed, and then renamed over their destinations. POSIX systems also flush the directory after replacement. The backup stores only configuration and migration markers, using the ledger's existing secret filtering; credentials remain in the DSH credential store and configuration placeholders are preserved. Usage-only updates do not rewrite an unchanged backup.
+
+A healthy existing ledger creates or updates this backup when loaded. If the ledger is corrupt, the original `.corrupt-*` file is retained and settings are recovered from the backup. A missing ledger can also use the backup. The log reports successful restoration and the number of custom balance sources; an unreadable backup is reported and defaults are used. Usage history continues through the existing backfill mechanism. An already zeroed file from before this protection, with no backup, contains no settings to recover. See [#412](https://github.com/Han-1413141/dsh-cost-meter/issues/412).
+
 Issue [#237](https://github.com/Han-1413141/dsh-cost-meter/issues/237) reports a startup failure with **Ledger is busy; preserving pending changes for retry**. The sidebar balance and quota widgets disappear because the cost-meter loader entry did not activate. An old lock can name a PID that now belongs to a different process; checking only whether that PID exists cannot identify the original owner.
 
 ### Update and recover
@@ -24,6 +30,12 @@ If a genuine writer still holds the lock, let its operation finish and restart t
 Implementation references: [Linux process start ticks](https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html), [Windows process StartTime](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.starttime).
 
 ## 简体中文
+
+### 异常退出后的配置恢复
+
+账本及独立的 `ledger.json.config-bak` 均先写入同目录临时文件，刷盘后再替换目标文件；POSIX 系统同时同步目录。备份只保存配置和迁移记录，沿用账本的脱敏规则，凭据仍由 DSH 凭据库保存，配置中的占位符保留。仅用量变化时不重写配置备份。
+
+已有的正常账本加载时即建立或更新备份。账本损坏后保留原始 `.corrupt-*` 文件，并从备份恢复设置；账本缺失时同样读取备份。日志显示恢复结果及自定义余额源数量；备份也无法读取时记录错误并使用默认配置。用量历史继续由现有补录流程处理。启用此保护之前已经全零且没有备份的文件，没有可恢复的配置内容。问题来源：[#412](https://github.com/Han-1413141/dsh-cost-meter/issues/412)。
 
 Issue [#237](https://github.com/Han-1413141/dsh-cost-meter/issues/237) 报告启动时出现 **Ledger is busy; preserving pending changes for retry**。费用插件未成功挂载，侧栏余额和额度卡片随之消失。旧锁中的 PID 可能已经被系统分配给另一个进程，仅检查 PID 是否存在不能确认原锁持有者。
 

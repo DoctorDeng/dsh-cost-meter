@@ -10,7 +10,7 @@ const now = Date.parse('2026-09-10T07:00:00Z')
 class Clock extends Date { static now() { return now } }
 const el = (type, props, ...children) => ({ type, props: props ?? {}, children })
 vm.runInNewContext(src.replace('exports.apply = apply', 'exports.test = { SidebarFooter, BudgetBoxContent, BalanceBox, BalanceRowContent, codexQuotaCache }; exports.apply = apply'), {
-  Date: Clock, navigator: { language: 'zh' }, window: { __ModuleLoader__: { load: v => { factory = v.factory } }, localStorage: { getItem: () => null } },
+  URL, Date: Clock, navigator: { language: 'zh' }, window: { __ModuleLoader__: { load: v => { factory = v.factory } }, localStorage: { getItem: () => null } },
 })
 const ui = factory(name => name === 'react' ? { createElement: el, Fragment: 'fragment', useRef: value => ({ current: value }), useEffect() {}, useLayoutEffect() {}, useState: value => [typeof value === 'function' ? value() : value, () => {}] } : { Tooltip: 'tooltip' }).test
 const render = n => Array.isArray(n) ? n.map(render) : n && typeof n === 'object'

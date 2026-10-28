@@ -52,7 +52,10 @@ async function scenario({ initial = 'zh', explicit = 'auto', late = false, brows
   class Slots extends Service {
     constructor(owner) { super(owner, 'slots') }
     inject(name, fn) { return this.ctx.effect(fn) }
-    register(options, component) { const key = options.name + ':' + options.id; const value = { options, component }; registrations.set(key, value); return () => { if (registrations.get(key) === value) registrations.delete(key) } }
+    register(options, component) {
+      if (options.name === 'conversation.chat.turnTail' && options.select === undefined) throw Error('chain slot "conversation.chat.turnTail" requires options.select')
+      const key = options.name + ':' + options.id; const value = { options, component }; registrations.set(key, value); return () => { if (registrations.get(key) === value) registrations.delete(key) }
+    }
   }
   class Locale extends Service {
     constructor(owner) { super(owner, 'locale') }
@@ -64,6 +67,10 @@ async function scenario({ initial = 'zh', explicit = 'auto', late = false, brows
   let localeFiber
   if (!noService && !late) { localeFiber = ctx.plugin(Locale); await localeFiber }
   const fiber = ctx.plugin(main); await fiber; await wait()
+  const turnSlot = registrations.get('conversation.chat.turnTail:cost-meter-turn')
+  assert.ok(turnSlot, 'turn cost registers against the chain slot contract (#413)')
+  const turnProps = { sessionId: 'fixture', turn: 1 }
+  assert.equal(turnSlot.options.select(turnProps), turnProps, 'turn selector preserves host props')
   const entry = () => registrations.get('settings.section:cost-meter')
   const label = () => entry()?.options.label
   const expected = language => language === 'en' ? 'Cost' : '费用'

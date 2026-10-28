@@ -2,6 +2,12 @@
 
 ## English
 
+### Channel billing
+
+In **Cost → Overview → Channel billing**, select a channel and choose Automatic, Plan subscription or Metered API. The choice applies to its models; individual model overrides take priority. Saving updates historical API/Plan classification without changing tokens, API-equivalent amounts or recorded exchange rates. Quota-query switches remain independent.
+
+Automatic classification recognizes `dsh-opencode-go`, `opencode-go` and `opencode-go-plus` (including the `llm-` prefix) as Go subscriptions even when `planBilling.autoProviders` is empty. Explicit model/channel/family choices still take priority. Existing records receive a one-time classification correction. Other ambiguous channels continue using their saved automatic membership; `opencode-zen` remains metered API.
+
 ### Conversation cost views
 
 The conversation **Cost details** view defaults to the treemap and offers four layouts over the same complete cost totals:
@@ -41,7 +47,7 @@ From 1.8.10, the ledger retains every conversation instead of pruning details af
 
 API costs are **estimates from reported usage and configured rates**, not provider invoices. Plan costs are the API-equivalent value of subscription usage, not an extra charge. External usage snapshots remain separately visible in Overview; this page analyzes DSH's own ledger.
 
-With **Include subagents in session cost** enabled, the conversation badge, selected-conversation statistics and details include all continuous subagent descendants. The detail view lists each agent's recorded costs and identifies the owning conversation for every call, turn and step. Expanding a child turn reads that child's input and tools. Ordinary forks are excluded and inherited history is not billed twice. Disabling the setting limits ordinary conversations to their own costs. From 1.9.23, a live agent-team lead automatically includes its team members and their descendants even with this setting disabled. The host's public team roster identifies membership; agents retain separate ledger entries.
+With **Include subagents in session cost** enabled, the conversation badge, selected-conversation statistics and details include all continuous subagent descendants. The detail view lists each agent's recorded costs and identifies the owning conversation for every call, turn and step. Expanding a child turn reads that child's input and tools. Ordinary forks are excluded and inherited history is not billed twice. Disabling the setting limits ordinary conversations to their own costs. From 1.9.23, a live agent-team lead automatically includes its team members and their descendants even with this setting disabled. The host's public team roster identifies membership; agents retain separate ledger entries. The session-list cost uses the same scope for both today and total. The durable `agentTeam` snapshot identifies the lead by its top-level `id` and contains only teammates in `members`; the client wire view adds `lead` / `teammate` roles. Both shapes are supported (verified against `@deepseek-ai/dsh-experimental-agent-team` 0.2.0-rc.2 and 0.2.1-rc.2, `lib/types/projection.js`, issue #420).
 
 Call details use the price version recorded for the call time, including peak/off-peak and long-context tiers. Editing rates, mappings or price currency affects subsequent calls. Older installations keep their existing ledger amounts and use the pre-upgrade price configuration as the baseline for available call logs; prices that were never recorded cannot be recovered. Missing logs and missing prices do not mean zero cost.
 
@@ -52,6 +58,12 @@ Cache hit rate is `cacheRead / (input + cacheRead + cacheWrite)`. Token composit
 The statistics screen uses DSH's package-local asynchronous module loader. Since **1.8.2**, the main and statistics Remote contributions have distinct registration identities; their combined lifecycle is tested against the real **0.2.0-rc.2** client registry/gateway (the 0.1.7-rc.2 leg was dropped together with the 0.2.0 floor). That loader exists throughout the supported host range, so hosts below the floor are refused at admission instead of showing an in-app upgrade message. Both shipped client files stay below the 256 KiB per-file limit.
 
 ## 简体中文
+
+### 渠道计费方式
+
+在 **费用 → 概览 → 渠道计费方式** 中选择渠道，再选择“自动”“Plan 订阅”或“API 按量”。设置适用于该渠道所有模型，模型单独设置优先。保存后更新历史 API/Plan 归属，保留 Token、API 等值金额和记录时的汇率金额。额度查询开关独立控制。
+
+自动归类按明确的订阅渠道识别 `dsh-opencode-go`、`opencode-go`、`opencode-go-plus`，支持 `llm-` 前缀，不再受空 `planBilling.autoProviders` 列表影响。用户显式设置的模型、原始渠道或套餐家族分类优先。已有账本启动后进行一次分类修正；其他无法仅凭渠道名判断的来源继续使用已保存的自动归属，`opencode-zen` 仍为 API 按量。
 
 ### 对话费用视图
 
@@ -88,7 +100,7 @@ The statistics screen uses DSH's package-local asynchronous module loader. Since
 
 汇总读取 DSH 账本，打开页面会同步其他进程已写入的记录，不重新定价或修改历史金额。全局日、周及全部统计中，跨天对话合并成一行，开启子代理费用合计时，排行把子代理及其后代归入所属主会话，点击后的明细与排行金额一致；关闭时各会话分别列出。每笔费用只计一次。历史中未归属模型或对话的金额会单独提示。从 1.8.10 起，账本保留全部对话记录，不再按每日 200 个裁剪。若已记录的全部 Token 与调用次数完整覆盖一个日期，旧日总额会按这些对话已记录的金额修复；匿名调用和旧版裁剪留下的金额保留。此修复不重新定价。
 
-开启设置中的“本会话费用包含子代理”后，会话费用徽章、单对话汇总和费用明细均包含该会话的子代理及全部子代理后代。明细单列主会话与各子代理的账本费用，逐次调用、轮次和步骤标注所属会话，展开子代理轮次可查看它自己的输入与工具调用。普通分叉会话不归入父会话，子代理继承的历史消息不重复收费。关闭开关时，普通对话只显示自身费用。从 1.9.23 起，正在运行的智能体团队主代理会根据宿主公开的团队名册自动包含成员及其后代，不受此开关影响；各代理继续分别入账。
+开启设置中的“本会话费用包含子代理”后，会话费用徽章、单对话汇总和费用明细均包含该会话的子代理及全部子代理后代。明细单列主会话与各子代理的账本费用，逐次调用、轮次和步骤标注所属会话，展开子代理轮次可查看它自己的输入与工具调用。普通分叉会话不归入父会话，子代理继承的历史消息不重复收费。关闭开关时，普通对话只显示自身费用。从 1.9.23 起，正在运行的智能体团队主代理会根据宿主公开的团队名册自动包含成员及其后代，不受此开关影响；各代理继续分别入账。会话列表的今日与累计费用采用同一范围。宿主 `agentTeam` 快照的顶层 `id` 标识主代理，`members` 只包含队友；客户端视图才添加 `lead` / `teammate` 角色。两种格式均已支持，依据 `@deepseek-ai/dsh-experimental-agent-team` 0.2.0-rc.2 和 0.2.1-rc.2 发布包中的 `lib/types/projection.js` 核对（[#420](https://github.com/Han-1413141/dsh-cost-meter/issues/420)）。
 
 API 费用是按上报用量和配置单价计算的估算，不是厂商账单；Plan 费用是订阅用量的 API 等值，不代表额外扣款。外部用量快照仍在原概览中单列，这个页面统计 DSH 自身账本。
 

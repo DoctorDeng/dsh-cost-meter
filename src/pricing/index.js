@@ -506,6 +506,25 @@ window.__ModuleLoader__.load({
             el('tbody', null, ...runs.map(row => el('tr', { key: row.at }, el('td', null, new Date(row.at).toLocaleString(locale)), el('td', null, row.model || allLabel), el('td', null, money(row, 'before')), el('td', null, money(row, 'after')), el('td', null, row.sessions))))))) : null)
     }
 
+    function ProviderBillingSettings({ state, draft, setDraft, locale }) {
+      const config = draft ?? state.config, text = (zh, en) => locale === 'en' ? en : zh
+      const observed = Object.keys(state.total?.byProviderModel ?? {}).filter(key => key.indexOf(':') > 0).map(key => key.slice(0, key.indexOf(':')))
+      const providers = [...new Set([...observed, ...Object.keys(config.planBilling?.providers ?? {})])]
+      const [chosen, setChosen] = useState(observed[0] ?? 'go')
+      const provider = providers.includes(chosen) ? chosen : providers[0] ?? 'go'
+      return el('section', { className: 'cm-budget', 'data-provider-billing': true },
+        el('h3', { className: 'cm-h' }, text('渠道计费方式', 'Channel billing')),
+        el('div', { className: 'cm-grid' },
+          el('label', { className: 'cm-field' }, el('span', null, text('渠道', 'Channel')),
+            el('select', { className: 'cm-input', 'aria-label': text('计费渠道', 'Billing channel'), value: provider, onChange: e => setChosen(e.target.value) },
+              providers.map(id => el('option', { value: id, key: id }, id === 'go' ? 'OpenCode Go (go)' : id)))),
+          el('label', { className: 'cm-field' }, el('span', null, text('计费方式', 'Billing type')),
+            el('select', { className: 'cm-input', 'aria-label': text('渠道计费方式', 'Channel billing type'), value: config.planBilling?.providers?.[provider] ?? 'auto', disabled: draft == null,
+              onChange: e => setDraft({ ...config, planBilling: { ...config.planBilling, providers: { ...config.planBilling?.providers, [provider]: e.target.value } } }) },
+              [['auto', text('自动', 'Automatic')], ['plan', text('Plan 订阅', 'Plan subscription')], ['api', text('API 按量', 'Metered API')]].map(([value, label]) => el('option', { value, key: value }, label))))),
+        el('p', { className: 'cm-note' }, text('适用于该渠道的所有模型，模型单独设置优先。修改后更新历史 API/Plan 归属，保留 Token 和 API 等值金额。额度查询开关单独控制。', 'Applies to all models on this channel; model overrides take priority. Changes update historical API/Plan classification while preserving tokens and API-equivalent amounts. Quota queries are controlled separately.')))
+    }
+
     async function mount(ctx) {
       const unmount = await ctx.get('remote').$mount(CONTRIBUTION)
       ctx.effect(() => () => unmount(), 'cost-meter: pricing settings contribution')
@@ -581,7 +600,7 @@ window.__ModuleLoader__.load({
         '@media (max-width:1023px){.cm-custom-grid,.cm-effective-grid,.cm-rate-summary{grid-template-columns:1fr}.cm-model-toolbar,.cm-custom-head,.cm-catalog-toolbar{flex-wrap:wrap}.cm-repricing-history table{min-width:480px}.cm-model-matching .cm-match-row{padding:8px 10px}}body[data-dsh-pocket-layout="mobile"] .cm-custom-grid{grid-template-columns:1fr}body[data-dsh-pocket-layout="mobile"] .cm-rate-summary{grid-template-columns:1fr}',
       ].join('')
       ctx.effect(() => () => style.remove(), 'cost-meter: pricing settings styles')
-      return props => props.mode === 'matching' ? el(Matching, props) : el(props.mode === 'catalog' ? Catalog : props.mode === 'restore' ? RestorePrices : History, { ...props, rpc })
+      return props => props.mode === 'billing' ? el(ProviderBillingSettings, props) : props.mode === 'matching' ? el(Matching, props) : el(props.mode === 'catalog' ? Catalog : props.mode === 'restore' ? RestorePrices : History, { ...props, rpc })
     }
     return { mount, CONTRIBUTION }
   },

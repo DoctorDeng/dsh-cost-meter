@@ -23,3 +23,5 @@ GitHub Actions 工作流 `plugin-compatibility-watch` 每日北京时间 08:23 �
 | dsh-codex-connect | 0.2.0-alpha.10 | 宿主依赖与状态路由变化，状态读取使用同一账号快照。新增实际发布包检查，执行原版额度解析器、公开状态类与 GET 路由，覆盖读取期间切换账号、下一次刷新、登录失效、额度失败、401/403 拒绝、405 方法限制与卸载清理。 |
 
 基线更新为 `0.1.206 / 3.1.6 / 0.2.0-alpha.10`，保存对应发布包的 SHA-512 完整性。Connect 的账号、认证和额度服务使用本地模拟对象；原版插件初始化、OAuth 登录与外部模型请求没有执行。检查入口为 `test/codex-connect-published.mjs`，通过 `DSH_TEST_CONNECT_PACKAGE` 指定已下载的 npm 压缩包。
+
+2026-10-26 已验证 `billion-context@0.1.208` 与 `dsh-codex-subscription@3.1.7`，处理 `github-actions[bot]` 的 [#416](https://github.com/Han-1413141/dsh-cost-meter/issues/416)、[#417](https://github.com/Han-1413141/dsh-cost-meter/issues/417)。前者接口指纹未变，实际发布包的四协议计费、压缩、重试、父子会话、历史回放与原版 CLI 自动接入检查通过。后者 RPC 分发变化涉及语音取消、错误分类及切换账号后的模型目录初始化，`usage/read` 分支未变；实际发布包的单周、双窗口、强制刷新与失败回退检查通过。两版加入 CI，保留旧版本及 Connect 基线。

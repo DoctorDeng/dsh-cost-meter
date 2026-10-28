@@ -1,5 +1,9 @@
 # 自定义余额：随机端口、局域网与 WorkBuddy2API
 
+## 侧栏跳转链接
+
+在“费用 → 额度”展开任一自定义余额条目，填写“跳转链接（可选）”（`dashboardUrl`）。链接可指向中转站账户、充值或控制台页面，使用完整 HTTP(S) 地址，不能包含用户名或密码。保存后，侧栏余额行或进度卡的名称旁显示跳转箭头；点击箭头打开新标签页，不触发余额刷新。各条目独立设置，留空时不显示链接。余额接口 URL、请求头和凭据不会被用作跳转链接。
+
 ## 跟随 DSH 随机端口
 
 在 **设置 → 费用 → 额度 → 自定义 Provider 余额** 中，请求 URL 可以填写以单个 `/` 开头的路径：
@@ -62,6 +66,8 @@ HTTPS 和本机回环 HTTP 继续可用。访问 `http://192.168.1.20:8790` 等�
 贡献来源：@Jav1es 在 [#311](https://github.com/Han-1413141/dsh-cost-meter/issues/311) 提供随机端口复现及相对路径建议；@snhun 在 [#309](https://github.com/Han-1413141/dsh-cost-meter/issues/309) 提出局域网 HTTP 需求，在 [#310](https://github.com/Han-1413141/dsh-cost-meter/issues/310) 提出 WorkBuddy2API 接入需求。
 
 ## English setup
+
+Each custom balance entry has an optional **Dashboard link** (`dashboardUrl`) under **Cost → Quotas**. Use a complete HTTP(S) account or billing URL without embedded credentials. The sidebar row and progress card show an arrow next to that entry's name; it opens a new tab without refreshing the balance. Leave it blank to omit the link. Query URLs, headers and credentials are never used to construct navigation links.
 
 Root-relative URLs such as `/plugins/dsh-workbuddy-connect/status` follow the running DSH web server's actual port. Independent WorkBuddy2API deployments use an absolute URL. Non-loopback HTTP requires both `allowInsecureHttp: true` and an exact `host:port` in `allowedHosts`; this explicitly permits plaintext transport. Redirects remain blocked.
 

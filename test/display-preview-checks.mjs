@@ -99,7 +99,7 @@ export async function checkDisplayPreview(page, output) {
                 switchHeight: n.querySelector('.cm-inspector-visibility').getBoundingClientRect().height }
             })
             assert.ok(geometry.side && geometry.top < 4 && !geometry.overflow, `${theme}/${width}/${name}/${key} stays in two bounded columns: ${JSON.stringify(geometry)}`)
-            assert.ok(geometry.switchHeight <= 40 && geometry.height - geometry.layoutHeight < 600, 'component controls stay compact with the additional layout picker expanded')
+            assert.ok(geometry.switchHeight <= 40 && geometry.height - geometry.layoutHeight < 600, `${theme}/${width}/${name}/${key} controls stay compact with the layout picker expanded: ${JSON.stringify(geometry)}`)
           }
         }
       }

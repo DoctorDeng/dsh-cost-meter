@@ -1,5 +1,14 @@
 # dsh-cost-meter 版本更新历史
 
+## v1.9.41(2026-10-26)—— Web 启动修复与账本配置恢复
+
+- 修复 Web 端 chain 插槽缺少 `select` 导致插件加载失败的问题。
+- 账本与独立配置备份先刷盘再替换；账本损坏或缺失时恢复自定义余额源等设置。
+- 保留损坏账本和恢复日志，备份沿用凭据脱敏规则；仅用量变化时不重复写配置备份。
+- 感谢 [@korion3](https://github.com/korion3) 在 [#413](https://github.com/Han-1413141/dsh-cost-meter/issues/413) 报告、定位并提供修复，以及 [@kevindawn11-hash](https://github.com/kevindawn11-hash) 在 [#412](https://github.com/Han-1413141/dsh-cost-meter/issues/412) 提供故障证据和修复建议。
+
+[更新说明](update-notes-1.9.41.md)
+
 ## v1.9.40(2026-10-26)—— 费用提示与余额查询优化
 
 - 费用误差说明移入设置页，以普通灰字按需显示，减少聊天中的打断。

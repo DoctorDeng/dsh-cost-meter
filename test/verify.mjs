@@ -1129,6 +1129,7 @@ const officialHosts = {
   volcengine: ['open.volcengineapi.com'],
   qwen: [],
   mimo: ['platform.xiaomimimo.com'],
+  'baidu-coding': ['console.bce.baidu.com'],
 }
 for (const id of CODING_PLAN_PROVIDER_IDS) {
   assert.ok(CODING_PLAN_PROVIDERS[id] !== undefined, `提供商注册:${id}`)
@@ -1364,7 +1365,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   // 设置开关与读侧白名单。
   assert.ok(displaySource.includes("setField('hideOfficialBalance'"), '独立显示页含隐藏官方余额开关')
   assert.ok(displaySource.includes("setField('hideTodayCost'"), '独立显示页含隐藏今日消耗开关')
-  assert.ok(clientSource.includes('hideOfficialBalanceLabel') && clientSource.includes('hideTodayCostLabel'), '开关文案存在(zh/en)')
+  assert.ok(displaySource.includes('隐藏官方账户余额') && displaySource.includes('Hide official account balance') && displaySource.includes('隐藏今日消耗金额') && displaySource.includes('Hide today'), '独立显示页保留双语开关文案')
   assert.ok(clientSource.includes('hideOfficialBalance: v.hideOfficialBalance === true'), 'parseConfig 白名单含 hideOfficialBalance(读侧不剥离)')
   assert.ok(clientSource.includes('hideTodayCost: v.hideTodayCost === true'), 'parseConfig 白名单含 hideTodayCost(读侧不剥离)')
   assert.ok(clientSource.includes("sidebarTodayMetric: ['tokens', 'both'].includes") && displaySource.includes("setField('sidebarTodayMetric'"), '今日指标双端接线')
@@ -1405,7 +1406,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   assert.ok(clientSource.includes("if (config.quotaStrip?.promptSeen === true) return null"), '引导卡按 promptSeen 门控')
   assert.ok(clientSource.includes("if (strip.enabled !== true && config.goQuota?.showInComposer !== true") && clientSource.includes('function quotaInComposer('), '横条保留默认门控，并允许单家显式选择输入框上方')
   assert.ok(clientSource.includes('cm-qstrip') && clientSource.includes('cm-qchip') && clientSource.includes('cm-qguide'), '横条/引导卡 CSS 类存在')
-  assert.ok(clientSource.includes('quotaStripEnable') && clientSource.includes('quotaStripShowBudget') && clientSource.includes('quotaStripShowGo') && clientSource.includes('quotaStripShowPlans'), '设置 UI 开关文案存在')
+  assert.ok(readFileSync(new URL('../src/display/index.js', import.meta.url), 'utf8').includes('Enable the quota strip by default') && clientSource.includes('quotaStripShowBudget') && clientSource.includes('quotaStripShowGo') && clientSource.includes('quotaStripShowPlans'), '设置 UI 开关文案存在')
   assert.ok(clientSource.includes('quotaStripGuideTitle') && clientSource.includes('quotaStripGuideOn') && clientSource.includes('quotaStripGuideOff'), '引导卡文案存在')
   assert.ok(clientSource.includes('quotaStripGuideBody'), '引导卡正文文案存在')
   assert.ok(clientSource.includes('promptSeen: true } })'), '设置开关与引导选择均写 promptSeen')
@@ -1451,11 +1452,12 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   assert.equal((clientSource.match(/useClickRefresh\(api \? \(\) => api\.refreshCustomBalance\(index\) : null\)/g) ?? []).length, 2, '自定义余额框/行均接 refreshCustomBalance(多配置形态按条目 index 刷新,issue #79)')
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan(id) : null)"), '通用 Coding Plan 图框接 refreshCodingPlan(id)')
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan('minimax') : null)"), 'MiniMax 图框接 refreshCodingPlan(minimax)')
-  const footerSource = clientSource.match(/function renderSidebarFooter\(state, wide, api, preview = false\) \{([\s\S]*?)\n    \}/)?.[0] ?? ''
+  // 上游 v1.9.x 起签名多出 provider 形参,故用宽松匹配抓函数体与调用点。
+  const footerSource = clientSource.match(/function renderSidebarFooter\([^)]*\) \{([\s\S]*?)\n    \}/)?.[0] ?? ''
   // fork:宽栏首个节点是今日费用/官方余额/峰谷条合并卡 TodayBalanceCard,它同样透传 api,
   // 故比上游多一处(六类图框 + 合并卡 = 7)。
   assert.equal((footerSource.match(/api: api/g) ?? []).length, 7, '共享侧栏六类图框 + fork 合并卡透传 api')
-  assert.ok(footerSource.includes("el(CodexPlanBox, { key: 'codex', state, wide, api, preview })") && clientSource.includes('renderSidebarFooter(state, !!props.wide, props.api)'), '实际侧栏传入 api，预览显式禁用查询')
+  assert.ok(footerSource.includes("el(CodexPlanBox, { key: 'codex', state, wide, api, preview })") && /renderSidebarFooter\(state, !!props\.wide, props\.api[,)]/.test(clientSource), '实际侧栏传入 api，预览显式禁用查询')
   // 可点击语义与视觉反馈:a11y(role/tabIndex/aria-busy/键盘)、CSS(cursor/hover/busy 呼吸)。
   assert.ok(clientSource.includes('const clickableRefreshProps = (busy, run) => ({'), '可点击属性 helper 存在')
   assert.ok(clientSource.includes("role: 'button'") && clientSource.includes("tabIndex: 0") && clientSource.includes("'aria-busy': busy ? 'true' : 'false'"), 'role=button + tabIndex + aria-busy')
@@ -3860,7 +3862,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 {
   const planSrc = readClientSource()
   // 双语文案:显示位置标签 + 提示,选项复用 balanceSidebar/balanceSettings/balanceBoth/off。
-  for (const key of ['codingPlanDisplayLabel', 'codingPlanDisplayNote']) {
+  for (const key of ['codingPlanDisplayLabel']) {
     const count = [...planSrc.matchAll(new RegExp(key + ":", 'g'))].length
     assert.equal(count, 2, `文案 ${key} 在 zh/en 各声明一次`)
   }
@@ -3896,7 +3898,9 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // issue #59-1:充值直达链接。
   // CodeQL #7 误报:这是断言源码里「充值链接字符串存在」的存在性检查,并非用子串匹配做 URL 净化。
   assert.ok(src.includes("https://platform.deepseek.com/usage"), 'issue #59: DeepSeek 充值页 URL 在册') // codeql[js/incomplete-url-substring-sanitization]
-  assert.equal([...src.matchAll(/rechargeLinkEl\(t\)/g)].length, 4, 'issue #59: 充值链接在 helper 定义与余额行/图框/今日余额合并卡三处渲染共出现四次')
+  // 上游已把 helper 改成 rechargeLinkEl(t, href, label) 带默认参数,故只数无参渲染点:
+  // 余额行 + 余额框 + fork 的今日/余额合并卡 = 3。
+  assert.equal([...src.matchAll(/rechargeLinkEl\(t\)/g)].length, 3, 'issue #59: 充值链接在余额行/图框/fork 合并卡三处渲染')
   assert.ok(src.includes('.cm-bal-link{'), 'issue #59: 充值链接样式存在')
   assert.ok(src.includes('balanceRechargeLink:') && [...src.matchAll(/balanceRechargeLink:/g)].length === 2, 'issue #59: 充值提示文案 zh/en 各一份')
   // issue #59-2:Codex 周额度客户端探测模块。
@@ -4081,7 +4085,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   // 7) 客户端文案与输入框存在
   const clientSrc = readClientSource()
   assert.ok(clientSrc.includes('volcengineAccessKeyIdLabel') && clientSrc.includes('volcengineSecretAccessKeyLabel'), '客户端双凭据文案存在')
-  assert.ok(clientSrc.includes('volcengineNote'), '客户端说明文案存在')
+  assert.ok(clientSrc.includes('Volcano Ark needs AK/SK') && clientSrc.includes('火山方舟需 AK/SK'), '客户端说明文案存在')
   // v1.6.8 密钥治理:AK/SK 双输入框改走 write-only CredentialField,目标为凭据库引用键。
   assert.ok(clientSrc.includes("target: 'codingPlans.volcengine.ak'") && clientSrc.includes("target: 'codingPlans.volcengine.sk'"), '客户端 AK/SK 双输入框写回凭据库')
   assert.ok(clientSrc.includes("planId === 'volcengine'"), '客户端 volcengine 分支渲染')
@@ -6932,6 +6936,8 @@ await import('./balance-display-currency.mjs')
 await import('./settings-regressions.mjs')
 await import('./model-statistics.mjs')
 await import('./display-controls.mjs')
+await import('./official-balance-channel.mjs')
+await import('./custom-balance-links.mjs')
 await import('./model-display-names.mjs')
 await import('./settings-poll-race.mjs')
 await import('./plan-provider-matching.mjs')
@@ -6957,6 +6963,7 @@ await import('./quota-placement.mjs')
 await import('./ollama-cloud-upgrade.mjs')
 await import('./ollama-snapshot-upgrade.mjs')
 await import('./subagent-billing.mjs')
+await import('./agent-team-costs.mjs')
 await import('./billing-integrity.mjs')
 await import('./session-restart.mjs')
 await import('./native-search-billing.mjs')
@@ -6983,8 +6990,11 @@ await import('./session-log-repair.mjs')
 await import('./client-issues-127-129.mjs')
 await import('./model-quota-cards.mjs')
 await import('./mimo-quota.mjs')
+await import('./baidu-token-plan.mjs')
 await import('./workbuddy-quota.mjs')
 await import('./workbuddy-billing.mjs')
+await import('./go-auto-billing.mjs')
+await import('./query-accounts.mjs')
 await import('./workbuddy-connect.mjs')
 await import('./workbuddy-accounts.mjs')
 await import('./workbuddy-xdpool.mjs')
@@ -7020,6 +7030,7 @@ await import('./custom-model-prices.mjs')
 await import('./context-activity.mjs')
 await import('./review-billing-regressions.mjs')
 await import('./review-ledger-writer.mjs')
+await import('./ledger-config-recovery.mjs')
 await import('./ledger-worker-isolation.mjs')
 await import('./review-journal-storage.mjs')
 await import('./review-release.mjs')

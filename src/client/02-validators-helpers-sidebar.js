@@ -116,6 +116,7 @@
       enabled: e.enabled === true,
       label: typeof e.label === 'string' ? e.label : '',
       labelEn: typeof e.labelEn === 'string' ? e.labelEn : '',
+      dashboardUrl: typeof e.dashboardUrl === 'string' ? e.dashboardUrl : '',
       display: oneOf(e.display, ['sidebar', 'settings', 'off'], 'both'),
       unit: e.adapter === 'tokenrhythm' ? 'CNY' : ['CNY', 'EUR', 'CREDITS'].includes(e.unit) ? e.unit : 'USD',
       convertToDisplayCurrency: e.convertToDisplayCurrency === true,
@@ -131,6 +132,7 @@
         for (const id of Object.keys(v.prices.models)) models[id] = parsePrice(v.prices.models[id], path + '.prices.models.' + id)
       }
       return {
+        queryAccounts: v.queryAccounts && typeof v.queryAccounts === 'object' ? v.queryAccounts : {},
         locale: v.locale === 'zh' || v.locale === 'en' || v.locale === 'auto' ? v.locale : 'auto',
         position: v.position === 'header' || v.position === 'off' ? v.position : 'dock',
         sidebar: v.sidebar !== false,
@@ -251,6 +253,7 @@
           refreshMinutes: typeof v.balance?.refreshMinutes === 'number' && Number.isFinite(v.balance.refreshMinutes) ? v.balance.refreshMinutes : 5,
           showProgressBar: v.balance?.showProgressBar === true,
           showSource: v.balance?.showSource === true,
+          officialChannelOnly: v.balance?.officialChannelOnly === true,
           budgetCap: typeof v.balance?.budgetCap === 'number' && Number.isFinite(v.balance.budgetCap) && v.balance.budgetCap > 0 ? v.balance.budgetCap : null,
           clickHintSeen: v.balance?.clickHintSeen === true,
         },
@@ -1202,7 +1205,7 @@
       'volcengine-agent': ['volcengine-agent', 'ark-agent-plan', 'volcengine-agent-plan'],
       'tencent-coding': ['tencent-coding', 'tencent-coding-plan', 'tokenhub-coding-plan'],
       'tencent-token': ['tencent-token', 'tencent-token-plan', 'tokenhub-token-plan'],
-      'baidu-coding': ['baidu-coding-plan', 'qianfan-coding-plan'],
+      'baidu-coding': ['baidu-coding-plan', 'qianfan-coding-plan', 'baidu-token-plan', 'qianfan-token-plan', 'baidu-tokenplan', 'qianfan-tokenplan'],
 
       qwen: ['qwen', 'qwen-tokenplan', 'qianwen-tokenplan', 'qwen-token-plan', 'qianwen-token-plan'],
       scnet: ['scnet', 'scnet-tokenplan', 'scnet-token-plan'],
@@ -1299,6 +1302,7 @@
         if (configured === 'plan' || configured === 'api') return configured
       }
       if (planId === null) return 'api'
+      if (planId === 'go' && /^(?:llm-)?(?:dsh-opencode-go|opencode-go(?:-plus)?)$/i.test(String(provider).trim())) return 'plan'
       return enabledPlanSetOfLocal(config).has(planId) ? 'plan' : 'api'
     }
     /**
@@ -1919,14 +1923,16 @@
     // stopPropagation 避免触发外层图框的点击刷新(issue #37)。
     const DEEPSEEK_RECHARGE_URL = 'https://platform.deepseek.com/usage'
 
-    function rechargeLinkEl(t) {
+    function rechargeLinkEl(t, href = DEEPSEEK_RECHARGE_URL, label = t('balanceRechargeLink')) {
+      if (!href) return null
+      try { const url = new URL(href); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null } catch { return null }
       return el('a', {
         className: 'cm-bal-link',
-        href: DEEPSEEK_RECHARGE_URL,
+        href,
         target: '_blank',
         rel: 'noreferrer noopener',
-        title: t('balanceRechargeLink'),
-        'aria-label': t('balanceRechargeLink'),
+        title: label,
+        'aria-label': label,
         onClick: event => event.stopPropagation(),
         onKeyDown: event => event.stopPropagation(),
       }, el('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
@@ -1948,6 +1954,13 @@
       return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el('div', { 'data-cm-display': 'balance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
           wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, balanceLabel(t, state.config), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
+    }
+
+    function officialBalanceVisible(state, provider, preview) {
+      if (preview || state.config?.balance?.officialChannelOnly !== true) return true
+      const official = value => /^(?:llm-)?deepseek(?:-official|-account)?$/.test(String(value).trim().toLowerCase())
+      return typeof provider === 'string' && provider.trim() ? official(provider)
+        : Object.keys(state.today?.byProviderModel ?? {}).some(key => official(key.split(':')[0]))
     }
 
     function balanceLabel(t, config) { return t(config?.balance?.showSource === true ? 'officialBalance' : 'balance') }
@@ -2051,7 +2064,7 @@
         rail: Math.round(segments.remainingPct) + '%',
         body: el(Fragment, null,
           el('div', { className: 'cm-bbox-head' },
-            el('span', { className: 'cm-bbox-label' }, label),
+            el('span', { className: 'cm-balance-name' }, el('span', { className: 'cm-bbox-label' }, label), rechargeLinkEl(t, entryCfg?.dashboardUrl || '', label)),
             el('span', { className: 'cm-bbox-pct cm-num cm-bal-amt' }, remaining)),
           el(BalanceBar, { segments, direction: barDirectionOf(config, 'balance') })),
       }
@@ -2123,13 +2136,13 @@
       if (custom.status === 'error') {
         return el(Tooltip, { portal: true, label: [custom.message || t('unknownError'), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
           el('div', { 'data-cm-display': 'customBalance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
-            wide ? el(Fragment, null, el('span', { className: 'cm-bal-label', title: label }, label), el('span', { className: 'cm-num cm-bal-amt' }, t('queryFailed'))) : '⚠'))
+            wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, el('span', { className: 'cm-bal-label', title: label }, label), rechargeLinkEl(t, entry?.dashboardUrl || '', label)), el('span', { className: 'cm-num cm-bal-amt' }, t('queryFailed'))) : '⚠'))
       }
       const amount = formatCustomBalanceMoney(custom.remaining, config, custom, entry)
       const detail = [customBalanceDetailText(custom, config, t, state, entry), ...clickRefreshTipLines(t, refresh)].join(' · ')
       return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
         el('div', { 'data-cm-display': 'customBalance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
-          wide ? el(Fragment, null, el('span', { className: 'cm-bal-label', title: label }, label), el('span', { className: 'cm-num cm-bal-amt' }, amount)) : el(WalletIcon, { size: 16 })))
+          wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, el('span', { className: 'cm-bal-label', title: label }, label), rechargeLinkEl(t, entry?.dashboardUrl || '', label)), el('span', { className: 'cm-num cm-bal-amt' }, amount)) : el(WalletIcon, { size: 16 })))
     }
 
     function CornerChips(props) {
@@ -2914,6 +2927,7 @@
       if (name === 'daily' || name === 'day') return t('goShortDaily')
       if (name === 'plan') return t('mimoWindowPlan')
       if (name === 'compensation') return t('mimoWindowCompensation')
+      if (name === 'usage') return t('quotaUsedTotal')
       if (name === 'balance') return t('codingPlanWindowBalance')
       return String(name).replace(/_/g, ' ')
     }
@@ -3110,6 +3124,7 @@
       volcengine: 'Ark',
       qwen: 'Qwen',
       mimo: 'MiMo',
+      'baidu-coding': '千帆',
       factory: 'Factory', opendesign: 'OpenDesign',
     }
 
@@ -3641,15 +3656,15 @@
       useProjectionRefresh(props, projectionUsage)
       const current = costStore?.state
       const state = current ? { ...current, config: peakConfigForState(current, projectionUsage?.provider) } : null
-      return state ? renderSidebarFooter(state, !!props.wide, props.api) : null
+      return state ? renderSidebarFooter(state, !!props.wide, props.api, false, projectionUsage?.provider) : null
     }
 
     // Shared presentation only: no store, projection or quota subscription.
-    function renderSidebarFooter(state, wide, api, preview = false) {
+    function renderSidebarFooter(state, wide, api, preview = false, provider) {
       const config = peakConfigForState(state)
       const t = makeT(resolveLocale(config))
       const showBalance = (config.balance?.display === 'sidebar' || config.balance?.display === 'both')
-        && config.hideOfficialBalance !== true
+        && config.hideOfficialBalance !== true && officialBalanceVisible(state, provider, preview)
       // 多配置形态(v1.7.0,issue #79):可见性逐条判定(可见条目集由
       // visibleCustomEntries 统一给出;组件内部逐条按快照状态渲染)。
       const visibleCustom = visibleCustomEntries(state, config)

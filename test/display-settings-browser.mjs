@@ -45,7 +45,7 @@ const Display=window.displayUI.mount({effect:()=>{}},{getSnapshot:()=>({state}),
 const publish=()=>{for(const fn of window.listeners)fn({...state});return state};
 window.current=()=>state.config;window.setConfig=patch=>{state={...state,config:parseConfig({...state.config,...patch},'config')};publish()};
 window.changeLocale=locale=>window.setConfig({locale});window.setFixtureState=patch=>{state={...state,...patch};publish()};
-const api={refreshBalance:async()=>{window.balanceRefreshes=(window.balanceRefreshes??0)+1;await new Promise(done=>setTimeout(done,50))},loadDisplay:async()=>Display,loadCommunity:async()=>()=>null,loadStatistics:async()=>()=>null,updateConfig:async patch=>{
+const api={refreshBalance:async()=>{window.balanceRefreshes=(window.balanceRefreshes??0)+1;await new Promise(done=>setTimeout(done,50))},loadDisplay:async()=>Display,loadCommunity:async()=>()=>null,loadPricing:async()=>()=>null,loadStatistics:async()=>()=>null,updateConfig:async patch=>{
   if(window.failSave)throw Error('synthetic save failure');const config=await window.saveConfig(patch);window.patches.push(patch);state={...state,config:parseConfig(config,'config')};return publish()}};
 window.configure=patch=>api.updateConfig(patch);
 window.orderUI.mount({effect:()=>{}},{getSnapshot:()=>({state}),subscribe:fn=>{window.listeners.add(fn);return()=>window.listeners.delete(fn)}},config=>config?.locale??'zh',{updateConfig:patch=>api.updateConfig(patch)});

@@ -82,7 +82,7 @@ for (const provider of ['dsh-opencode-go', 'llm-dsh-opencode-go', ' DSH-OpenCode
     assert.equal(planProviderIdOf(provider, goConfig.planBilling, model), 'go')
     assert.equal(ui.planProviderIdOfLocal(provider, goConfig, model), 'go')
     assertBilling(provider, model, goConfig, 'plan')
-    assertBilling(provider, model, sanitizeConfig({ goQuota: { enabled: false } }), 'api')
+    assertBilling(provider, model, sanitizeConfig({ goQuota: { enabled: false } }), provider === 'zen' ? 'api' : 'plan')
     assertBilling(provider, model, sanitizeConfig({ planBilling: { providers: { go: 'plan' } } }), 'plan')
     assertBilling(provider, model, sanitizeConfig({ ...goConfig, planBilling: { providers: { go: 'api' } } }), 'api')
     assertBilling(provider, model, sanitizeConfig({ ...goConfig, planBilling: { providers: { [provider]: 'api' } } }), 'api')
@@ -96,7 +96,7 @@ const goRoot = mkdtempSync(join(tmpdir(), 'cm-go-alias-'))
 try {
   for (const [name, goEnabled, classification, expected] of [
     ['enabled-auto', true, 'auto', 'plan'], ['explicit-plan', false, 'plan', 'plan'],
-    ['explicit-api', true, 'api', 'api'], ['disabled-auto', false, 'auto', 'api'],
+    ['explicit-api', true, 'api', 'api'], ['disabled-auto', false, 'auto', 'plan'],
   ]) {
     const models = ['deepseek-v4.1-flash', 'gpt-6-luna', 'gemini-4-argon-contributor']
     const goLedger = new Ledger(sanitizeConfig({ goQuota: { enabled: goEnabled },
