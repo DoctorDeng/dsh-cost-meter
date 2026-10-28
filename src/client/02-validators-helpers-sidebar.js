@@ -1194,8 +1194,8 @@
       // 以下别名来自 ChatGPT 订阅渠道的订阅线路(与 lib/plan-billing.js PLAN_PROVIDER_ALIASES 同步)。
       anthropic: ['anthropic', 'claude-subscription'],
       zai: ['zai', 'glm-coding-plan'],
-      minimax: ['minimax', 'minimax-code'],
-      kimi: ['kimi', 'kimi-code'],
+      minimax: ['minimax', 'minimax-code', 'minimax-m-plan', 'minimax-mplan', 'minimax-token-plan'],
+      kimi: ['kimi', 'kimi-code', 'kimi-coding', 'kimi-coding-plan'],
       commandcode: ['commandcode', 'command-code'],
       clinepass: ['clinepass', 'cline-pass'],
       workbuddy: ['workbuddy', 'workbuddy-subscription', 'workbuddy-ai', 'workbuddy-global', 'xdpool', 'xdpool-global'],
@@ -1203,7 +1203,7 @@
       stepfun: ['stepfun', 'step-code'],
       'volcengine-agent': ['volcengine-agent', 'ark-agent-plan', 'volcengine-agent-plan'],
       'tencent-coding': ['tencent-coding', 'tencent-coding-plan', 'tokenhub-coding-plan'],
-      'tencent-token': ['tencent-token', 'tencent-token-plan', 'tokenhub-token-plan'],
+      'tencent-token': ['tencent-token', 'tencent-token-plan', 'tokenhub-token-plan', 'tencent-hy-token-plan', 'tokenhub-hy-token-plan'],
       'baidu-coding': ['baidu-coding-plan', 'qianfan-coding-plan', 'baidu-token-plan', 'qianfan-token-plan', 'baidu-tokenplan', 'qianfan-tokenplan'],
 
       qwen: ['qwen', 'qwen-tokenplan', 'qianwen-tokenplan', 'qwen-token-plan', 'qianwen-token-plan'],
@@ -1225,8 +1225,8 @@
     const PLAN_NAME_MATCHERS_LOCAL = Object.entries(PLAN_NAME_HINTS_LOCAL).map(([id, hints]) => [id, new RegExp('(?:^|[^a-z0-9])(?:' + hints + ')(?=$|[^a-z0-9])')])
     function inferPlanProviderIdLocal(provider, modelId) {
       for (const raw of [provider, modelId]) {
-        const text = String(raw ?? '').normalize('NFKC').replace(/([a-zA-Z0-9\u3400-\u9fff])(?=(?:Coding|Token|Agent|Plan|Subscription))/g, '$1-').replace(/([a-z0-9])((?:coding|token|agent)?plan|subscription)$/i, '$1-$2').toLowerCase()
-        if (!/(?:^|[^a-z0-9])(?:(?:coding|token|agent)[-_\s]*)?plan(?:$|[^a-z0-9])|(?:^|[^a-z0-9])subscription(?:$|[^a-z0-9])|套餐|订阅/.test(text)) continue
+        const text = String(raw ?? '').normalize('NFKC').replace(/([a-zA-Z0-9\u3400-\u9fff])(?=(?:MPlan|Coding|Token|Agent|Plan|Subscription))/g, '$1-').replace(/([a-z0-9])((?:coding|token|agent|m)?plan|subscription)$/i, '$1-$2').toLowerCase()
+        if (!/(?:^|[^a-z0-9])(?:(?:coding|token|agent|m)[-_\s]*)?plan(?:$|[^a-z0-9])|(?:^|[^a-z0-9])subscription(?:$|[^a-z0-9])|套餐|订阅/.test(text)) continue
         const matches = PLAN_NAME_MATCHERS_LOCAL.filter(([, pattern]) => pattern.test(text))
         if (matches.length) {
           if (matches.length !== 1) return null
@@ -1302,6 +1302,8 @@
       }
       if (planId === null) return 'api'
       if (planId === 'go' && /^(?:llm-)?(?:dsh-opencode-go|opencode-go(?:-plus)?)$/i.test(String(provider).trim())) return 'plan'
+      if (planId === 'kimi' && /^(?:llm-)?kimi-coding(?:-plan)?$/i.test(String(provider).trim())) return 'plan'
+      if (planId === 'minimax' && /^(?:llm-)?minimax-(?:m-?plan|token-plan)$/i.test(String(provider).trim())) return 'plan'
       return enabledPlanSetOfLocal(config).has(planId) ? 'plan' : 'api'
     }
     /**
@@ -2282,6 +2284,40 @@
       return config && selected ? { ...config, peakProvider: selected } : config
     }
 
+    function peakPeriodProgress(config, view, now) {
+      let start = view.prevAtMs
+      // A weekend or holiday can begin during an existing off-peak period.
+      for (let i = 0; i < 16; i++) {
+        const before = peakPhaseForConfig(config, start - 1)
+        if (!before || before.inPeak !== view.inPeak || before.prevAtMs >= start) break
+        start = before.prevAtMs
+      }
+      return { start, progress: Math.max(0, Math.min(100, (now - start) / Math.max(1, view.nextAtMs - start) * 100)) }
+    }
+
+    function peakMarkerPosition(config, view, now) {
+      const { progress } = peakPeriodProgress(config, view, now)
+      return (view.weekend || view.holiday ? progress : (view.inPeak ? 0 : 50) + progress / 2) + '%'
+    }
+
+    function usePeakClock(config, fixedNow) {
+      const [clock, setClock] = useState(Date.now())
+      useEffect(() => {
+        if (fixedNow !== undefined) return
+        let timer
+        const tick = () => {
+          window.clearTimeout(timer)
+          if (document.hidden) return
+          const stamp = Date.now(), phase = peakView(config, stamp)
+          setClock(stamp)
+          timer = window.setTimeout(tick, Math.max(100, Math.min(30000, (phase?.nextAtMs ?? stamp + 30000) - stamp)))
+        }
+        tick(); document.addEventListener('visibilitychange', tick)
+        return () => { window.clearTimeout(timer); document.removeEventListener('visibilitychange', tick) }
+      }, [fixedNow, config.peakWindows, config.peakHolidays, config.peakProvider])
+      return fixedNow ?? clock
+    }
+
     /** 相位标签键:周末全谷价 / 峰时 / 谷时(chip = 展开态文案,short = 收起态短词,notice = 悬停说明)。 */
     function phaseLabelKeys(view) {
       if (view.holiday === true) return { short: 'holidayShort', chip: 'holidayChip', notice: 'holidayAllOffPeak' }
@@ -2367,11 +2403,7 @@
     /** 展开态简洁样式:单行紧凑时段条——细轨道(左橙右蓝,非当前段淡化)+ 标记线 + 右侧倒计时文本。 */
     function PeakStrip(props) {
       const { config, t } = props
-      const [now, setNow] = useState(Date.now())
-      useEffect(() => {
-        const timer = window.setInterval(() => setNow(Date.now()), 30000)
-        return () => window.clearInterval(timer)
-      }, [])
+      const now = usePeakClock(config, props.now)
       const view = peakView(config, now)
       if (view === null) return null
       const keys = phaseLabelKeys(view)
@@ -2383,18 +2415,14 @@
           el('div', { className: 'cm-peak-track' },
             el('div', { className: 'cm-peak-segment cm-peak-high' }),
             el('div', { className: 'cm-peak-segment cm-peak-low' }),
-            el('div', { className: 'cm-peak-marker', style: { left: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } })),
+            el('div', { className: 'cm-peak-marker', style: { left: peakMarkerPosition(config, view, now) } })),
           el('span', { className: 'cm-peak-chip' }, t(keys.chip) + ' · ' + chipText)))
     }
 
     /** 展开态经典样式:轨道 + 箭头旗标 + 胶囊芯片(两行)。 */
     function PeakStripClassic(props) {
       const { config, t } = props
-      const [now, setNow] = useState(Date.now())
-      useEffect(() => {
-        const timer = window.setInterval(() => setNow(Date.now()), 30000)
-        return () => window.clearInterval(timer)
-      }, [])
+      const now = usePeakClock(config, props.now)
       const view = peakView(config, now)
       if (view === null) return null
       const keys = phaseLabelKeys(view)
@@ -2403,7 +2431,7 @@
         : t('nextOffPeakIn', { time: countdownText(view, now, t) })
       return el(Tooltip, { portal: true, label: t(keys.notice), side: 'right', delayMs: 300 },
         el('div', { 'data-cm-display': 'peak', className: 'cm-peak-classic ' + (view.weekend || view.holiday ? 'weekend' : view.inPeak ? 'peak' : 'off') },
-          el('div', { className: 'cm-peak-classic-marker', style: { left: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } }),
+          el('div', { className: 'cm-peak-classic-marker', style: { left: peakMarkerPosition(config, view, now) } }),
           el('div', { className: 'cm-peak-track' },
             el('div', { className: 'cm-peak-segment cm-peak-high' }),
             el('div', { className: 'cm-peak-segment cm-peak-low' })),
@@ -2412,7 +2440,7 @@
     // 进度条与首次介绍共用按需模块，不增加旧样式的定时器和主包体积。
     let peakPage
     function loadPeakPage() {
-      return peakPage ??= require.async('./client.peak.js').then(module => module.mount({ peakView, peakPhaseAt, peakPhaseForConfig, peakConfigForState, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip, FloatingCard }))
+      return peakPage ??= require.async('./client.peak.js').then(module => module.mount({ peakView, peakPhaseAt, peakPhaseForConfig, peakConfigForState, peakPeriodProgress, usePeakClock, phaseLabelKeys, countdownText, resolveLocale, makeT, Tooltip, FloatingCard }))
         .catch(error => { peakPage = null; throw error })
     }
     function PeakProgress(props) {
@@ -2426,11 +2454,7 @@
     /** 收起(rail)态简洁样式:竖向同构时段条 + 横排短词(「峰时/平价」),倒计时与完整文案在悬停提示中。 */
     function PeakRailStrip(props) {
       const { config, t } = props
-      const [now, setNow] = useState(Date.now())
-      useEffect(() => {
-        const timer = window.setInterval(() => setNow(Date.now()), 30000)
-        return () => window.clearInterval(timer)
-      }, [])
+      const now = usePeakClock(config, props.now)
       const view = peakView(config, now)
       if (view === null) return null
       const keys = phaseLabelKeys(view)
@@ -2443,18 +2467,14 @@
           el('div', { className: 'cm-peak-rail-track' },
             el('div', { className: 'cm-peak-rail-segment cm-peak-rail-high' }),
             el('div', { className: 'cm-peak-rail-segment cm-peak-rail-low' }),
-            el('div', { className: 'cm-peak-rail-marker', style: { top: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } })),
+            el('div', { className: 'cm-peak-rail-marker', style: { top: peakMarkerPosition(config, view, now) } })),
           el('span', { className: 'cm-peak-rail-label' }, t(keys.short))))
     }
 
     /** 收起(rail)态经典样式:竖向胶囊条——上橙下蓝满色分段(与展开态一致,不淡化不填充),标记指向当前时段,下方横排短词。 */
     function PeakRailStripClassic(props) {
       const { config, t } = props
-      const [now, setNow] = useState(Date.now())
-      useEffect(() => {
-        const timer = window.setInterval(() => setNow(Date.now()), 30000)
-        return () => window.clearInterval(timer)
-      }, [])
+      const now = usePeakClock(config, props.now)
       const view = peakView(config, now)
       if (view === null) return null
       const keys = phaseLabelKeys(view)
@@ -2467,7 +2487,7 @@
           el('div', { className: 'cm-peak-rail-classic-track' },
             el('div', { className: 'cm-peak-rail-classic-segment peak' }),
             el('div', { className: 'cm-peak-rail-classic-segment off' }),
-            el('div', { className: 'cm-peak-rail-classic-marker', style: { top: view.weekend || view.holiday ? '50%' : view.inPeak ? '25%' : '75%' } })),
+            el('div', { className: 'cm-peak-rail-classic-marker', style: { top: peakMarkerPosition(config, view, now) } })),
           el('span', { className: 'cm-peak-rail-classic-label' }, t(keys.short))))
     }
     function peakNoticeRailEl(state, config, t) {

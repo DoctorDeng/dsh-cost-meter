@@ -35,6 +35,7 @@ const names = [
   ['my-ark-coding-plan', 'm', 'volcengine'], ['VolcengineCodingPlan', 'm', 'volcengine'],
   ['火山方舟CodingPlan', 'm', 'volcengine'], ['MiniMaxTokenPlan', 'm', 'minimax'],
   ['my-claude-subscription', 'm', 'anthropic'], ['Z.ai CodingPlan', 'm', 'zai'],
+  ['MiniMax M Plan', 'm', 'minimax'], ['MiniMaxMPlan', 'm', 'minimax'],
   ['kimi-tokenplan', 'm', 'kimi'], ['SCNetPlan', 'm', 'scnet'], ['qwenplan', 'm', 'qwen'],
   ['MiMoTokenPlan', 'm', 'mimo'], ['FactoryPlan', 'm', 'factory'], ['OpenCodeGoPlan', 'm', 'go'],
   ['OpenRouterTokenPlan', 'm', 'openrouter'], ['SiliconFlowPlan', 'm', 'siliconflow'], ['CommandCodePlan', 'm', 'commandcode'],
