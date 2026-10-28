@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- 修复紧凑、经典及侧栏收起样式的峰谷游标固定在 25% / 75% 的问题，改为按实际时段进度移动，并在相位切换和页面恢复可见时刷新。问题报告：[@shutongX](https://github.com/shutongX)，[#434](https://github.com/Han-1413141/dsh-cost-meter/issues/434)。
+- 更新 2026-10-28 模型目录：Kimi K3.1 Pro / Highspeed、Kimi Code 模型 ID、MiniMax M3.1 Flash / Preview 兼容名称、Qwen3.8 Flash、Hy4 preview、OpenCode Go 新模型与 Zen 新端点，以及 OpenRouter 的新增快照；补齐 Kimi K3 缓存写入并修正 Zen GPT-6.1 Sol 缓存读价。
+- 套餐设置显示 Kimi 新档位和 MiniMax M Plan（Go / Explore / Build），兼容原有套餐；Kimi 额度解析支持新会员的 5 小时 / 月窗口、嵌套响应和旧版周窗计数。
+- 新目录通过一次性迁移加入旧账本，保留手动价格、主动取消挂载和历史金额。来源与规则见 [10 月 28 日更新](docs/catalog-2026-10-28.md)。
+- Fix stationary peak/off-peak markers; refresh provider-scoped model prices, Kimi memberships and MiniMax M Plan metadata; support current and legacy Kimi usage responses while preserving custom rates and recorded charges.
+
 ## [1.9.43] - 2026-10-28
 
 - 移除 billion-context 识别中的宿主全量清单扫描，改用运行中原生实例、异步目标读取与模块身份缓存；覆盖停用、失败、卸载、重载和磁盘升级尚未生效的情况，保留计费补记与去重。感谢 [@ZiYuan258](https://github.com/ZiYuan258) 在 [#432](https://github.com/Han-1413141/dsh-cost-meter/issues/432) 提供复现、I/O 测量、根因定位和目标读取建议。

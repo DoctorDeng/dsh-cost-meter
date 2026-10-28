@@ -19,6 +19,7 @@ import { transform, build } from 'esbuild'
 import { runInNewContext } from 'node:vm'
 import assert from 'node:assert/strict'
 import { javascriptLiteral } from './javascript-literal.mjs'
+import { SUBSCRIPTION_CATALOG } from '../lib/subscription-catalog.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -193,6 +194,7 @@ console.log('✓ lib/client.js within DSH STORE per-file bound (262144)')
 // Each on-demand screen has readable source and a bounded runtime asset.
 for (const chunk of ['billing-storage', 'settings-overview', 'statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak', 'session-list', 'sidebar-order', 'plan-settings', 'notices']) {
   let source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
+  if (chunk === 'plan-settings') source = source.replace('/* SUBSCRIPTION_CATALOG_SOURCE */ {}', () => javascriptLiteral(SUBSCRIPTION_CATALOG))
   if (chunk === 'display') {
     source = source.replace('/* DISPLAY_NATIVE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/native.js'), 'utf8'))
     source = source.replace('/* DISPLAY_APPEARANCE_SOURCE */', readFileSync(resolve(projectRoot, 'src/display/appearance.js'), 'utf8'))

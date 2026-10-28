@@ -102,6 +102,8 @@
     "lib",
     "cordis.patch.yml",
     "docs/provider-pricing.json",
+    "docs/subscription-catalog.json",
+    "docs/catalog-2026-10-28.md",
     "docs/billing-statistics.md",
     "docs/billion-context-billing.md",
     "docs/opendesign-billing.md",

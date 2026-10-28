@@ -13,7 +13,7 @@ const nodes = n => Array.isArray(n) ? n.flatMap(nodes) : n && typeof n === 'obje
 const text = n => Array.isArray(n) ? n.map(text).join('') : n && typeof n === 'object' ? text(n.children) : n == null ? '' : String(n)
 const React = { createElement: el, Fragment: 'fragment', useRef: value => ({ current: value }), useEffect() {}, useState: value => [typeof value === 'function' ? value() : value, () => {}] }
 let factory
-vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { parseConfig, renderSidebarFooter, peakNoticeEl, peakNoticeRailEl, PeakProgress, PeakStrip, PeakStripClassic }; exports.apply = apply'), {
+vm.runInNewContext(source.replace('exports.apply = apply', 'exports.test = { parseConfig, renderSidebarFooter, peakNoticeEl, peakNoticeRailEl, PeakProgress, PeakStrip, PeakStripClassic, peakPeriodProgress, usePeakClock }; exports.apply = apply'), {
   navigator: { language: 'en' }, window: { __ModuleLoader__: { load: v => { factory = v.factory } } },
 })
 const ui = factory(name => name === 'react' ? React : { Tooltip: 'tooltip' }).test
@@ -61,6 +61,7 @@ try {
 const now = Date.parse('2026-10-28T04:00:00Z')
 const { PeakProgress } = vm.runInNewContext(readFileSync(new URL('../src/peak/component.js', import.meta.url), 'utf8') + '\n({ PeakProgress })', {
   el, Fragment: 'fragment', useState: React.useState, useEffect() {}, Tooltip: 'tooltip',
+  peakPeriodProgress: ui.peakPeriodProgress, usePeakClock: ui.usePeakClock,
   resolveLocale: c => c.locale, phaseLabelKeys: () => ({ notice: 'Flat rate', short: 'Flat' }), countdownText: () => '2h',
   peakView: () => ({ prevAtMs: now - 3600000, nextAtMs: now + 7200000, nextIntoPeak: true, inPeak: false }), peakPhaseForConfig: () => null,
 })
