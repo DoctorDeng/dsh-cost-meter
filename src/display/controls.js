@@ -76,7 +76,9 @@ function DisplayInspector({ props, config, set, selected, selectedPlan, selectPl
     el('div', { className: 'cm-peak-style-choices', role: 'group', 'aria-label': text('峰谷条样式', 'Peak bar style') },
       ...[['progress', text('进度条', 'Progress'), text('时间进度 · 倒计时与切换时刻', 'Time progress, countdown and switch time')],
         ['compact', text('细条', 'Slim'), text('橙蓝细条 · 单行显示', 'Orange and blue strip in one line')],
-        ['classic', text('分段', 'Segmented'), text('分段轨道 · 标记与胶囊提示', 'Segments, a marker and a status pill')]].map(([value, label, description]) => {
+        ['classic', text('分段', 'Segmented'), text('分段轨道 · 标记与胶囊提示', 'Segments, a marker and a status pill')],
+        // fork:圆点样式(状态点 + 时段名 + 倒计时),与费用设置页的下拉选项保持一致。
+        ['dot', text('圆点', 'Dot'), text('状态圆点 · 时段名与倒计时', 'Status dot with phase label and countdown')]].map(([value, label, description]) => {
         const active = (config.peakStyle ?? 'compact') === value
         return el('button', { key: value, type: 'button', className: 'cm-peak-style-choice', title: description, 'aria-label': label, 'aria-pressed': active, onClick: () => set({ peakStyle: value }) },
           el('span', { className: 'cm-peak-choice-heading' }, el('strong', null, label),
