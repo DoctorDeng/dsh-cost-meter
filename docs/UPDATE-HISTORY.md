@@ -1,5 +1,14 @@
 # dsh-cost-meter 版本更新历史
 
+## v1.9.46(2026-10-29)—— 峰谷箭头与上游兼容更新
+
+- 验证 billion-context 0.1.209 与 dsh-codex-subscription 3.2.1 的实际发布包，更新兼容基线与持续集成；处理 github-actions[bot] 的 [#441](https://github.com/Han-1413141/dsh-cost-meter/issues/441)、[#442](https://github.com/Han-1413141/dsh-cost-meter/issues/442)。
+
+- 分段样式的箭头在峰谷切换前后保持在组件内部，修复临近切换时的横向溢出。
+- 包含上一版的 OpenDesign Cookie、余额快速隐藏、费用页修复与内存优化。
+
+[更新说明](update-notes-1.9.46.md)
+
 ## v1.9.45(2026-10-29)—— 额度查询、余额隐藏与内存优化
 
 - OpenDesign 支持网页 Cookie 与当前工作区查询，新增具体配置步骤。
