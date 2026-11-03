@@ -7030,6 +7030,7 @@ await import('./ledger-worker-isolation.mjs')
 await import('./review-journal-storage.mjs')
 await import('./review-release.mjs')
 await import('./billion-null-usage.mjs')
+await import('./billion-host-repair.mjs')
 
 await import('./settings-pages.mjs')
 
@@ -7048,6 +7049,8 @@ await import('./official-price-sync-currency.mjs')
 await import('./catalog-october-28.mjs')
 await import('./custom-balance-expressions.mjs')
 await import('./provider-peak-schedule.mjs')
+await import('./native-search-manual.mjs')
+await import('./billing-check.mjs')
 
 // Drain any remaining async host disposers before the synchronous exit cleanup.
 await removeFixture(suiteRoot, { recursive: true, force: true })
