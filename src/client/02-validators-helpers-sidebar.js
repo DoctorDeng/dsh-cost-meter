@@ -183,6 +183,7 @@
         peakAlertWebNotify: v.peakAlertWebNotify === true,
         // fork 的 dot 与上游的 progress 并存(两者语义不同:圆点状态 vs 时间进度条)。
         peakStyle: ['classic', 'dot', 'progress'].includes(v.peakStyle) ? v.peakStyle : 'compact',
+        peakTimeZone: typeof v.peakTimeZone === 'string' ? v.peakTimeZone : 'auto',
         peakTimeDisplay: ['countdown', 'switch'].includes(v.peakTimeDisplay) ? v.peakTimeDisplay : 'both',
         priceMatch: v.priceMatch === 'exact' ? 'exact' : 'auto',
         priceOverrides: (() => {
