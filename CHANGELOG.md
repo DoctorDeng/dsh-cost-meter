@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+## [1.9.58] - 2026-11-05
+
+- 修复恢复会话或重新加载插件时，用量先于设置到达导致费用组件报错、输入框下方金额入口消失的问题。
+- 设置尚未就绪时保留加载或错误提示，设置到达后正常显示已记录的金额；标题栏入口同步修复，保留手动隐藏设置。
+- 增加配置延迟、失败后恢复、账本先返回、固定汇率金额及切换会话的回归验证，并在 DSH 0.2.2-alpha.3 的错误边界中检查实际 React 渲染。
+- Keep the session-cost entry mounted when usage arrives before configuration; recover the recorded amount after loading without changing explicit visibility preferences.
+
+[更新说明 / Release notes](docs/update-notes-1.9.58.md)
+
+## [1.9.57] - 2026-11-04
+
+- 修复历史回填已经开始后仍阻止 Desktop Host 退出、导致客户端更新等待超时的问题。退出时取消扫描，等待读取结束和文件关闭，再保存账本。
+- 将取消信号传入 JSONL、zstd、SQLite 会话读取和搜索／Billion Context 历史；取消后不继续降级读取或扫描下一会话。
+- 被中断的历史导入和 fork 修复不写入完成标记，下次启动继续处理。
+- Cancel active startup history scans during shutdown, close readers before saving the ledger, and preserve interrupted imports for retry.
+
+[更新说明 / Release notes](docs/update-notes-1.9.57.md)
+
+## [1.9.56] - 2026-11-04
+
+- 修复费用查询提前触发账本保存的问题，让磁盘 revision 未变时的本地更新在原定两秒窗口内合并，减少重复快照、Worker 启动与磁盘写入。
+- 待写数据缺少计时器时安排保存，跨进程变更立即合并，显式提交与退出保存继续完成持久化。
+- Preserve the two-second ledger write window during fee reads, with bounded scheduling recovery and immediate reconciliation of sibling-process writes.
+
+感谢 [@XHPAN](https://github.com/XHPAN) 在 [#470](https://github.com/Han-1413141/dsh-cost-meter/issues/470) 提供定位、隔离复现、真实临时账本对照和修复建议。
+
+[更新说明 / Release notes](docs/update-notes-1.9.56.md)
+
+## [1.9.55] - 2026-11-04
+
+- 合并输入区会话费用与明细入口，沿用官方 StatsPills 的间距、字号、悬停与展开样式，支持点击整行打开明细。感谢 [@yyc001](https://github.com/yyc001) 在 [#467](https://github.com/Han-1413141/dsh-cost-meter/issues/467) 提出需求并在 [#468](https://github.com/Han-1413141/dsh-cost-meter/pull/468) 提供实现。
+- 保留输入区／标题栏／关闭的位置设置和旧配置，修复自定义货币符号影响金额数字的问题，显示预览同步入口状态。
+- 修复套餐开口圆环的百分比文字偏移，覆盖明暗主题、四种布局和窄侧栏。感谢 [@Eancen](https://github.com/Eancen) 在 [#469](https://github.com/Han-1413141/dsh-cost-meter/issues/469) 提供环境、复现步骤与截图。
+- Unify the clickable session-cost pill with native statistics, preserve saved display positions and custom currency amounts, and center percentages in open-ring quota cards.
+
+[更新说明 / Release notes](docs/update-notes-1.9.55.md)
+
 ## [1.9.54] - 2026-11-03
 
 - 验证 dsh-codex-subscription 3.2.4 的实际发布包，更新兼容基线和两个宿主的持续集成矩阵，处理 github-actions[bot] 在 [#465](https://github.com/Han-1413141/dsh-cost-meter/issues/465) 提供的接口变化报告。
