@@ -415,9 +415,9 @@
       })
     }
 
-    function PriceInput({ value, entry, path, emptyMode, placeholder, label, title, t, onCommit }) {
+    function PriceInput({ value, entry, path, emptyMode, placeholder, label, title, t, onCommit, plain = false }) {
       const factor = priceFactor(entry, path)
-      const formatted = value == null ? '' : String(value) + (entry.multiplier !== undefined || entry.separateMultipliers ? ' × ' + factor : '')
+      const formatted = value == null ? '' : String(value) + (!plain && (entry.multiplier !== undefined || entry.separateMultipliers) ? ' × ' + factor : '')
       const [text, setText] = useState(formatted), [invalid, setInvalid] = useState(false)
       const dirty = useRef(false)
       useEffect(() => { if (!dirty.current) setText(formatted) }, [formatted])
@@ -434,12 +434,12 @@
         if (parts.length > 2 || !parts.every(part => number.test(part) && Number.isFinite(Number(part)))
           || !Number.isFinite(Number(parts[0]) * (parts.length === 2 ? Number(parts[1]) : factor))) { setInvalid(true); return }
         dirty.current = false; setInvalid(false)
-        setText(String(Number(parts[0])) + (entry.multiplier !== undefined || entry.separateMultipliers || parts.length === 2 ? ' × ' + (parts.length === 2 ? Number(parts[1]) : factor) : ''))
+        setText(String(Number(parts[0])) + (!plain && (entry.multiplier !== undefined || entry.separateMultipliers || parts.length === 2) ? ' × ' + (parts.length === 2 ? Number(parts[1]) : factor) : ''))
         onCommit(Number(parts[0]), parts.length === 2 ? Number(parts[1]) : undefined)
       }
       return el('input', { className: 'cm-input narrow', type: 'text', value: text,
         placeholder, 'aria-label': label, 'aria-invalid': invalid,
-        title: invalid ? t('priceMultiplyInvalid') : [title, t(entry.separateMultipliers ? 'priceMultiplySingle' : 'priceMultiplyAll'), value == null ? '' : '= ' + Number((value * factor).toPrecision(12))].filter(Boolean).join(' · '),
+        title: invalid ? t('priceMultiplyInvalid') : [title, plain ? '' : t(entry.separateMultipliers ? 'priceMultiplySingle' : 'priceMultiplyAll'), value == null ? '' : '= ' + Number((value * factor).toPrecision(12))].filter(Boolean).join(' · '),
         onChange: event => { dirty.current = true; setText(event.target.value); setInvalid(false) }, onBlur: commit,
         onKeyDown: event => {
           if (event.key === 'Enter') { event.preventDefault(); commit() }
@@ -1930,7 +1930,7 @@
         // 参考价格表：只在此分区挂载；未直接显示的模型保留在厂商分组。
         pricingView === 'catalog' ? el('div', { className: 'cm-pricing-catalog' },
           el('h3', { className: 'cm-h' }, t('priceTableTitle')),
-          el(BillingStatistics, { state, api, load: api.loadPricing, mode: 'catalog', draft, setDraft, t, locale, vendorLabels: CATALOG_VENDOR_LABELS, priceEditor: { priceAt, priceFactor },
+          el(BillingStatistics, { state, api, load: api.loadPricing, mode: 'catalog', draft, setDraft, t, locale, vendorLabels: CATALOG_VENDOR_LABELS, priceEditor: { PriceInput, priceAt, priceFactor },
             renderEditor: (provider, modelId, entry) => provider === 'deepseek'
               ? el(PriceCard, { modelId: modelId === '__default__' ? t('defaultModelId') : modelId, entry, isDefault: modelId === '__default__', draft, setDraft, t })
               : el(ProviderPriceCard, { provider, modelId, entry, draft, setDraft, t, api, lockedIds: provider === 'openrouter' ? state.priceLockIds ?? [] : [], releaseDisabled: JSON.stringify(draft) !== savedRef.current }) })) : null,
@@ -2226,7 +2226,7 @@
       // 组件内部按 quotaStrip.enabled 门控,无可用数据时整条隐藏。
       slots.inject('conversation.input.dock', () => {
         const dispose = slots.register(
-          { name: 'conversation.input.dock', id: 'cost-meter-qstrip', order: 5, inject: injected },
+          { name: 'conversation.input.dock', id: 'cost-meter-qstrip', order: 100, inject: injected },
           QuotaStrip,
         )
         return dispose
@@ -2287,7 +2287,7 @@
         const balanceDisplay = state?.config?.balance?.display ?? 'both'
         const showBalance = (balanceDisplay === 'sidebar' || balanceDisplay === 'both') && state?.config?.hideOfficialBalance !== true
         const side = entry => entry?.enabled === true && ['sidebar', 'both'].includes(entry.display)
-        const footer = showToday || showBalance || state?.config?.codexQuotaEnabled === true || state?.config?.sidebarModels?.enabled === true
+        const footer = showToday || showBalance || state?.config?.localSavings?.enabled === true || state?.config?.codexQuotaEnabled === true || state?.config?.sidebarModels?.enabled === true
           || (state?.config?.budget?.enabled === true && state?.config?.hideBudget !== true)
           || (state?.config?.goQuota?.enabled === true && ['sidebar', 'both'].includes(state.config.goQuota.display))
           || (state?.config?.peakEnabled === true && state.config.peakNotice !== false)

@@ -1,6 +1,44 @@
 # Changelog
 
-## [Unreleased]
+## [1.9.60] - 2026-11-08
+
+- 新增可选“本地节省”卡片：按渠道 ID 前缀统计本地模型 Token，用选定的 DeepSeek 参考模型与固定价格档位折算今日、本周、本月和累计金额，展开查看各模型。默认关闭。
+- 修复峰谷进度条悬停出现两层相同提示；纯文字模式下仍可查看三种图形预览，选择样式即可恢复进度条。
+- 将额度横条放在 Agent 任务、目标和消息队列之后，紧邻输入框；预算、Go、Plan 与 Codex 统一标明“已用”或“剩余”。
+- 将会话费用入口和显示预览中的货币符号放回金额前，例如“本会话 ¥2.1382”。
+- 双语 README 保留四个常用徽章与鲸鱼宣传图，功能总览改为适合手机阅读的列表，保留实际界面截图。
+
+- Add an optional Local savings card with daily, weekly, monthly and retained-history API-equivalent costs, plus per-model details. Filter local providers by ID prefix and choose a DeepSeek reference model and fixed pricing tier. Disabled by default.
+- Remove duplicate peak-period hover tips. Show distinct graphical style previews in text-only mode and restore sidebar bars when a style is selected.
+- Place the quota strip after agent tasks, goals and queued messages, directly above the composer. Label all quota percentages as used or remaining.
+- Place currency symbols immediately before session amounts in the composer and display preview.
+- Keep four useful badges and the original whale illustration in both READMEs, with mobile-friendly feature lists and real interface screenshots.
+
+[更新说明 / Release notes](docs/update-notes-1.9.60.md)
+
+## [1.9.59] - 2026-11-08
+
+- 基础价、峰价、谷价提供独立倍率和统一倍率输入，同时显示实际单价。
+- 已启用的 MiniMax 与其他 Coding Plan 在缺凭据、查询失败或无窗口时保留卡片，显示原因并支持点击或键盘重试。
+- 会话切换复用同一版本的用量与代理计费记录，修复并发读取的取消隔离及归档变化后的缓存失效。
+- 补充 Mistral 托管 GLM 5.3 Flash 和 DeepSeek V4.1 Flash 1017 的价格，修复渠道别名匹配，保留 Ollama 和既有日期模型的计价。
+- 更新 billion-context 0.1.213、dsh-codex-subscription 3.2.7 兼容基线与 CI 覆盖。
+- 补充 Billion Context 与 NodeJS 诊断的共存配置，保留计费和其他诊断组件，仅关闭 Host fetch 抓包。
+- 重整中英文 README 与专题文档，保留全部徽章、贡献者和 Star 记录，加入 23 张界面截图并修正旧说明。
+
+- Add separate and uniform multipliers for base, peak and off-peak rates, with effective-price previews.
+- Keep enabled Coding Plan cards visible when credentials or quota windows are missing, with query errors and retry actions.
+- Cache session billing reads while preserving cancellation isolation and archive invalidation.
+- Add Mistral-hosted GLM and DeepSeek rates and correct aliases without changing Ollama or existing dated-model pricing.
+- Verify billion-context 0.1.213 and dsh-codex-subscription 3.2.7; update compatibility baselines and CI.
+- Document NodeJS diagnostics coexistence with Billion Context, retaining billing and other diagnostic components while disabling Host fetch capture.
+- Reorganize bilingual documentation with all badges, contributor and Star displays, and 23 interface screenshots.
+
+感谢 [@UNscientific-9](https://github.com/UNscientific-9) 在 [#408](https://github.com/Han-1413141/dsh-cost-meter/pull/408) 提供文档重组；[@tslotta](https://github.com/tslotta) 在 [#475](https://github.com/Han-1413141/dsh-cost-meter/pull/475) 补充 Mistral 定价；[@TLEWA](https://github.com/TLEWA) 在 [#478](https://github.com/Han-1413141/dsh-cost-meter/issues/478) 报告、定位会话卡顿并在 [#479](https://github.com/Han-1413141/dsh-cost-meter/pull/479) 提供缓存实现；[@AspirinEny](https://github.com/AspirinEny) 在 [#476](https://github.com/Han-1413141/dsh-cost-meter/issues/476) 提出倍率界面需求；[@parasolandyu](https://github.com/parasolandyu) 在 [#477](https://github.com/Han-1413141/dsh-cost-meter/issues/477) 提供额度卡片问题的复现和定位。
+
+感谢 [@ChenJia-X](https://github.com/ChenJia-X) 在 [#483](https://github.com/Han-1413141/dsh-cost-meter/issues/483) 提供 NodeJS 诊断冲突的定位、共存方案和截图。
+
+[更新说明 / Release notes](docs/update-notes-1.9.59.md)
 
 ## [1.9.58] - 2026-11-05
 
