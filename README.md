@@ -3,7 +3,7 @@
 <p align="center">Cost tracking and subscription quotas for DeepSeek Harness</p>
 
 <p align="center">
-  <a href="https://github.com/Han-1413141/dsh-cost-meter/releases/latest"><img src="https://img.shields.io/badge/version-1.9.60-4176E6?style=flat-square" alt="version"></a>
+  <a href="https://github.com/Han-1413141/dsh-cost-meter/releases/latest"><img src="https://img.shields.io/badge/version-1.9.62-4176E6?style=flat-square" alt="version"></a>
   <a href="https://www.npmjs.com/package/dsh-cost-meter"><img src="https://img.shields.io/npm/dm/dsh-cost-meter?label=downloads&style=flat-square&color=4176E6" alt="npm monthly downloads"></a>
   <a href="https://github.com/Han-1413141/dsh-cost-meter/stargazers"><img src="https://img.shields.io/github/stars/Han-1413141/dsh-cost-meter?label=stars&style=flat-square&color=D9A400" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT license"></a>
@@ -18,6 +18,13 @@ Track costs and tokens by conversation, model and call. View account balances, s
   <img src="docs/promo.en.png" alt="Whale-themed project illustration" width="1280">
   <br><sub>Project illustration</sub>
 </p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/conversation-dark.png">
+  <img src="docs/images/conversation-light.png" alt="Full conversation view with costs, subscription quotas and account balance" width="1280">
+</picture>
+
+<p align="center"><sub>Full conversation view in light or dark mode to match your theme. Screenshots use example data.</sub></p>
 
 ## Installation
 
@@ -35,20 +42,20 @@ Restart `dsh web` after installation or updates. **Desktop** uses its bundled CL
 The PowerShell installer checks pnpm and Git and uses the `web` profile by default:
 
 ```powershell
-irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.60/install.ps1 | iex
+irm https://raw.githubusercontent.com/Han-1413141/dsh-cost-meter/v1.9.62/install.ps1 | iex
 ```
 
 Install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.60
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter#v1.9.62
 ```
 
 See [installation and updates](docs/install.en.md) for uninstalling or installing without Git.
 
 </details>
 
-Current release **v1.9.60**: [release notes](docs/update-notes-1.9.60.md#english) · [troubleshooting](docs/install-troubleshooting.md)
+Current release **v1.9.62**: [release notes](docs/update-notes-1.9.62.md#english) · [troubleshooting](docs/install-troubleshooting.md)
 
 ## Feature overview
 
