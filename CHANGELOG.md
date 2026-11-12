@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.9.64] - 2026-11-10
+
+- 适配 Magpie 自带接入、dsh-magpie-connect、dsh-magpie-connector 和 @zhiqiangme/dsh-magpie，按模型 ID 中的来源前缀自动匹配价格。
+- 切换模型后使用对应单价，保留手动定价、渠道专属价格、免费模型及本地模型规则。
+- 同步前后端价格解析，补充实际连接插件目录和连续模型切换回归。
+
+- Match account-prefixed model IDs from Magpie and the dsh-magpie-connect, dsh-magpie-connector and @zhiqiangme/dsh-magpie integrations.
+- Select the corresponding price after model switches while preserving manual assignments, source-specific rates, free variants and local-model rules.
+- Keep host and client matching consistent and cover published connector catalogs and consecutive model switches.
+
+[更新说明 / Release notes](docs/update-notes-1.9.64.md)
+
+## [1.9.63] - 2026-11-10
+
+- 优先读取 Antigravity 的 daily 端点，修复额度滞后，并补齐异常响应的回退处理。
+- 官方余额跟随模型 API Key，保留手动选择账号和专用余额凭据的优先级。切换凭据或服务地址时清除旧余额与对账基准。
+- 核验 dsh-codex-subscription 3.2.8、3.2.9 的实际发布包，将兼容基线更新至 3.2.9。
+
+- Fix stale Antigravity quotas by prioritizing the daily endpoint and handling invalid responses during fallback.
+- Read the official balance using the model API key, while preserving explicit balance-account and dedicated-key priority. Clear cached balances and reconciliation references when credentials or endpoints change.
+- Verify the published dsh-codex-subscription 3.2.8 and 3.2.9 packages and update the compatibility baseline to 3.2.9.
+
+感谢 [@wegret](https://github.com/wegret) 在 [#489](https://github.com/Han-1413141/dsh-cost-meter/issues/489) 提供额度对比截图，并在 [#492](https://github.com/Han-1413141/dsh-cost-meter/pull/492) 调整 Antigravity 端点顺序。感谢 [@RikkaCode](https://github.com/RikkaCode) 在 [#493](https://github.com/Han-1413141/dsh-cost-meter/issues/493) 报告余额来源问题，并在 [#494](https://github.com/Han-1413141/dsh-cost-meter/pull/494) 修正查询优先级、补充文档和测试。
+
+[更新说明 / Release notes](docs/update-notes-1.9.63.md)
+
 ## [1.9.62] - 2026-11-09
 
 - 修复合并卡片模式下峰谷进度条过薄、高光被裁切的问题，实际侧栏与显示预览完整呈现进度条。
