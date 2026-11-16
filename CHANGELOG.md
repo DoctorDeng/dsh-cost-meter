@@ -1,4 +1,30 @@
 # Changelog
+## [Unreleased]
+
+## [1.9.67] - 2026-11-15
+
+- 展示币种从 USD/CNY/EUR 扩展到 26 种 ECB 参考汇率，切换币种保留小数位设置；新增「余额显示币种」（原币种 / 跟随显示币种 / 目录币种），官方与自定义余额都可换算展示。
+- 修复切换余额显示币种、开启官方渠道过滤、点击隐藏或对账开关后，侧栏余额行消失到下次刷新才恢复的问题：这些开关只影响展示，现在保留已取回的余额快照。
+- 每日汇率改为一次取回全部报价，个别币种缺报或晚一天公布时保留上一次的值；价格历史仍只记录 USD/CNY/EUR，账本体积不变。
+- 统计、会话明细与导出的 displayCurrency 接受任意大写三字母代码；目录外代码按美元视图处理，导出文件标注 USD。
+- 设置页的长文本下拉框（余额显示币种、语言、货币单位）改为整行显示，不再被两列网格截断。
+- 余额行一律显示币种符号，且符号能唯一指认币种：美元系用 HK$/A$/C$/NZ$/MX$/S$，日元用 JP¥ 与人民币 ¥ 区分，北欧克朗拆成 kr/NKr/Dkr，不再因为「余额币种是否恰好等于展示币种」时而是符号、时而是三字母前缀。
+- Expand the display currency from USD/CNY/EUR to 26 ECB reference rates while keeping the decimal setting, and add a balance display currency (native / follow display / catalog code) for official and custom balances.
+- Keep the fetched balance snapshot when the balance display currency, the official-channel filter, click-to-hide or reconcile switches change, instead of dropping the sidebar row until the next refresh.
+- Fetch every quote in one daily request and keep the previous rate when a currency is missing or published a day late; pricing history still stores only USD/CNY/EUR.
+- Accept any uppercase three-letter `displayCurrency` code in statistics, session detail and exports, falling back to the USD view outside the catalog.
+- Render the long-text selectors in the settings inspector (balance currency, language, currency) on their own full-width row.
+- Show a currency symbol on the balance row in every combination, and make each symbol identify exactly one currency: dollar currencies use HK$/A$/C$/NZ$/MX$/S$, the yen uses JP¥ to stay distinct from the yuan's ¥, and the Nordic kroner split into kr/NKr/Dkr.
+
+- 多账号余额列表支持切换、改名和删除，侧栏同时显示各账号余额；空凭据不计数，相同 Key 合并显示，单账号保留原样。
+- 官方余额新增“余额来源”选择，可手动查询当前 DSH 登录账号钱包；默认保持模型 Key 优先，手选账号和专用 Key 始终优先。
+- 修正凭据文档：已验证的 DSH 0.2.2-rc.1 / rc.3 优先读取凭据文件，再读取环境变量。
+- Add an explicit signed-in wallet choice for official balances. Auto still prefers the model key; selected accounts and dedicated keys retain priority.
+- Correct the credential documentation to reflect file-first resolution in the verified DSH 0.2.2-rc.1 and rc.3 providers.
+
+感谢 [@Aaryan-Thakur](https://github.com/Aaryan-Thakur) 在 [#506](https://github.com/Han-1413141/dsh-cost-meter/pull/506) 提供币种扩展、余额展示修复和测试，[@mikechen25](https://github.com/mikechen25) 在 [#507](https://github.com/Han-1413141/dsh-cost-meter/issues/507) 提供余额来源需求与复现，以及 [@7WhiteChocolate](https://github.com/7WhiteChocolate) 在 [#502](https://github.com/Han-1413141/dsh-cost-meter/issues/502) 提供 Key 更换反馈，促成凭据来源说明核对。
+
+[更新说明 / Release notes](docs/update-notes-1.9.67.md)
 
 ## [1.9.66] - 2026-11-15
 
@@ -8,6 +34,7 @@
 - Document HTTP 401 troubleshooting for stored balance keys following the recovery report in #502.
 
 [更新说明 / Release notes](docs/update-notes-1.9.66.md)
+
 
 ## [1.9.65] - 2026-11-14
 

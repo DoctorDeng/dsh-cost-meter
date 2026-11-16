@@ -289,12 +289,6 @@
         showId && rawTitle.length > 0 ? el('div', { className: 'cm-sess-id' }, shortId) : null)
     }
 
-    const CURRENCY_PRESETS = {
-      CNY: { symbol: '¥', decimals: 4, exchangeRate: 7.2 },
-      USD: { symbol: '$', decimals: 6, exchangeRate: 1 },
-      EUR: { symbol: '€', decimals: 6, exchangeRate: 0.92 },
-    }
-
     // ── 预算面板(设置页顶部) ──────────────────────────────────────────────
 
     function BudgetPanel(props) {
@@ -980,9 +974,13 @@
           el('h3', { className: 'cm-h' }, t('accountBalance')),
           el('button', { className: 'cm-btn small', onClick: doRefresh, disabled: busy }, busy ? t('refreshing') : t('refreshBalance'))),
         body,
+        el('div', { className: 'cm-field' }, el('label', null, t('balanceSourceChoice')),
+          el('select', { className: 'cm-input', 'aria-label': t('balanceSourceChoice'), value: (draft?.balance ?? config.balance)?.source ?? 'auto', disabled: !draft,
+            onChange: e => setDraft({ ...draft, balance: { ...draft.balance, source: e.target.value } }) },
+          el('option', { value: 'auto' }, t('balanceSourceAuto')), el('option', { value: 'account' }, t('balanceSourceAccount')))),
+        el('p', { className: 'cm-hint' }, t('balanceSourceHint')),
         el('label', null, t('balanceApiKey')),
         el(AccountCredentialLauncher, { state, draft, setDraft, target: 'balance', configured: balance.keyConfigured, source: balance.keySource, t, api, placeholder: 'sk-…' }),
-        el('p', { className: 'cm-hint' }, t('balanceKeyHint')),
         reconcile !== undefined && reconcile.ok === false ? el('div', { className: 'cm-bal-line warn' }, '⚠ ' + reconcile.message) : null,
         el('label', { className: 'cm-check' },
           el('input', { type: 'checkbox', checked: reconcileOn, onChange: toggleReconcile }),
@@ -1384,7 +1382,7 @@
     /** 单个 Coding Plan 订阅卡片(11 家共用:开关在标题行,展示/间隔/计划额度/凭据收在展开区)。 */
     let planSettingsPage
     function loadPlanSettings() {
-      return planSettingsPage ??= require.async('./client.plan-settings.js').then(module => module.mount({ useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, codingPlanWindowEntries, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions })).catch(error => { planSettingsPage = null; throw error })
+      return planSettingsPage ??= require.async('./client.plan-settings.js').then(module => module.mount({ useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, codingPlanWindowEntries, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, formatBalanceMoney, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions })).catch(error => { planSettingsPage = null; throw error })
     }
     function PlanQuotaCard(props) { return el(BillingStatistics, { ...props, load: loadPlanSettings }) }
     function AccountCredentialLauncher(props) {
@@ -1900,7 +1898,7 @@
           : null,
         // 显示设置：独立加载的交互预览，共用草稿与自动保存。
         el(BillingStatistics, { state: { ...state, displayPreviewCodex: codexQuotaCache.source === (state.config.codexQuotaSource ?? 'auto') ? codexQuotaSnapshot() : { status: 'idle', windows: {} } }, api, load: api.loadDisplay, draft, setDraft, t, locale,
-          numInput, displayOptions, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions, CURRENCY_PRESETS, USAGE_POSITION_SWITCHABLE, formatMoneyUsd,
+          numInput, displayOptions, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions, USAGE_POSITION_SWITCHABLE, formatMoneyUsd,
           planOptions: CODING_PLAN_ROWS.map(row => [row.id, t(row.labelKey)]),
           onNavigate: (page, plan) => { setQuotaTarget(plan); setTab(page) },
           renderSidebar: (preview, data = state) => renderSidebarFooter({ ...data, config: preview }, true, undefined, true),

@@ -254,6 +254,7 @@
           detail: v.budget?.detail !== false,
         },
         balance: {
+          source: v.balance?.source === 'account' ? 'account' : 'auto',
           display: oneOf(v.balance?.display, ['sidebar', 'settings', 'off'], 'both'),
           refreshMinutes: typeof v.balance?.refreshMinutes === 'number' && Number.isFinite(v.balance.refreshMinutes) ? v.balance.refreshMinutes : 5,
           showProgressBar: v.balance?.showProgressBar === true,
@@ -261,6 +262,7 @@
           officialChannelOnly: v.balance?.officialChannelOnly === true,
           quickHide: v.balance?.quickHide === true,
           budgetCap: typeof v.balance?.budgetCap === 'number' && Number.isFinite(v.balance.budgetCap) && v.balance.budgetCap > 0 ? v.balance.budgetCap : null,
+          currency: v.balance?.currency ?? 'native',
           ...(Object.hasOwn(v.balance ?? {}, 'clickHintSeen') ? { clickHintSeen: v.balance?.clickHintSeen === true } : {}),
         },
         goQuota: {
@@ -460,6 +462,7 @@
         budgetUsed: typeof v.budgetUsed === 'number' && Number.isFinite(v.budgetUsed) ? v.budgetUsed : undefined,
         localSavings: v.localSavings,
         balance: v.balance == null ? EMPTY_BAL : parseBalance(v.balance, path + '.balance'),
+        balanceAccounts: Array.isArray(v.balanceAccounts) ? v.balanceAccounts.slice(0, 11).map(row => ({ ...parseBalance(row, path + '.balanceAccounts'), id: needStr(row.id, path), label: needStr(row.label, path) })) : [],
         goQuota: v.goQuota == null ? EMPTY_GO : parseGoQuota(v.goQuota, path + '.goQuota'),
         customBalance: v.customBalance == null ? emptyCustomSnapshot() : parseCustomBalance(v.customBalance, path + '.customBalance'),
         // 多配置形态(v1.7.0,issue #79):全部条目快照;缺失/畸形回落空数组
@@ -683,7 +686,7 @@
         },
         {
           id: 'dsh-cost-meter#costMeter/getTurnCost', service: 'costMeter', namespace: 'costMeter', method: 'getTurnCost', invocation: { kind: 'direct' },
-          parameters: [rpcParam('sessionId', 'SessionId', codecOf(v => needStr(v, 'sessionId'))), ...['startSeq', 'endSeq'].map(name => rpcParam(name, 'TurnSeq', codecOf(v => { if (!Number.isSafeInteger(v) || v < 0) fail(name, 'nonnegative integer'); return v }))), { ...rpcParam('displayCurrency', 'DisplayCurrency', codecOf(v => { if (v !== undefined && !['USD', 'CNY', 'EUR'].includes(v)) fail('displayCurrency', 'currency'); return v })), acceptsUndefined: true }],
+          parameters: [rpcParam('sessionId', 'SessionId', codecOf(v => needStr(v, 'sessionId'))), ...['startSeq', 'endSeq'].map(name => rpcParam(name, 'TurnSeq', codecOf(v => { if (!Number.isSafeInteger(v) || v < 0) fail(name, 'nonnegative integer'); return v }))), { ...rpcParam('displayCurrency', 'DisplayCurrency', codecOf(v => { if (v !== undefined && !/^[A-Z]{3}$/.test(v)) fail('displayCurrency', 'currency'); return v })), acceptsUndefined: true }],
           result: strictCodec('TurnCost', codecOf(v => ({ ...parseFrozenMoney(v), found: needBool(v.found, 'found'), ...(v.inherited === undefined ? {} : { inherited: needBool(v.inherited, 'inherited') }), cost: needNum(v.cost, 'cost'), apiCost: needNum(v.apiCost, 'apiCost'), rows: parseTurnRows(v.rows),
             calls: (Array.isArray(v.calls) ? v.calls : fail('calls', 'array')).map(c => ({ kind: needStr(c.kind, 'kind'), provider: needStr(c.provider, 'provider'), model: needStr(c.model, 'model'), atMs: needNum(c.atMs, 'atMs'), cost: needNum(c.cost, 'cost'), apiCost: needNum(c.apiCost, 'apiCost'), plan: needBool(c.plan, 'plan'), priced: needBool(c.priced, 'priced'), longContext: needBool(c.longContext, 'longContext'), rows: parseTurnRows(c.rows), ...(c.metering ? { metering: parseMetering(c.metering) } : {}) })) }))),
         },
@@ -1877,16 +1880,40 @@
 
     // ── 侧边栏:余额行 + 预算图框/今日徽章(纵向堆叠,位于设置按钮上方) ──────
 
-    /** 记账币种代码 → 符号(官方/自定义余额金额不经汇率换算,符号必须与数值同币种)。 */
-    const BALANCE_CURRENCY_SYMBOLS = { USD: '$', CNY: '¥', EUR: '€' }
+    /**
+     * 记账币种代码 → 符号。符号必须能唯一指认币种:美元系用 HK$/A$/C$/NZ$/MX$/S$,
+     * 日元用 JP¥ 与人民币 ¥ 区分,北欧克朗拆成 kr/NKr/Dkr。与 lib/currency-catalog.js
+     * 同一张表(test/currency-catalog.mjs 断言两边一致),bundle 无法导入宿主模块。
+     */
+    const BALANCE_CURRENCY_SYMBOLS = {
+      CNY: '¥', USD: '$', EUR: '€', GBP: '£', JPY: 'JP¥', KRW: '₩', INR: '₹', HKD: 'HK$', SGD: 'S$', AUD: 'A$',
+      CAD: 'C$', CHF: 'CHF', NZD: 'NZ$', BRL: 'R$', MXN: 'MX$', ZAR: 'R', TRY: '₺', SEK: 'kr', NOK: 'NKr',
+      DKK: 'Dkr', PLN: 'zł', THB: '฿', IDR: 'Rp', MYR: 'RM', PHP: '₱', ILS: '₪',
+    }
+    function balanceSymbolOf(config, code) {
+      const fallback = config?.symbol || '$'
+      return !code || code === config?.currency ? fallback : BALANCE_CURRENCY_SYMBOLS[code] ?? code + ' '
+    }
+
+    /**
+     * 余额展示:native(原币种)/ display(显示币种)/ 指定目录代码,按当前参考汇率换算。
+     * 'native' 和未知选择没有汇率条目,与缺汇率一样保留源币种——否则会再现
+     * 「¥53 渲染成 $53」的符号错位。
+     */
+    function balanceShown(value, config, source) {
+      const choice = config?.balance?.currency
+      const target = (choice === 'display' ? config?.currency : choice) ?? source
+      const rates = config?.fxRates
+      return target !== source && rates?.[source] > 0 && rates?.[target] > 0
+        ? [value / rates[source] * rates[target], target]
+        : [value, source]
+    }
 
     function formatBalanceMoney(value, config, currency) {
-      // 余额是官方接口返回的记账币种金额(如 CNY),不经过汇率换算;
-      // 此前恒用显示币种符号(¥53 渲染成 $53),数值未换算而符号错位近汇率倍。
-      const code = typeof currency === 'string' ? currency.toUpperCase() : ''
-      const fallbackSymbol = typeof config?.symbol === 'string' && config.symbol.length > 0 ? config.symbol : '$'
-      return formatMoneyValue(value, {
-        symbol: BALANCE_CURRENCY_SYMBOLS[code] ?? fallbackSymbol,
+      const source = typeof currency === 'string' ? currency.toUpperCase() : ''
+      const [amount, code] = balanceShown(value, config, source)
+      return formatMoneyValue(amount, {
+        symbol: balanceSymbolOf(config, code),
         decimals: Math.max(2, Math.min(10, Math.floor(Number(config?.decimals) || 2))),
       })
     }
@@ -1927,7 +1954,9 @@
       if (unit === 'USD') return usd
       // 积分不能由美元花费换算。
       if (unit === 'CREDITS') return 0
-      const rate = Number(config?.exchangeRate)
+      // 今日用量要落在余额的记账币种上,与 remaining/cap 同单位;fxRates 缺省时
+      // 才退回旧的展示汇率(旧配置/部分快照),否则进度比例会错。
+      const rate = Number(config?.fxRates?.[unit] ?? config?.exchangeRate)
       return usd * (Number.isFinite(rate) && rate > 0 ? rate : 1)
     }
 
@@ -2075,17 +2104,18 @@
       const balance = state.balance
       const t = makeT(resolveLocale(state.config))
       const refresh = useClickRefresh(api ? () => api.refreshBalance() : null)
-      const privacy = useBalancePrivacy(state.config, 'official', t)
+      const privacy = useBalancePrivacy(state.config, props.accountId ?? 'official', t)
+      const caption = props.label ?? balanceLabel(t, state.config)
       if (!balance || balance.status === 'off') return null
       if (balance.status === 'error') {
         return el(Tooltip, { portal: true, label: [t('balanceQueryFailed', { message: balance.message || t('unknownError') }), ...clickRefreshTipLines(t, refresh)].join('; '), side: 'right', delayMs: 300 },
           el('div', { 'data-cm-display': 'balance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + ' cm-bal-err' + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
-            wide ? el(Fragment, null, balanceLabel(t, state.config), ' ', el('span', { className: 'cm-num' }, t('queryFailed'))) : '⚠'))
+            wide ? el(Fragment, null, caption, ' ', el('span', { className: 'cm-num' }, t('queryFailed'))) : '⚠'))
       }
       const detail = privacy.hidden ? privacy.tip : officialBalanceTooltip(t, balance, state.config, state.reconcile, refresh)
-      return el(Tooltip, { portal: true, label: detail, side: 'right', delayMs: 300 },
+      return el(Tooltip, { portal: true, label: props.label ? el(Fragment, null, el('strong', null, props.label), detail) : detail, side: 'right', delayMs: 300 },
         el('div', { 'data-cm-display': 'balance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
-          wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, privacy.label(balanceLabel(t, state.config)), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, privacy.hidden ? '••••' : formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
+          wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, privacy.label(caption), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, privacy.hidden ? '••••' : formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
     }
 
     function officialBalanceVisible(state, provider, preview) {
@@ -2146,16 +2176,18 @@
       const unit = customBalanceUnitOf(config, custom, entryCfg)
       const value = Number(amount)
       if (!Number.isFinite(value)) return '—'
-      // 仅在显示层换算，快照、预算单位和进度比例始终保留源币种。
+      const decimals = Math.max(2, Math.min(6, Math.floor(Number(config?.decimals) || 4)))
+      // 仅显示层换算:快照、预算单位和进度比例始终保留源币种。积分没有汇率。
+      if (unit === 'CREDITS') return fixedAmount(value, decimals) + ' Credits'
+      // 旧单条开关(仅 USD):全局「余额显示币种」为原币种时沿用旧折算与配置精度。
       const rate = config?.currency === 'USD' ? 1 : Number(config?.exchangeRate)
-      if ((entryCfg ?? config?.customBalance)?.convertToDisplayCurrency === true && unit === 'USD' && Number.isFinite(rate) && rate > 0) {
+      const legacy = (entryCfg ?? config?.customBalance)?.convertToDisplayCurrency === true && unit === 'USD' && (config?.balance?.currency ?? 'native') === 'native'
+      if (legacy && rate > 0 && Number.isFinite(rate)) {
         const converted = value * rate
         return Number.isFinite(converted) ? formatMoneyValue(converted, config) : '—'
       }
-      const credits = unit === 'CREDITS'
-      const decimals = Math.max(2, Math.min(6, Math.floor(Number(config?.decimals) || 4)))
-      const symbol = credits ? '' : unit === 'CNY' ? '¥' : unit === 'EUR' ? '€' : '$'
-      return symbol + fixedAmount(value, decimals) + (credits ? ' Credits' : '')
+      const [shown, code] = balanceShown(value, config, unit)
+      return Number.isFinite(shown) ? formatMoneyValue(shown, { symbol: balanceSymbolOf(config, code), decimals }) : '—'
     }
 
     // 多配置形态(v1.7.0,issue #79):以下四个渲染助手按「单条快照 + 单条配置」
@@ -3801,10 +3833,15 @@
       // 上游 v1.9.x:开启 sidebarTodayBalanceInline 后今日并入余额卡,此行让位。
       if (simple && wide && showToday && !config.sidebarTodayBalanceInline) nodes.push(el('div', { key: 'today', 'data-cm-display': 'today', className: 'cm-simple-summary' },
         el('span', null, t('today')), el('span', { className: 'cm-num' }, sidebarTodayValue(state.today, config, t))))
+      // 上游 v1.9.x 多账户余额:官方余额可配置多个账户,此时 state.balance 为 off,逐账户渲染余额行。
+      // fork 的合并卡只认 state.balance,故多账户时让位给上游布局。
+      const multiBalance = showBalance && (state.balanceAccounts?.length ?? 0) > 1
       // 展开态:今日费用 + 官方余额 + 峰谷条合并为一张卡(含今日/累计 Token 量,见 TodayBalanceCard);
-      // 收起(rail)态、simple 模式与上游 summary 风格维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
+      // 收起(rail)态、simple 模式、上游 summary 风格与多账户余额维持余额框/余额行 + 钱包图标 + 竖向峰谷条的原排布。
       // 上游已把本函数改为 renderSidebarFooter(state, wide, api, preview):此处一律用形参 api(没有 props)。
-      if (wide && !simple && !summaryStyle) nodes.push(el(TodayBalanceCard, { key: 'mergedCard', state, wide, api: api, showBalance, showBalanceBar, showToday }))
+      if (wide && !simple && !summaryStyle && !multiBalance) nodes.push(el(TodayBalanceCard, { key: 'mergedCard', state, wide, api: api, showBalance, showBalanceBar, showToday }))
+      else if (multiBalance) nodes.push(el(Fragment, { key: 'balance' }, ...state.balanceAccounts.map(row => el(BalanceRowContent, { key: row.id, accountId: 'official-' + row.id, label: row.label, state: { ...state, balance: row, reconcile: undefined }, wide, api }))))
+      else if (showBalance && state.balance?.status === 'off' && state.balanceAccounts?.length === 1) nodes.push(el(BalanceRowContent, { key: 'balance', state: { ...state, balance: state.balanceAccounts[0], reconcile: undefined }, wide, api }))
       else if (showBalanceBar) nodes.push(el(BalanceBox, { key: 'balance', state, wide, api: api }))
       else if (showBalance) nodes.push(el(BalanceRowContent, { key: 'balance', state, wide, api: api }))
       if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { key: 'customBalance', state, wide, api: api }))
@@ -3831,7 +3868,7 @@
       }
       // fork:标准宽栏用合并信息卡承载今日费用/余额/峰谷条;它与 TodayBalanceCard 内部的
       // 「!showToday && !balanceOn 就返回 null」保持一致,避免卡片缺席时把峰谷条一起吞掉。
-      const mergedCardOn = wide && !simple && !summaryStyle && (showToday
+      const mergedCardOn = wide && !simple && !summaryStyle && !multiBalance && (showToday
         || (showBalance && (state.balance?.status === 'ok' || state.balance?.status === 'error')))
       // 今日费用行:标准宽栏已并入合并卡,故只在合并卡缺席或收起态补渲染;
       // 上游 v1.9.x 改为每个显示目标自管可见性(todayOnly 卡片 + peakOn 门控),条件按承载关系收窄。
