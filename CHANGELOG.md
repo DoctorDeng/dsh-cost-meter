@@ -1,6 +1,49 @@
 # Changelog
 ## [Unreleased]
 
+## [1.9.70] - 2026-11-16
+
+- 修复 OpenAI 兼容入口及第三方渠道的 DeepSeek 价格匹配，支持 `deepseek-ai` 命名空间、工作站与套餐别名、Magpie 多层账号路由和 `llm-` 前缀。
+- 手动映射和渠道自有价格优先，完整型号优先于格式别名与日期标签，保留 Mistral 等渠道的独立转售价。未知型号和歧义项保持未定价。
+- 区分版本、上下文规格、免费及本地来源，校验日期标签。免费插件经过转发后保留“按免费计算”设置。
+- 修正工作站转发后的 API／套餐归属，保留原渠道和模型标识。旧价格快照使用原匹配规则，支持按新规则显式重算。
+- Fix DeepSeek matching through compatible APIs, workstation and plan aliases, and nested Magpie account routes.
+- Preserve provider-specific rates and manual assignments, prefer full model IDs, and distinguish model versions, free/local sources and ambiguous quotes.
+- Keep subscription attribution through forwarding routes and preserve the original matching policy in historical price snapshots.
+
+感谢 [@pyk136874470692022](https://github.com/pyk136874470692022) 在 [#499](https://github.com/Han-1413141/dsh-cost-meter/issues/499) 报告第三方 API 调用费用为零并提供截图，促成本次模型价格匹配排查。
+
+[更新说明 / Release notes](docs/update-notes-1.9.70.md)
+
+## [1.9.69] - 2026-11-16
+
+- 自定义价格的“更多计费项”增加长上下文阈值和各项单价；从参考价格复制或继续编辑时保留长上下文、峰谷及其他已支持的价格字段。
+- Add long-context thresholds and rates to custom prices, preserving supported tiers when copying or editing a quote.
+- 验证 billion-context 0.1.215 与 dsh-codex-subscription 3.2.17 / 3.2.18，更新兼容性基线和 CI。
+
+- 新增用户主动选择的“图标”侧栏布局；沿用原费用区块和业务组件，点击图标展开原有余额、套餐、预算等明细及操作，不迁移已有布局偏好。窄栏、小屏、触屏及强制 Pocket 模式保留原有卡片。
+- 峰谷图标使用固定 8 小时倒计时窗口：超过 8 小时保持满环并显示阈值说明，进入窗口后才随剩余时间缩短；实际切换时间沿用上游渠道日历。
+- Add an opt-in **Icons** sidebar layout using the existing footer and original detail/action components. Preserve saved layouts, billing and query settings; retain native cards on small/coarse/Pocket layouts and the collapsed rail.
+- Keep a fixed eight-hour peak countdown window: hold a full ring above eight hours, then shrink with remaining time. No host-specific sidebar selectors or shell-relative image assets.
+
+感谢 [@PersueFree](https://github.com/PersueFree) 在 [#511](https://github.com/Han-1413141/dsh-cost-meter/issues/511) 报告长上下文编辑入口缺失及字段丢失，并提供复现和代码定位；感谢 [@chanyuenpang](https://github.com/chanyuenpang) 在 [#514](https://github.com/Han-1413141/dsh-cost-meter/pull/514) 提供图标侧栏布局、构建优化和回归测试。
+
+[更新说明 / Release notes](docs/update-notes-1.9.69.md)
+
+
+## [1.9.68] - 2026-11-16
+
+- 修复历史重算因 calls 差异而跳过 Token 完整记录的问题，保留原调用次数；按请求收费仍核对次数。
+- 重算记录展示未重算会话的日期、模型、账本与日志差值，重启后保留。
+- 本会话费用悬停提示注明“仅主会话”或“含子代理”。
+- Reprice complete Token totals despite differing call counts, preserve ledger counts, and retain request-count checks for request fees.
+- Persist and display unchanged sessions and ledger/log differences in recalculation history.
+- Show the subagent scope in session-cost tooltips.
+
+感谢 [@PersueFree](https://github.com/PersueFree) 在 [#509](https://github.com/Han-1413141/dsh-cost-meter/issues/509) 提供复现数据、重算判断定位、usage 存储形式及子代理显示反馈。
+
+[更新说明 / Release notes](docs/update-notes-1.9.68.md)
+
 ## [1.9.67] - 2026-11-15
 
 - 展示币种从 USD/CNY/EUR 扩展到 26 种 ECB 参考汇率，切换币种保留小数位设置；新增「余额显示币种」（原币种 / 跟随显示币种 / 目录币种），官方与自定义余额都可换算展示。
