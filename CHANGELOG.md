@@ -1,6 +1,37 @@
 # Changelog
 ## [Unreleased]
 
+## [1.9.72] - 2026-11-17
+
+- 修复官方账户渠道 `deepseek-account` 及 `llm-deepseek-account` 的价格匹配：精确模式直接使用官方模型目录，自动模式不再受其他渠道的同名价格干扰。
+- 同步修复实际记账、客户端价格显示与消息下方本轮费用，保留官方峰谷计价、人民币计价、渠道自有价格和手动覆盖。
+- 未知模型仍显示缺价提示，本地零消耗继续保持零费用和正常 Token 统计。已保存的账单不会自动改写。
+- 验证 billion-context 0.1.216，更新兼容基线与 CI。
+- 根据报告者的后续更正，将 #522 标为已撤回并关闭；v1.9.71 的 Go 点击详情按交互改进记录。
+
+感谢 [@pb-pang](https://github.com/pb-pang) 在 [#526](https://github.com/Han-1413141/dsh-cost-meter/issues/526) 提供官方账户渠道、模型、升级前后账本和环境信息。
+
+[更新说明 / Release notes](docs/update-notes-1.9.72.md)
+
+## [1.9.71] - 2026-11-17
+
+- 本地推理和手动“本地零消耗”按已知零单价计费：费用保持 0，Token 正常统计，明细不再显示缺价问号；真正缺少价格的模型仍显示提示。
+- 修复 MiniMax 剩余 1% 被当作 100%、导致已用 99% 显示为 0% 的问题，保留小数百分比。
+- 修复“今日消费与余额同行”在纯文字模式下的垂直对齐。
+- Go 额度支持点击展开 5h、周、月窗口及重置时间，详情内提供刷新按钮，支持触屏和键盘操作。
+- 图标模式加入 DeepSeek、Claude、OpenAI/Codex、OpenCode 和 13 个常见套餐来源的品牌 Logo，离线内嵌并跟随主题前景色；金额组排在图标之后，其他图标保留已保存的相对顺序。
+- 验证 dsh-codex-subscription 3.2.19 和 dsh-codex-connect 0.2.0-alpha.15，更新兼容基线与 CI。
+
+感谢以下贡献者：
+
+- [@chanyuenpang](https://github.com/chanyuenpang) 在 [#517](https://github.com/Han-1413141/dsh-cost-meter/pull/517) 提供品牌 Logo 和图标布局代码。
+- [@T0TT](https://github.com/T0TT) 在 [#518](https://github.com/Han-1413141/dsh-cost-meter/issues/518) 报告同行文字对齐问题并提供 CSS 建议。
+- [@MCXCC303](https://github.com/MCXCC303) 在 [#519](https://github.com/Han-1413141/dsh-cost-meter/issues/519) 报告 MiniMax 已用 99% 显示为 0% 的问题。
+- [@seeker-Chh](https://github.com/seeker-Chh) 在 [#522](https://github.com/Han-1413141/dsh-cost-meter/issues/522) 提供 Android 点击排查信息，并[更正问题归属、撤回原报告](https://github.com/Han-1413141/dsh-cost-meter/issues/522#issuecomment-6947573099)。
+- [@github-actions[bot]](https://github.com/apps/github-actions) 通过 [#520](https://github.com/Han-1413141/dsh-cost-meter/issues/520) 和 [#521](https://github.com/Han-1413141/dsh-cost-meter/issues/521) 报告上游插件版本变化。
+
+[更新说明 / Release notes](docs/update-notes-1.9.71.md)
+
 ## [1.9.70] - 2026-11-16
 
 - 修复 OpenAI 兼容入口及第三方渠道的 DeepSeek 价格匹配，支持 `deepseek-ai` 命名空间、工作站与套餐别名、Magpie 多层账号路由和 `llm-` 前缀。
