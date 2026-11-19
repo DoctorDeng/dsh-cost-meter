@@ -6148,7 +6148,7 @@ function m_costOf85(entry, tokens) {
   const cbDisk = readFileSync(join(cbRoot, 'storages', 'cost-meter', 'ledger.json'), 'utf8')
   assert.ok(!cbDisk.includes('sk-PLAINTEXT-CB-0001') && !cbDisk.includes('sk-PLAINTEXT-CB-0002'), '落盘文件不含明文密钥')
   assert.ok(cbDisk.includes('{{MY_TRACE_VAR}}'), '落盘保留占位符')
-  assert.ok(cbDisk.includes('relay.example.com'), '落盘保留 allowedHosts')
+  assert.deepEqual(JSON.parse(cbDisk).config.customBalances[0].allowedHosts, ['relay.example.com'], '落盘保留 allowedHosts')
   cbLedger.close()
   await removeFixture(cbRoot, { recursive: true, force: true })
   console.log('[ok] 请求头脱敏三条路径(落盘/下发/补丁,issue #86)通过')
@@ -6306,10 +6306,11 @@ function m_costOf85(entry, tokens) {
 // 18-5) 客户端接线:allowedHosts 输入框 + 凭据输入区 + 命名规则说明 + parse 端同步。
 {
   const client86 = readClientSource()
-  assert.ok(client86.includes("t('customBalanceAllowedHosts')") && client86.includes('applyAllowedHostsText'), 'allowedHosts 输入框接线')
-  assert.ok(client86.includes('customVar:'), '凭据输入区以 customVar: 目标调 setCredential')
+  const editor86 = readFileSync(new URL('../src/plan-settings/custom-balance.js', import.meta.url), 'utf8')
+  assert.ok(editor86.includes("t('customBalanceAllowedHosts')") && editor86.includes('applyAllowedHostsText'), 'allowedHosts 输入框接线')
+  assert.ok(editor86.includes('customVar:'), '凭据输入区以 customVar: 目标调 setCredential')
   assert.ok(client86.includes('customVarStatus'), 'parse 端解析 customVarStatus')
-  assert.ok(client86.includes('placeholderVars'), '占位符变量集合驱动凭据输入行')
+  assert.ok(editor86.includes('placeholderVars'), '占位符变量集合驱动凭据输入行')
   assert.ok(client86.includes('allowedHosts: Array.isArray(e?.allowedHosts)'), 'parse 端保留 allowedHosts')
   // typert 状态 schema 同步(旧快照兼容:optional)。
   assert.ok(JSON.stringify(stateSchema.shape.customVarStatus).includes('configured') || stateSchema.shape.customVarStatus !== undefined, '状态 schema 含 customVarStatus')
@@ -6920,6 +6921,7 @@ function m_costOf85(entry, tokens) {
 }
 
 await import('./aliyun-balance.mjs')
+await import('./plan-quota-integration.mjs')
 await import('./tokenrhythm-balance.mjs')
 await import('./gateway-retry.mjs')
 await import('./cache-lifecycle.mjs')
@@ -6944,6 +6946,7 @@ await import('./antigravity-endpoint-fallback.mjs')
 await import('./antigravity-models-quota.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./custom-balance-host.mjs')
+await import('./openai-credits.mjs')
 await import('./custom-balance-post.mjs')
 await import('./balance-display-currency.mjs')
 await import('./balance-currency-display.mjs')

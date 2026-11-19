@@ -1,5 +1,28 @@
 # dsh-cost-meter 版本更新历史
 
+## v1.9.75(2026-11-19)—— GLM 与 Antigravity 额度、阿里云代金券及搜索计费
+
+- 修复 GLM Coding Plan 额度卡的查询状态，支持识别智谱官方助手为 Claude Code 配置的套餐凭据，并处理缺少有效百分比的额度响应。
+- 支持读取 `dsh-agy-link` 多账号 Antigravity 额度，按上游数据展示模型组、剩余百分比及重置时间。感谢 [@Rayawa](https://github.com/Rayawa) 在 [#536](https://github.com/Han-1413141/dsh-cost-meter/issues/536) 提出需求并提供上游接口线索。
+- 阿里云余额展示资金账户和符合条件的代金券余额。感谢 [@Strunus](https://github.com/Strunus) 在 [#535](https://github.com/Han-1413141/dsh-cost-meter/pull/535) 报告券账户余额显示为零并贡献查询实现。
+- 北京时间 11 月 18 日 12:00 起，DeepSeek 服务端搜索按官网停止收取次数费。历史费用支持按 `deepseek-official:deepseek-search-server` 单独重算。感谢 [@XinXinTang123](https://github.com/XinXinTang123) 在 [#537](https://github.com/Han-1413141/dsh-cost-meter/issues/537) 提供变更时间、日志字段及收费复现。
+
+## v1.9.74(2026-11-19)—— 余额显示、价格模板与界面调整
+
+- 更新微信交流 5 群二维码；余额缺少预算上限时只显示金额。
+- 支持复制自定义模型价格，调整显示设置和会话费用明细。
+- 在额度页加入 OpenAI API 赠送额度预估，验证 `dsh-codex-subscription` 3.2.24。
+
+[更新说明 / Release notes](update-notes-1.9.74.md)
+
+## v1.9.73(2026-11-18)—— Magpie 官方价格补齐与长会话历史重算修复
+
+- 为旧版升级账本一次性补齐 `deepseek-flash` 官方模型条目，恢复 `magpie:deepseek/deepseek-flash` 自动匹配。
+- 过滤会话读取中的流式文本与推理增量块，解决长会话因超过 20 万原始事件上限而无法重算的问题。
+- 支持重算此前费用为 0 且含宿主自动标题等未落盘附属调用残差的会话，保留原 Token／调用数并同步消除会话明细 `0 + ?`；验证 `dsh-codex-subscription` 3.2.21。
+
+[更新说明 / Release notes](update-notes-1.9.73.md)
+
 ## v1.9.72(2026-11-17)—— 官方账户渠道价格匹配修复
 
 - 恢复 deepseek-account 的官方价格匹配，覆盖精确模式、自动模式和本轮费用显示。

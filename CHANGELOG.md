@@ -1,6 +1,36 @@
 # Changelog
 ## [Unreleased]
 
+## [1.9.75] - 2026-11-19
+
+- 修复 GLM Coding Plan 额度卡的查询状态，支持识别智谱官方助手为 Claude Code 配置的套餐凭据，并处理缺少有效百分比的额度响应。
+- 支持读取 `dsh-agy-link` 多账号 Antigravity 额度，按上游数据展示模型组、剩余百分比及重置时间。感谢 [@Rayawa](https://github.com/Rayawa) 在 [#536](https://github.com/Han-1413141/dsh-cost-meter/issues/536) 提出需求并提供上游接口线索。
+- 阿里云余额展示资金账户和符合条件的代金券余额。感谢 [@Strunus](https://github.com/Strunus) 在 [#535](https://github.com/Han-1413141/dsh-cost-meter/pull/535) 报告券账户余额显示为零并贡献查询实现。
+- 北京时间 11 月 18 日 12:00 起，DeepSeek 服务端搜索按官网停止收取次数费。历史费用支持按 `deepseek-official:deepseek-search-server` 单独重算。感谢 [@XinXinTang123](https://github.com/XinXinTang123) 在 [#537](https://github.com/Han-1413141/dsh-cost-meter/issues/537) 提供变更时间、日志字段及收费复现。
+
+## [1.9.74] - 2026-11-19
+
+- 更新 GitHub 首页的微信交流 5 群二维码。
+- 官方及自定义余额缺少可用预算上限时仅显示余额，修复无上限时进度条满格的问题。
+- 自定义价格支持复制已有模型的完整配置，编辑后再保存。
+- 分开组件设置与侧栏全局设置，对齐实际显示与预览，调整提示与面板间距，支持点击弹窗外部关闭会话费用明细。
+- 新增 OpenAI API 赠送额度预估，使用官方组织费用和手填的赠送金额及有效期。
+- 验证 `dsh-codex-subscription` 3.2.23 和 3.2.24，将兼容基线更新到 3.2.24。
+
+[更新说明及贡献署名 / Release notes and credits](docs/update-notes-1.9.74.md)
+
+## [1.9.73] - 2026-11-18
+
+- 修复旧版本升级账本缺失 `deepseek-flash` 模型条目导致 `magpie:deepseek/deepseek-flash` 等路由无法自动匹配官方价格的问题：启动时一次性补齐缺失的官方 Flash 规范模型名，保留用户手动修改与主动删除配置。
+- 修复超长会话在历史重算、回填和 RDB 用量读取中因展开超过 20 万条流式文本／推理增量块而触发事件上限、被误判为日志缺失的问题。
+- 修复此前未定价（金额为 0）的会话因宿主自动生成标题等未写入日志的附属调用残差而无法重算的问题：重算时保留账本原有 Token 与调用次数，同步更新会话明细中的 `0 + ?` 状态，并支持后续再次重算；已记录正数费用的不完整日志仍严格保留原值。
+- 磁盘插件版本更新但宿主尚未重启时，在历史重算结果中附带重启提示；启动入口转发模块查询参数。
+- 验证 `dsh-codex-subscription` 3.2.21，更新兼容基线与 CI，并加固自定义余额 `allowedHosts` 落盘断言。
+
+感谢 [@JokerQyou](https://github.com/JokerQyou) 在 [#499 评论](https://github.com/Han-1413141/dsh-cost-meter/issues/499#issuecomment-6967300277) 反馈 `magpie:deepseek/deepseek-flash` 未自动匹配官方价格及 651 次长会话重算失败并提供完整复现截图。
+
+[更新说明 / Release notes](docs/update-notes-1.9.73.md)
+
 ## [1.9.72] - 2026-11-17
 
 - 修复官方账户渠道 `deepseek-account` 及 `llm-deepseek-account` 的价格匹配：精确模式直接使用官方模型目录，自动模式不再受其他渠道的同名价格干扰。

@@ -2,6 +2,12 @@
 
 [简体中文](custom-balance-sources.md) · [Features](features.en.md)
 
+## OpenAI API credits
+
+In Settings → Cost → Quotas, choose Add OpenAI API credits. Enter the grant amount, start date and expiration date in UTC from [Credit grants](https://platform.openai.com/settings/organization/billing/credit-grants) for the linked API organization. Save its Admin API key and enable the card. DSH keeps the key in its credential store. You can also set `DSH_OPENAI_COST_ADMIN_KEY` on the server.
+
+The card estimates the grant remaining from organization costs in the period using the [OpenAI Costs API](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs). Quota settings and the sidebar tooltip show the grant amount, organization costs, estimated remainder and expiration. Overlapping grants, different credit eligibility and reporting delays can affect the estimate. Use Credit grants for the official balance.
+
 ## Request and response configuration
 
 **POST with a JSON body:** in **Settings → Cost → Quota**, expand a custom balance entry, select **POST**, then fill in **Request body (JSON)**. For example, if the endpoint expects an account and returns `{"data":{"balance":12.5}}`:
@@ -23,6 +29,8 @@ The global exchange rate converts **USD to the display currency**. CNY/EUR sourc
 **DeepSeek CNY billing:** USD prices × the display exchange rate and the official CNY table can give different amounts. Settings → Cost → Prices now explains this and provides a CNY selection button. See [currency selection, sync and settlement timing](billing-currency.md#english).
 
 For Qianwen / Alibaba Cloud fund accounts, use **Add Qianwen / Alibaba Cloud balance** to query available funds with a RAM AccessKey signature. The card uses the currency returned by the API. See the [setup, permissions and balance definition](qianwen-balance.md#english).
+
+**Cash coupons.** The card totals fund-account availability and active, same-currency coupons eligible for general or Model Studio pay-as-you-go use. It uses each coupon’s remaining `Balance`. The card identifies incomplete or unavailable coupon data. Grant `bss:DescribeBillingAccount` for the fund account and `bss:DescribeCoupons` for coupon lookup. Alibaba Cloud determines the actual deduction at billing time.
 
 Qwen Token Plan can use the [official CLI subscription quota](qwen-cli-quota.md#english). Install the CLI on the DSH host and run `qianwen auth login` as the same OS user. Local estimates remain the default; CLI mode shows current account credits without changing the local ledger.
 

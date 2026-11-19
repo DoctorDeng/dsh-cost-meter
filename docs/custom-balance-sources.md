@@ -2,6 +2,12 @@
 
 [English](custom-balance-sources.en.md) · [功能与截图](features.md)
 
+## OpenAI API 赠送额度
+
+在「设置 → 费用 → 额度」选择「添加 OpenAI API 赠送额度」。填写绑定的 API 组织在 [Credit grants](https://platform.openai.com/settings/organization/billing/credit-grants) 显示的赠送金额、生效日期及到期日期（UTC），然后保存该组织的 Admin API Key 并开启查询。密钥通过 DSH 凭据库保存，也可在服务端设置 `DSH_OPENAI_COST_ADMIN_KEY`。
+
+插件按 [OpenAI Costs API](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs) 返回的该组织期间费用计算预估余额。在额度页可看总额、组织费用、预估剩余和到期日，侧栏悬停可看明细。多个赠送额度叠加、不同费用的抵扣规则或统计延迟会影响预估，以官方 Credit grants 为准。
+
 ## 请求与响应配置
 
 **POST 携带 JSON 请求体：**进入**设置 → 费用 → 额度**，展开自定义余额，选择 **POST**，在**请求体 (JSON)** 中填写接口要求的内容。例如接口需要账号参数，并返回 `{"data":{"balance":12.5}}`：
@@ -21,6 +27,8 @@
 **余额显示币种（官方与自定义共用）：**在**设置 → 费用 → 显示 → 侧栏 → 官方余额 → 余额显示币种**可选择**原币种**（默认）、**跟随显示币种**或币种目录中的任一代码。选定后官方余额、已赠送/已充值、自定义余额的剩余与已用金额都会按当前每日参考汇率换算展示；金额使用币种目录中的符号显示（如 `£7.5`）。缺口径的代码（目录外或缺少汇率）保持原币种，避免符号与数值错配。选中非“原币种”时，上文的每条“按显示币种折算（USD 余额）”开关不再生效；预算上限与进度比例仍按余额记账币种计算（金额随所选币种换算展示），原始快照不变。切换只改展示，不查询汇率、不额外请求余额、保留已取回的余额快照，也不改动账本。
 
 千问 / 阿里云资金账户余额可直接点击「添加千问 / 阿里云余额」，使用 RAM AccessKey 签名查询，显示接口返回的可用金与币种；配置步骤、所需权限及口径见[千问余额说明](qianwen-balance.md)。
+
+**代金券。** 卡片汇总资金账户可用额度和币种一致、当前可用于通用或百炼按量付费的有效券余额。券按 `Balance` 统计。券数据不完整或查询失败时，卡片会提示当前金额的范围。查询资金账户需要 `bss:DescribeBillingAccount`，查询券需要 `bss:DescribeCoupons`。实际抵扣以阿里云账单为准。
 
 千问 Token Plan 可在卡片内选择[官方 CLI 订阅额度](qwen-cli-quota.md)，需在 DSH 主机以同一系统账号安装 CLI 并运行 `qianwen auth login`。默认保留本地估算；CLI 模式显示账号当前 Credits，不修改本地账本。
 
