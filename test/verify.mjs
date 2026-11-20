@@ -3,7 +3,6 @@
  * 计费数学部分基于内置价格表,离线可跑;官方页面解析失败时仅告警不中断。
  */
 import assert from 'node:assert/strict'
-import './zai-candidates.mjs'
 import './statistics-cache.mjs'
 import './ledger-concurrency.mjs'
 import './ledger-lock-recovery.mjs'
@@ -142,6 +141,7 @@ process.on('exit', () => { globalThis.fetch = defaultFetch })
 // This fixture temporarily changes DSH_HOME. Static imports with top-level await
 // run concurrently, so wait until the other home-changing fixtures have finished.
 await import('./statistics-warmup.mjs')
+await import('./zai-candidates.mjs')
 
 // 每个验证进程使用独立临时目录，双时区同时执行时不互相删除账本。
 const suiteRoot = mkdtempSync(join(osTmpdir(), 'cm-verify-'))
@@ -1853,8 +1853,15 @@ assert.ok(catalog.meituan?.['LongCat']?.['longcat-2.0'] !== undefined, 'Go 新�
 assert.equal(catalog.meituan['LongCat']['longcat-2.0'].cachedInput, 0.006, 'longcat-2.0 缓存读 $0.006')
 assert.equal(catalog['opencode-go']['Muse Spark']['muse-spark-1.2-contributor'].input, 0.1, 'Go 目录 muse-spark-1.2-contributor 输入价 $0.10')
 // 6.4 Kimi 余额解析与端点白名单。
-assert.equal(parseKimiBalance({ available_balance: 12345 }).balance.text, '余额 ¥123.45', 'Kimi 余额分→元换算')
-assert.equal(parseKimiBalance({ available_balance: 8 }).balance.text, '余额 ¥8.00', '小额视为元单位')
+for (const [available_balance, expected] of [[0, '¥0.00'], [8, '¥8.00'], [99.99, '¥99.99'], [100, '¥100.00'],
+  [100.01, '¥100.01'], [150, '¥150.00'], [12345, '¥12345.00'], [49.58894, '¥49.59']]) {
+  assert.equal(parseKimiBalance({ code: 0, data: { available_balance } }).balance.text, expected, 'Kimi PAYG balance is always in yuan')
+}
+assert.equal(parseKimiBalance({ available_balance: '150' }).balance.text, '¥150.00', '旧版扁平响应和数字字符串仍可读取')
+assert.equal(parseKimiBalance({ cash_balance: 50, data: { available_balance: 150 } }).balance.text, '¥150.00', '可用余额优先于现金余额')
+for (const available_balance of [null, true, [], '', 'invalid', -1, Infinity]) {
+  assert.equal(parseKimiBalance({ data: { available_balance } }), null, '无效余额不显示为零元')
+}
 assert.equal(parseKimiBalance(null), null, '非法响应安全')
 assert.ok(CODING_PLAN_ENDPOINTS.kimi.every(u => ['api.moonshot.cn', 'api.kimi.com'].includes(new URL(u).host)), 'Kimi 端点官方域名白名单(含订阅端点 api.kimi.com,issue #53)')
 assert.ok(CODING_PLAN_PROVIDERS.kimi !== undefined, 'kimi 已注册')
@@ -2112,6 +2119,27 @@ assert.ok(CODING_PLAN_ENDPOINTS.zai.slice(2).some(u => u.includes('/v3/')), 'Z.a
     && CODING_PLAN_ENDPOINTS.kimi[2] === 'https://api.moonshot.cn/v1/users/me/balance', 'Kimi 订阅端点在前,PAYG 余额兜底')
   assert.ok(CODING_PLAN_ENDPOINTS.kimi.every(u => ['api.kimi.com', 'api.moonshot.cn'].includes(new URL(u).host)), 'Kimi 端点均为官方域名')
   assert.deepEqual(CODING_PLAN_PROVIDERS.kimi.credentialEnvs, ['KIMI_CODING_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_API_KEY'], '订阅 Key env 优先于 PAYG env')
+  const fetchBefore = globalThis.fetch
+  const requests = []
+  try {
+    globalThis.fetch = async url => {
+      requests.push(url)
+      return url === CODING_PLAN_ENDPOINTS.kimi[2]
+        ? Response.json({ code: 0, data: { available_balance: 150 } })
+        : new Response(null, { status: 401 })
+    }
+    for (const locale of ['zh', 'en']) {
+      requests.length = 0
+      const result = await queryCodingPlan('kimi', 'fixture-payg-key', locale, stubT)
+      assert.deepEqual(requests, CODING_PLAN_ENDPOINTS.kimi, '订阅鉴权拒绝后回退到 PAYG 接口')
+      assert.equal(result.windows.balance.text, '¥150.00')
+    }
+    requests.length = 0
+    globalThis.fetch = async url => { requests.push(url); return Response.json(sample) }
+    const subscription = await queryCodingPlan('kimi', 'fixture-subscription-key', 'zh', stubT)
+    assert.deepEqual(requests, [CODING_PLAN_ENDPOINTS.kimi[0]], '订阅查询成功时不请求 PAYG 接口')
+    assert.deepEqual(subscription.windows, parsed)
+  } finally { globalThis.fetch = fetchBefore }
   console.log('[ok] Kimi Code 订阅配额解析与端点白名单通过')
 }
 console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过')
@@ -2368,7 +2396,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   const ownKey = localDayKey(ownAt)
   assert.notEqual(seedKey, ownKey, '测试前提:种子日与 own 日分离')
   const forkLog = [
-    JSON.stringify({ type: 'session', version: 0, id: 'fork-sess', createdAt: forkAt, parentSession: 'parent-sess', seedLength: 123, delegationDepth: 0 }),
+    JSON.stringify({ type: 'session', version: 0, id: 'fork-sess', createdAt: forkAt, parentSession: 'parent-sess', seedLength: 3, delegationDepth: 0 }),
     // 种子段:父会话标题 + header + 两次调用(其中一次被同 (turn,step) 最终样本替换)。
     JSON.stringify({ type: 'session/title', seq: 1, time: seedAt, data: { title: 'Parent history' } }),
     JSON.stringify({ type: 'request/header', seq: 0, time: seedAt, data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-flash' } } } }),
@@ -3331,7 +3359,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(!idxSrc36.includes('ledger.today().cost, localDayKey'), '对账不再使用全渠道今日合计')
   const cliSrc36 = readClientSource()
   assert.ok(cliSrc36.includes('function todayOfficialUsd(state)'), 'client.js 定义 todayOfficialUsd')
-  assert.ok(cliSrc36.includes("mode === 'official' ? todayOfficialUsd(state) : Number(state.today?.cost) || 0"), '官方余额分支使用官方渠道费用,自定义分支维持全量')
+  assert.ok(cliSrc36.includes('const usd = todayOfficialUsd(state)'), '官方余额使用官方渠道费用')
   assert.ok(cliSrc36.includes("if (provider.startsWith('llm-')) provider = provider.slice(4)"), 'client 端剥离 llm- 包装路由前缀(与 officialCostOfDay 同口径)')
   console.log('[ok] 官方渠道费用拆分(纯函数/Ledger 聚合/对账与进度条接线/旧数据退回)通过')
 }
@@ -6970,6 +6998,7 @@ await import('./deepseek-pricing-september.mjs')
 await import('./deepseek-pricing-official.mjs')
 await import('./model-history-reprice.mjs')
 await import('./history-reprice-usage.mjs')
+await import('./dynamic-pricing.mjs')
 await import('./sidebar-simple.mjs')
 await import('./sidebar-regressions.mjs')
 await import('./gpt-astra-pricing.mjs')
