@@ -164,6 +164,7 @@
         planQuotaStyle: v.planQuotaStyle === 'gauge' ? 'gauge' : 'bars',
         ...mapFields(v, ['sidebarSimplePromptSeen', 'sidebarSummaryPromptSeen', 'peakProgressPromptSeen'].filter(key => Object.hasOwn(v, key)), value => value === true),
         billionContextNoticeEnabled: v.billionContextNoticeEnabled !== false,
+        billionContextEnabled: v.billionContextEnabled !== false,
         billionContextNoticesSeen: Array.isArray(v.billionContextNoticesSeen) ? v.billionContextNoticesSeen.filter(value => typeof value === 'string').slice(-32) : [],
         priceMatchDismissed: Array.isArray(v.priceMatchDismissed) ? v.priceMatchDismissed.filter(key => typeof key === 'string') : [],
         // 官方价格币种(issue #47):读侧白名单缺失会导致下拉选择保存后读不回。
@@ -285,7 +286,7 @@
           const raw = Array.isArray(v.gatewayQuotas) ? v.gatewayQuotas : v.gatewayQuotas?.sources
           const sources = Array.isArray(raw) ? raw.slice(0, 4).filter(x => x !== null && typeof x === 'object' && !Array.isArray(x)).map(x => ({
             id: typeof x.id === 'string' ? x.id.slice(0, 48) : '',
-            type: x.type === 'agy-link' ? 'agy-link' : 'cliproxyapi',
+            type: oneOf(x.type, ['agy-link', 'antigravity-manager'], 'cliproxyapi'),
             label: typeof x.label === 'string' ? x.label.slice(0, 80) : '',
             baseURL: typeof x.baseURL === 'string' ? x.baseURL : '',
             enabled: x.enabled !== false,
@@ -407,7 +408,7 @@
       const n = x => numOrNull(x)
       const windowOf = x => x !== null && typeof x === 'object' && !Array.isArray(x) ? { id: s0(x.id), label: s0(x.label), ...(n(x.percent) === null ? {} : { percent: n(x.percent) }), resetsAt: s0(x.resetsAt), periodHours: n(x.periodHours), scope: s0(x.scope) } : null
       const creditsOf = x => x !== null && typeof x === 'object' && !Array.isArray(x) ? { unit: s0(x.unit, 'credits'), used: n(x.used), remaining: n(x.remaining), limit: n(x.limit), fetchedAt: s0(x.fetchedAt), packages: Array.isArray(x.packages) ? x.packages.filter(p => p !== null && typeof p === 'object' && !Array.isArray(p)).map(p => ({ id: s0(p.id), label: s0(p.label), used: n(p.used), remaining: n(p.remaining), limit: n(p.limit), startsAt: s0(p.startsAt), resetsAt: s0(p.resetsAt) })) : [] } : undefined
-      return { browserAccessDenied: v.browserAccessDenied === true, id: s0(v.id), type: v.type === 'agy-link' ? 'agy-link' : 'cliproxyapi', label: s0(v.label), status: gatewaySourceStatuses.has(v.status) ? v.status : 'error', message: s0(v.message), fetchedAt: n(v.fetchedAt) ?? 0, attemptedAt: n(v.attemptedAt) ?? 0, serverVersion: s0(v.serverVersion), keyConfigured: v.keyConfigured === true, keySource: s0(v.keySource, 'none'), accounts: Array.isArray(v.accounts) ? v.accounts.filter(a => a !== null && typeof a === 'object' && !Array.isArray(a)).slice(0, 16).map(a => ({ id: s0(a.id), provider: s0(a.provider, 'unknown'), label: s0(a.label, 'unknown'), status: gatewayAccountStatuses.has(a.status) ? a.status : 'unknown', message: s0(a.message), plan: s0(a.plan), windows: Array.isArray(a.windows) ? a.windows.map(windowOf).filter(Boolean) : [], credits: creditsOf(a.credits) })) : [], unsupportedProviders: Array.isArray(v.unsupportedProviders) ? v.unsupportedProviders.filter(x => typeof x === 'string').slice(0, 32) : [] }
+      return { browserAccessDenied: v.browserAccessDenied === true, id: s0(v.id), type: oneOf(v.type, ['agy-link', 'antigravity-manager'], 'cliproxyapi'), label: s0(v.label), status: gatewaySourceStatuses.has(v.status) ? v.status : 'error', message: s0(v.message), fetchedAt: n(v.fetchedAt) ?? 0, attemptedAt: n(v.attemptedAt) ?? 0, serverVersion: s0(v.serverVersion), keyConfigured: v.keyConfigured === true, keySource: s0(v.keySource, 'none'), accounts: Array.isArray(v.accounts) ? v.accounts.filter(a => a !== null && typeof a === 'object' && !Array.isArray(a)).slice(0, 16).map(a => ({ id: s0(a.id), provider: s0(a.provider, 'unknown'), label: s0(a.label, 'unknown'), status: gatewayAccountStatuses.has(a.status) ? a.status : 'unknown', message: s0(a.message), plan: s0(a.plan), windows: Array.isArray(a.windows) ? a.windows.map(windowOf).filter(Boolean) : [], credits: creditsOf(a.credits) })) : [], unsupportedProviders: Array.isArray(v.unsupportedProviders) ? v.unsupportedProviders.filter(x => typeof x === 'string').slice(0, 32) : [] }
     }
     function parsePlanStats(v) {
       if (v === null || typeof v !== 'object' || Array.isArray(v)) return null
@@ -507,7 +508,8 @@
         pricesRev: typeof v.pricesRev === 'string' ? v.pricesRev : undefined,
         modelLabels: Object.fromEntries(Object.entries(v.modelLabels ?? {}).filter(([, label]) => typeof label === 'string')),
         modelDirectory: v.modelDirectory,
-        reconcile: v.reconcile === null || v.reconcile === undefined ? undefined : { ok: v.reconcile.ok === true, message: typeof v.reconcile.message === 'string' ? v.reconcile.message : '' },
+        reconcile: v.reconcile == null ? undefined : { ok: v.reconcile.ok === true, message: typeof v.reconcile.message === 'string' ? v.reconcile.message : '',
+          ...(typeof v.reconcile.searchMessage === 'string' ? { searchMessage: v.reconcile.searchMessage, balanceMessage: String(v.reconcile.balanceMessage ?? '') } : {}) },
         // 手改过价格的 OpenRouter 模型 id(缺失/畸形回落空表:不显示任何锁定标记)。
         priceLockIds: Array.isArray(v.priceLockIds) ? v.priceLockIds.filter(id => typeof id === 'string') : [],
         meta: {
@@ -582,6 +584,11 @@
     const CONTRIBUTION = {
       package: 'dsh-cost-meter',
       descriptors: [
+        { method: 'getQuotaSourceRecovery', result: strictCodec('QuotaSourceRecovery', codecOf(v => {
+          needObject(v, 'quota source recovery')
+          if (!Array.isArray(v.gatewayQuotas?.sources) || !Array.isArray(v.customBalances)) fail('quota sources', 'arrays')
+          return { gatewayQuotas: { sources: v.gatewayQuotas.sources }, customBalances: v.customBalances }
+        })) },
         {
           method: 'getStateSince',
           // Keep getState zero-argument: DSH checks the exact client argument count.
@@ -2225,7 +2232,7 @@
       const detail = privacy.hidden ? privacy.tip : officialBalanceTooltip(t, balance, state.config, state.reconcile, refresh)
       return el(Tooltip, { portal: true, label: props.label ? el(Fragment, null, el('strong', null, props.label), detail) : detail, side: 'right', delayMs: 300 },
         el('div', { 'data-cm-display': 'balance', className: 'cm-foot clickable' + (wide ? '' : ' cm-foot-rail') + (refresh.busy ? ' busy' : ''), ...clickableRefreshProps(refresh.busy, refresh.run) },
-          wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, privacy.label(caption), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, privacy.hidden ? '••••' : formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), state.reconcile?.ok === false ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
+          wide ? el(Fragment, null, el('span', { className: 'cm-balance-name' }, privacy.label(caption), rechargeLinkEl(t)), el('span', { className: 'cm-num cm-bal-amt' }, privacy.hidden ? '••••' : formatBalanceMoney(balance.totalBalance, state.config, balance.currency)), balanceWarning(state.reconcile) ? ' ⚠' : '') : el(WalletIcon, { size: 16 })))
     }
 
     function officialBalanceVisible(state, provider, preview) {
@@ -2237,11 +2244,16 @@
 
     function balanceLabel(t, config) { return t(config?.balance?.showSource === true ? 'officialBalance' : 'balance') }
 
+    function balanceWarning(reconcile) {
+      return reconcile?.ok === false ? reconcile.balanceMessage ?? reconcile.message : ''
+    }
+
     function officialBalanceTooltip(t, balance, config, reconcile, refresh) {
       const lines = [t('officialBalance') + ' ' + formatBalanceMoney(balance.totalBalance, config, balance.currency),
         t('grantedToppedUp', { granted: formatBalanceMoney(balance.grantedBalance, config, balance.currency), toppedUp: formatBalanceMoney(balance.toppedUpBalance, config, balance.currency) }),
         ...(config.balance?.showProgressBar && resolveBalanceCap(config, null) === null ? [t('balanceNoCap')] : []),
-        ...(reconcile?.ok === false ? ['⚠ ' + reconcile.message] : []), ...clickRefreshTipLines(t, refresh)]
+        ...(balanceWarning(reconcile) ? ['⚠ ' + balanceWarning(reconcile)] : []),
+        ...(reconcile?.searchMessage ? [reconcile.searchMessage] : []), ...clickRefreshTipLines(t, refresh)]
       return el('div', { style: { maxWidth: 'min(225px, 68vw)', whiteSpace: 'normal', fontSize: 11, lineHeight: 1.5 } }, ...lines.map((line, key) => el('div', { key }, line)))
     }
 
@@ -3270,6 +3282,11 @@
     }
 
     function codingPlanWindowEntries(windows, provider) {
+      // Older host snapshots include the localized label in the Kimi amount.
+      if (provider === 'kimi' && typeof windows?.balance?.text === 'string') {
+        const amount = windows.balance.text.replace(/^\s*(?:余额|Balance)\s*[:：]?\s*(?=[¥￥$])/i, '')
+        if (amount !== windows.balance.text) windows = { ...windows, balance: { ...windows.balance, text: amount } }
+      }
       const rank = name => {
         const key = name.replace(/^core_/, '').toLowerCase().replace(/[^a-z0-9]/g, '')
         return /^(fivehour|five|5h|rolling|session)$/.test(key) ? 0 : /^(daily|day|1d)$/.test(key) ? 1 : /^(weekly|week|7d|sevenday)$/.test(key) ? 2 : /^(monthly|month|30d)$/.test(key) ? 3 : 4
@@ -4064,5 +4081,5 @@
         const rank = node => { const index = order.indexOf(node.key); return index < 0 ? 999 : index }
         nodes.sort((a, b) => rank(a) - rank(b))
       }
-      return el('div', { ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (config.sidebarTodayBalanceInline ? ' same-line' : '') + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : config.sidebarStyle === 'summary' && wide ? ' summary' : '') + (config.sidebarTextOnly ? ' text-only' : '') }, ...(!simple && wide && config.sidebarStyle === 'icons' ? [el(BillingStatistics, { load: loadSidebarIcons, state: { ...state, config }, preview, nodes, fallback: nodes })] : nodes))
+      return el('div', { ...(!preview ? { 'data-cm-sidebar-card': '' } : {}), ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (config.sidebarTodayBalanceInline ? ' same-line' : '') + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : config.sidebarStyle === 'summary' && wide ? ' summary' : '') + (config.sidebarTextOnly ? ' text-only' : '') }, ...(!simple && wide && config.sidebarStyle === 'icons' ? [el(BillingStatistics, { load: loadSidebarIcons, state: { ...state, config }, preview, nodes, fallback: nodes })] : nodes))
     }

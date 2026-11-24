@@ -180,7 +180,7 @@ window.__ModuleLoader__.load({
       '.cm-msg{font-size:12px;line-height:18px;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1)}',
       '.cm-msg.ok{color:var(--dsw-alias-state-success-primary)}',
       '.cm-hint{font-size:12px;color:var(--dsw-alias-label-tertiary)}',
-      '.cm-budget{display:flex;flex-direction:column;gap:10px}',
+      '.cm-budget,.cm-stack{display:flex;flex-direction:column;gap:10px}',
       '.cm-peak-alert{position:fixed;inset:auto;margin:0;box-sizing:border-box;pointer-events:auto;-webkit-app-region:no-drag;color:var(--dsw-alias-label-primary);z-index:9999;width:340px;max-width:calc(100vw - 32px);padding:16px;border-radius:14px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);box-shadow:0 14px 36px rgba(0,0,0,.22);display:flex;flex-direction:column;gap:8px;font-size:12px;animation:cm-peak-alert-in .22s cubic-bezier(.2,.8,.2,1)}',
       '.cm-peak-alert.cm-peak-alert-corner{right:20px;bottom:20px}',
       '.cm-peak-alert.cm-peak-alert-center{top:50%;left:50%;transform:translate(-50%,-50%);animation-name:cm-peak-alert-in-center}',
@@ -366,13 +366,16 @@ window.__ModuleLoader__.load({
       '.cm-mm-row.wide .cm-mm-text{flex:1;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.cm-bal-line{font-size:13px;color:var(--dsw-alias-label-secondary)}',
       '.cm-bal-line.warn{color:var(--dsw-alias-state-warn-primary,#b45309)}',
-      // footer.action 与其它插件共用 flex 容器；宽栏费用独占一行，窄栏图标纵排。
-      // SlotOutlet 会多一层 display:contents 容器（当前宿主同样如此），布局规则需命中外层 flex。
-      // 没有这层包裹时直接子节点就是费用栈，两种结构都要命中；卡片隐藏/卸载后规则自动失效。
-      ':has(>.cm-footer-stack),:has(>[data-slot="sidebar.footer.action"]>.cm-footer-stack){flex-wrap:wrap;flex:0 0 auto;height:auto;min-height:0;align-content:flex-start}',
-      // Desktop skins can stretch both footer containers; keep the cards next to settings.
-      ':has(>div>[data-slot="sidebar.footer.action"]>.cm-footer-stack){flex:0 0 auto;height:auto;min-height:0}',
-      ':has(>.cm-footer-stack.rail),:has(>[data-slot="sidebar.footer.action"]>.cm-footer-stack.rail){flex-direction:column;flex-wrap:nowrap;align-items:center;gap:6px}',
+      '.cm-balance-heading,.cm-search-note{display:inline-flex;align-items:center}.cm-search-note{position:relative;margin-inline-start:3px}.cm-search-note button{all:unset;box-sizing:border-box;display:grid;place-items:center;width:24px;height:24px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:5px}.cm-search-note button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary)}.cm-search-note button:hover{color:var(--dsw-alias-label-primary)}.cm-search-note button span{display:grid;place-items:center;width:12px;height:12px;border:1px solid currentColor;border-radius:50%;font:600 10px/1 sans-serif}.cm-search-note-text:not([hidden]){position:absolute;z-index:3;inset-block-start:100%;inset-inline-start:0;width:max-content;max-width:min(225px,53vw);padding:6px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;white-space:normal}',
+      // Give the cost card a row inside SlotOutlet, or inside the action row on older hosts.
+      '[data-slot="sidebar.footer.action"]:has(>[data-cm-sidebar-card]){display:flex!important;flex:1 1 auto;min-width:0;flex-wrap:wrap;align-content:flex-start}',
+      ':not([data-slot]):has(>[data-cm-sidebar-card]){flex-wrap:wrap;align-content:flex-start}',
+      // Leave enough space between actions to wrap even a peer with a zero flex basis.
+      ':has(>[data-cm-sidebar-card]:not(.rail)){column-gap:1px}',
+      ':has(>[data-cm-sidebar-card].rail){flex-direction:column;flex-wrap:nowrap;align-items:center;gap:6px}',
+      // Some Desktop skins stretch both footer containers above the settings button.
+      ':has(>[data-cm-sidebar-card]),:has(>[data-slot="sidebar.footer.action"]>[data-cm-sidebar-card]),:has(>div>[data-slot="sidebar.footer.action"]>[data-cm-sidebar-card]){height:auto;min-height:0}',
+      ':not([data-slot]):has(>[data-cm-sidebar-card]),:has(>[data-slot="sidebar.footer.action"]>[data-cm-sidebar-card]),:has(>div>[data-slot="sidebar.footer.action"]>[data-cm-sidebar-card]){flex:0 0 auto}',
       '.cm-footer-stack{display:flex;flex:none;order:-1;flex-direction:column;gap:10px;width:100%;min-width:0;max-width:100%;align-items:stretch;box-sizing:border-box}',
       '.cm-footer-stack.rail{align-items:center;order:1}',
       // 侧边栏全部信息卡(费用/余额/Plan/网关/预算/Go):卡面按主题明暗分向提亮——
@@ -491,6 +494,7 @@ window.__ModuleLoader__.load({
         quotaAllPositions: '全部位置',
         queryFailed: '查询失败',
         reconcileLabel: '官方余额变动与本地账本交叉对账(偏差超阈时提示)',
+        searchCoverageNote: '搜索统计说明',
         grantedToppedUp: '赠送 {granted} · 充值 {toppedUp}',
         updatedAt: '更新时间 {time}',
         // 预算图框
@@ -657,6 +661,7 @@ window.__ModuleLoader__.load({
         zaiPlanKeyLabel: '智谱个人或团队 Coding Plan API Key',
         zaiPlanKeyMissing: '请配置 Coding Plan API Key',
         agyLinkQuotaAdd: '添加 Antigravity 额度',
+        managerQuotaAdd: '添加 Antigravity-Manager', managerCredential: '管理密码（未设置时使用代理 API Key）', managerSaveFirst: '保存来源后即可填写管理凭据。',
         codingPlanMinimax: 'MiniMax M Plan / Token Plan',
         codingPlanMinimaxTitle: 'MiniMax Plan',
         minimaxOrigin: '查询域名（HTTPS）',
@@ -931,6 +936,7 @@ window.__ModuleLoader__.load({
         usageEmpty: '暂无历史数据,开始对话后每日用量会汇总在这里',
         // 设置页标签(issue #29)
         tabOverview: '概览',
+        quotaRemoveConfirm: '确认删除',
         tabQuotas: '额度',
         tabUsage: '用量',
         tabPricing: '价格',
@@ -1019,6 +1025,7 @@ window.__ModuleLoader__.load({
         quotaAllPositions: 'All locations',
         queryFailed: 'Query failed',
         reconcileLabel: 'Cross-check official balance changes against the local ledger (warn when they diverge)',
+        searchCoverageNote: 'Search usage details',
         grantedToppedUp: 'Granted {granted} · Topped-up {toppedUp}',
         updatedAt: 'Updated {time}',
         budgetOf: 'Budget ({period})',
@@ -1179,6 +1186,7 @@ window.__ModuleLoader__.load({
         zaiPlanKeyLabel: 'Personal or team GLM Coding Plan API key',
         zaiPlanKeyMissing: 'Coding Plan API key required',
         agyLinkQuotaAdd: 'Add Antigravity quota',
+        managerQuotaAdd: 'Add Antigravity-Manager', managerCredential: 'Admin password (or proxy API key if unset)', managerSaveFirst: 'Save the source to enter its admin credential.',
         codingPlanMinimax: 'MiniMax M Plan / Token Plan',
         codingPlanMinimaxTitle: 'MiniMax Plan',
         minimaxOrigin: 'Quota origin (HTTPS)',
@@ -1452,6 +1460,7 @@ window.__ModuleLoader__.load({
         usageEmpty: 'No history yet — daily usage will accumulate here',
         // Settings tabs (issue #29)
         tabOverview: 'Overview',
+        quotaRemoveConfirm: 'Confirm removal',
         tabQuotas: 'Quotas',
         tabUsage: 'Usage',
         tabPricing: 'Pricing',

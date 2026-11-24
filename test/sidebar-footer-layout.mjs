@@ -1,4 +1,4 @@
-// Browser regression for #192. Start with:
+// Browser regression for #192 and #576. Start with:
 // node test/sidebar-footer-layout.mjs <directory containing react and react-dom> [--baseline v1.7.42]
 // Open the printed URL and click Run regression. No real host/account is contacted.
 import { readFileSync, readdirSync } from 'node:fs'
@@ -55,7 +55,7 @@ function Scenario({width=280,simple=false,compact=false,enabled=true,hidden=fals
  {enabled&&<SidebarFooter key="cost" wide={wide} useCost={pick=>pick({state:snapshot})}/>}
  {extra&&<button key="extra" className="extra" aria-label="Remote control">↗</button>}
  </>;
- return <section data-case={index}><h2>{width}px · {simple?'简化':compact?'紧凑':'标准'} · {locale} · {wrapped?'有 SlotOutlet 包裹':'无包裹'}</h2><div className={'host'+(wide?'':' collapsed')} style={{width}}><div className="footArea"><div className="footerActions">
+ return <section data-case={index} data-expect-card={enabled && !hidden}><h2>{width}px · {simple?'简化':compact?'紧凑':'标准'} · {locale} · {wrapped?'有 SlotOutlet 包裹':'无包裹'}</h2><div className={'host'+(wide?'':' collapsed')} style={{width}}><div className="footArea"><div className="footerActions">
  {wrapped?<div data-slot="sidebar.footer.action" style={{display:'contents'}}>{entries}</div>:entries}
  </div><div className="settingsArea">{wide?'⚙ 设置':'⚙'}</div></div></div></section>
 }
@@ -65,6 +65,7 @@ function measure(section){
  const host=section.querySelector('.host'), parent=section.querySelector('.footerActions'), stack=parent.querySelector('.cm-footer-stack');
  const context=parent.querySelector('.lc-ov-entry'), extra=parent.querySelector('.extra'), wide=!host.classList.contains('collapsed');
  const rect=n=>n.getBoundingClientRect(), p=rect(parent), label=section.getAttribute('data-case');
+ check(Boolean(stack)===(section.dataset.expectCard==='true'),label+' configured cost card is present even with peers');
  if(stack){const s=rect(stack);check(Math.abs(s.width-p.width)<1,label+' cost has full footer width');
   for(const button of [context,extra].filter(Boolean)){const b=rect(button);check(wide?b.top>=s.bottom-1:b.bottom<=s.top+1,label+' sibling does not share cost row');}
   check(stack.scrollWidth<=stack.clientWidth+1,label+' cost has no horizontal overflow');
@@ -77,7 +78,7 @@ function measure(section){
  const order=[...(slot??parent).children].map(n=>n.classList.contains('lc-ov-entry')?'context':n.classList.contains('cm-footer-stack')?'cost':'extra');
  check(order.join(',')===[context&&'context',stack&&'cost',extra&&'extra'].filter(Boolean).join(','),label+' React DOM order unchanged');
  check(parent.getAttribute('style')===null,label+' host inline styles untouched');
- if(!stack){const style=getComputedStyle(parent);check(style.flexDirection==='row'&&style.flexWrap==='nowrap',label+' host layout restored');}
+ if(!stack||slot){const style=getComputedStyle(parent);check(style.flexDirection==='row'&&style.flexWrap==='nowrap',label+' host layout restored');}
 }
 const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
 async function run(){const result=document.getElementById('result');checks=0;try{

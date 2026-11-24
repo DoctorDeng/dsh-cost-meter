@@ -1465,7 +1465,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   // fork:宽栏首个节点是今日费用/官方余额/峰谷条合并卡 TodayBalanceCard,它同样透传 api,
   // 故比上游多一处(六类图框 + 合并卡 = 7)。
   assert.equal((footerSource.match(/api: api/g) ?? []).length, 7, '共享侧栏六类图框 + fork 合并卡透传 api')
-  assert.ok(footerSource.includes("el(CodexPlanBox, { key: 'codex', state, wide, api, preview })") && /renderSidebarFooter\(state, !!props\.wide, props\.api[,)]/.test(clientSource), '实际侧栏传入 api，预览显式禁用查询')
+  assert.ok(footerSource.includes("el(CodexPlanBox, { key: 'codex', state, wide, api, preview })") && clientSource.includes('renderSidebarFooter(state, !!props.wide, props.api, false'), '实际侧栏传入 api，预览显式禁用查询')
   // 可点击语义与视觉反馈:a11y(role/tabIndex/aria-busy/键盘)、CSS(cursor/hover/busy 呼吸)。
   assert.ok(clientSource.includes('const clickableRefreshProps = (busy, run) => ({'), '可点击属性 helper 存在')
   assert.ok(clientSource.includes("role: 'button'") && clientSource.includes("tabIndex: 0") && clientSource.includes("'aria-busy': busy ? 'true' : 'false'"), 'role=button + tabIndex + aria-busy')
@@ -1977,7 +1977,7 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
   // 旧 v3 checkpoint(ver 不匹配)隔离——宿主 ver 检查拒绝旧行并全量 refold,
   // 不会对旧结构 state 调用 parse。
   const projRow = { ver: def.stateVersion, seq: events.length, val: structuredClone(projState) }
-  assert.equal(projRow.ver, 12, 'stateVersion 为 12（重放旧 checkpoint，按 Provider 去重）')
+  assert.equal(projRow.ver, 14, 'stateVersion 为 14（按宿主继承边界重放旧 checkpoint）')
   usageProjectionStateSchema.parse(projRow.val)
   // ⑤ issue #43 崩溃点复现对照:缺 stateSchema 的定义(fork 0.2.0 场景)在
   // restore 路径抛出与 issue 报错完全一致的 TypeError。
@@ -2486,10 +2486,10 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   assert.ok(scheduled >= 1, '清洗后调度落盘')
   // 投影与启动接线:源码结构断言(投影无独立运行时入口,行为经宿主重放自愈)。
   const indexSource = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-  assert.ok(indexSource.includes('stateVersion: 12'), '投影 stateVersion 12:按 Provider 去重并重放旧 checkpoint')
+  assert.ok(indexSource.includes('stateVersion: 14'), '投影 stateVersion 14：按宿主继承边界重放旧 checkpoint')
   assert.ok(indexSource.includes("if (event.type === 'session')") && indexSource.includes('createdAt') && indexSource.includes('seedLength'), '投影记录会话创建时刻与 seedLength(旧宿主兼容+多 end-seed 延迟扣除)')
   assert.ok(indexSource.includes("if (event.type === 'session/end-seed')"), '投影识别 session/end-seed fork 种子边界(issue #55)')
-  assert.ok(indexSource.includes('isSeedBySeq') && indexSource.includes('isSeedByLength') && indexSource.includes('seedEndSeq'), '投影按 seq/length/time 三重过滤种子段(issue #55/#61)')
+  assert.ok(indexSource.includes('isSeedBySeq') && indexSource.includes('hasExactBoundary') && indexSource.includes('seedEndSeq'), '投影优先使用精确继承边界，兼容旧日志(issue #55/#61)')
   assert.ok(indexSource.includes('if (isSeed) return state'), '投影对种子 usage 不聚合')
   assert.ok(indexSource.includes('createdAt: state.createdAt'), '投影 usage 更新不丢失 fork 过滤基准')
   assert.ok(indexSource.includes('seedEndSeq: state.seedEndSeq'), '投影 usage 更新不丢失种子边界基准')
@@ -5811,7 +5811,8 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
 {
   const client79 = readClientSource()
   assert.ok(client79.includes('function CustomBalanceEntryPanel('), '设置页逐条编辑组件存在')
-  assert.ok(client79.includes("t('customBalanceAdd')") && client79.includes("t('quotaRemove')"), '添加/删除条目按钮接线(双语)')
+  const quotaSection = readFileSync(new URL('../src/plan-settings/quota-section.js', import.meta.url), 'utf8')
+  assert.ok(quotaSection.includes("t('customBalanceAdd')") && client79.includes("t('quotaRemove')"), '添加/删除条目按钮接线(双语)')
   assert.ok(client79.includes('function visibleCustomEntries(state, config)'), '侧边栏可见条目统一判定 helper 存在')
   assert.ok(client79.includes('api.refreshCustomBalance(index)'), '侧边栏逐条按 index 刷新')
   assert.ok(client79.includes('const visibleCustom = visibleCustomEntries(state, config)'), 'SidebarFooter 用可见条目集门控')
@@ -6972,6 +6973,7 @@ await import('./openrouter-catalog.mjs')
 await import('./pr145-147.mjs')
 await import('./antigravity-endpoint-fallback.mjs')
 await import('./antigravity-models-quota.mjs')
+await import('./antigravity-manager-quota.mjs')
 await import('./custom-balance-ui.mjs')
 await import('./custom-balance-host.mjs')
 await import('./openai-credits.mjs')
@@ -7011,6 +7013,7 @@ await import('./ollama-cloud-upgrade.mjs')
 await import('./ollama-snapshot-upgrade.mjs')
 await import('./subagent-billing.mjs')
 await import('./agent-team-costs.mjs')
+await import('./ds-bot-group-costs.mjs')
 await import('./billing-integrity.mjs')
 await import('./session-restart.mjs')
 await import('./native-search-billing.mjs')
@@ -7073,6 +7076,7 @@ await import('./chatgpt-subscription-quota.mjs')
 await import('./opendesign-quota-degradation.mjs')
 await import('./session-storage-compat.mjs')
 await import('./backfill-shutdown.mjs')
+await import('./imported-session-days.mjs')
 await import('./session-readpaths-rdb.mjs')
 await import('./opendesign-preflight.mjs')
 await import('./opendesign-credentials.mjs')
@@ -7121,6 +7125,8 @@ await import('./billing-check.mjs')
 await import('./coding-plan-placeholder.mjs')
 await import('./local-savings.mjs')
 await import('./sidebar-icons.mjs')
+await import('./response-model-pricing.mjs')
+await import('./kimi-degraded-quota.mjs')
 
 // Drain any remaining async host disposers before the synchronous exit cleanup.
 await removeFixture(suiteRoot, { recursive: true, force: true })

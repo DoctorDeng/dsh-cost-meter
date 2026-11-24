@@ -3,8 +3,136 @@ window.__ModuleLoader__.load({ id: 'dsh-cost-meter', chunk: 'client.plan-setting
   const { createElement: el, useState, useEffect, useRef, Fragment } = require('react')
   const subscriptionCatalog = /* SUBSCRIPTION_CATALOG_SOURCE */ {}
   return { mount(helpers) {
-    const { useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, codingPlanWindowEntries, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, formatBalanceMoney, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions, displayOptions, BalanceBar, segmentsForCustomBalance, customBalanceUnitOf, customBalanceDetailText, formatCustomBalanceMoney, resolveCustomBalanceLabel } = helpers
+    const { GoQuotaCard, sortQuotaCards, CODING_PLAN_ROWS, GATEWAY_PROVIDERS, miniMaxRow, miniMaxResetText, GATEWAY_PROVIDER_LABELS, useQuotaRefresh, miniMaxWindowsOf, MiniMaxPlanCard, barDirectionOf, quotaWindowRow, codingPlanWindowLabel, codingPlanWindowEntries, numInput, CredentialField, QuotaCard, resolveLocale, formatMoneyUsd, formatBalanceMoney, quotaPlacementValue, quotaPlacementPatch, quotaPlacementOptions, displayOptions, BalanceBar, segmentsForCustomBalance, customBalanceUnitOf, customBalanceDetailText, formatCustomBalanceMoney, resolveCustomBalanceLabel } = helpers
+    const gatewayVarOf = (source, status) => {
+      if (typeof source?.keyVar === 'string' && source.keyVar.length > 0) return source.keyVar
+      if (source?.type === 'antigravity-manager') return null
+      const stem = String(source?.id ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'GATEWAY'
+      const prefix = 'CLIPROXYAPI_MANAGEMENT_KEY_' + stem
+      return Object.keys(status ?? {}).find(name => name === prefix || name.startsWith(prefix + '_')) ?? prefix
+    }
+    /** 单张网关来源卡片(可多实例:标题行有开关与删除,其余配置收在展开区)。 */
+    /* SECRET_HEADER_FILTER */
+
+    function QuotaSourceRecovery({ sources, entries, api, removed, restore, locale }) {
+      const en = locale === 'en'
+      const [saved, setSaved] = useState(null), [file, setFile] = useState(null), [error, setError] = useState('')
+      const readId = useRef(0)
+      const readSaved = async event => {
+        const revision = ++readId.current
+        if (!event.currentTarget.open) return
+        setError(''); setSaved(null)
+        try {
+          const value = await api.getQuotaSourceRecovery()
+          if (revision === readId.current) setSaved(value)
+        } catch { if (revision === readId.current) { setSaved({}); setError(en ? 'Recent sources could not be read.' : '未能读取最近删除的来源。') } }
+      }
+      const openFile = async event => {
+        const input = event.currentTarget, selected = input.files?.[0]
+        if (!selected) return
+        input.value = ''; setError(''); setFile(null)
+        try {
+          const backup = JSON.parse(await selected.text())
+          const sources = [], customBalances = []
+          const pick = (row, keys) => Object.fromEntries(keys.filter(key => Object.hasOwn(row, key)).map(key => [key, row[key]]))
+          for (const config of [backup.quotaRecovery, backup.config ?? backup].filter(Boolean)) {
+            const gateways = config.gatewayQuotas?.sources ?? (Array.isArray(config.gatewayQuotas) ? config.gatewayQuotas : [])
+            for (const row of gateways) if (typeof row?.id === 'string') {
+              sources.push(pick(row, ['id', 'type', 'label', 'baseURL', 'enabled', 'display', 'refreshMinutes', 'includeProviders', 'allowedHosts', 'allowInsecureHttp', 'antigravityOnlyGemini']))
+            }
+            const custom = config.customBalances ?? (config.customBalance?.request?.url ? [config.customBalance] : [])
+            for (const row of custom) if (typeof row?.request?.url === 'string') {
+              const source = pick(row, ['adapter', 'label', 'labelEn', 'enabled', 'display', 'unit', 'convertToDisplayCurrency', 'refreshMinutes', 'channels', 'dashboardUrl', 'extract', 'allowedHosts', 'allowInsecureHttp', 'grantAmount', 'grantStart', 'grantExpiry'])
+              const headers = Object.entries(row.request.headers ?? {}).filter(([name, value]) => typeof value === 'string' && !looksLikeSecretHeaderValue(name, value))
+              source.request = { ...pick(row.request, ['url', 'method', 'body']), headers: Object.fromEntries(headers) }
+              customBalances.push(source)
+            }
+          }
+          if (!sources.length && !customBalances.length) throw Error()
+          setFile({ gatewayQuotas: { sources }, customBalances })
+        } catch { setError(en ? 'This file contains no readable quota sources.' : '这个文件中没有可读取的额度来源。') }
+      }
+      const identity = row => JSON.stringify([row.adapter ?? '', row.label ?? '', row.request?.url ?? '', row.request?.method ?? 'GET'])
+      const candidates = new Map()
+      for (const config of [saved, file]) {
+        for (const row of config?.gatewayQuotas?.sources ?? []) if (typeof row?.id === 'string' && !sources.some(source => source.id === row.id))
+          candidates.set('gateway:' + row.id, { kind: 'gateway', source: row })
+        for (const row of config?.customBalances ?? []) if (typeof row?.request?.url === 'string' && !entries.some(source => identity(source) === identity(row)))
+          candidates.set('custom:' + identity(row), { kind: 'custom', source: row })
+      }
+      const full = kind => kind === 'gateway' ? sources.length >= 4 : entries.length >= 8
+      const name = row => (en && row.labelEn) || row.label || row.type || row.adapter || (en ? 'Custom balance' : '自定义余额')
+      return el(Fragment, null,
+        removed ? el('div', { role: 'status', className: 'cm-buttons' }, el('span', null, (en ? 'Removed ' : '已删除 ') + name(removed.source)),
+          el('button', { type: 'button', className: 'cm-btn small', disabled: full(removed.kind), onClick: () => restore(removed.kind, removed.source, removed.index) }, en ? 'Undo' : '撤销删除')) : null,
+        el('details', { className: 'cm-quota-recovery', onToggle: readSaved },
+          el('summary', { className: 'cm-note' }, en ? 'Restore quota sources' : '恢复额度来源'),
+          saved && !candidates.size ? el('p', { className: 'cm-note' }, en ? 'No removed sources found. Choose a backup from before deletion or add the source again below.' : '没有可恢复的记录。可以选择删除前的配置备份，也可以用页面底部的按钮重新添加来源。') : null,
+          [...candidates].map(([key, { kind, source }]) => el('div', { key, className: 'cm-buttons' }, el('span', null, name(source) + (kind === 'gateway' ? ' · ' + source.id : '')),
+            el('button', { type: 'button', className: 'cm-btn small', disabled: full(kind), onClick: () => restore(kind, source) }, en ? 'Restore' : '恢复'))),
+          el('label', { className: 'cm-note' }, en ? 'Choose a previous ledger or configuration backup' : '选择删除前的账本或配置备份',
+            el('input', { type: 'file', accept: '.json,.config-bak,.bak', onChange: openFile })),
+          error ? el('p', { role: 'status' }, error) : null))
+    }
+
+    function GatewayQuotaCard(props) {
+      const { state, api, t, draft, setDraft, index } = props
+      const config = state.config
+      const base = draft ?? config
+      const sources = base.gatewayQuotas?.sources ?? []
+      const s = sources[index] ?? {}
+      const snapshots = Array.isArray(state.gatewayQuotas) ? state.gatewayQuotas : []
+      const live = snapshots.find(q => q.id === s.id) ?? { id: s.id, status: 'off', accounts: [], unsupportedProviders: [] }
+      const agyLink = s.type === 'agy-link'
+      const saved = config.gatewayQuotas?.sources?.find(source => source.id === s.id)
+      const varName = agyLink ? null : gatewayVarOf(saved ?? s, state.customVarStatus)
+      const [open, setOpen] = useState(false)
+      const [busy, msg, doRefresh] = useQuotaRefresh(t, () => api.refreshGatewayQuota(s.id))
+      const write = next => {
+        if (draft === null) return
+        setDraft({ ...draft, gatewayQuotas: { ...(draft.gatewayQuotas ?? config.gatewayQuotas ?? {}), sources: next } })
+      }
+      const patch = value => write(sources.map((x, i) => i === index ? { ...x, ...value } : x))
+      const field = (label, value, onChange) => el('div', { className: 'cm-field' }, el('label', null, label), el('input', { className: 'cm-input', 'aria-label': label, value: value ?? '', onChange }))
+      const windowRow = (window, i) => {
+        const view = miniMaxRow(window?.label || window?.id || t('gatewaySourceUnknown'), window, agyLink ? 'remaining' : barDirectionOf(config, 'plan'), t)
+        return el(Fragment, { key: window?.id || i }, view.row, window?.resetsAt ? el('div', { className: 'cm-note' }, miniMaxResetText(window, t)) : null)
+      }
+      const pkgRow = (pkg, i) => el('div', { key: pkg.id || i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, pkg.label || 'package'), el('span', { className: 'cm-bbox-pct cm-num' }, (pkg.used ?? '—') + ' / ' + (pkg.limit ?? '—')), el('span', { className: 'cm-bbox-pct cm-num' }, (pkg.remaining ?? '—') + ' remaining'))
+      const credits = value => value == null ? null : el(Fragment, null, el('div', { className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, value.unit || 'credits'), el('span', { className: 'cm-bbox-pct cm-num' }, (value.used ?? '—') + ' / ' + (value.limit ?? '—')), el('span', { className: 'cm-bbox-pct cm-num' }, (value.remaining ?? '—') + ' remaining')), (value.packages ?? []).map(pkgRow))
+      const account = (a, i) => el('div', { key: a.id || i, className: 'cm-budget', style: { marginTop: '8px', padding: '10px 12px' } }, el('div', { className: 'cm-budget-head' }, el('strong', null, (GATEWAY_PROVIDER_LABELS[a.provider] ?? a.provider ?? t('gatewaySourceUnknown')) + ' · ' + (a.label || t('gatewaySourceUnknown'))), el('span', { className: 'cm-hint' }, a.status)), a.plan ? el('div', { className: 'cm-note' }, a.plan) : null, a.windows.length > 0 ? el('div', { className: 'cm-go-list' }, a.windows.map(windowRow)) : null, credits(a.credits), a.message ? el('div', { className: 'cm-note' }, a.message) : null)
+      return el(QuotaCard, {
+        display: s.display, onSidebar: display => patch({ display }),
+        name: s.label || s.id || t('gatewayQuotaTitle'),
+        enabled: s.enabled === true, saved, busy, open, errorMsg: msg,
+        statusNode: el('div', { className: 'cm-note' }, t('gatewaySourceStatus') + ': ' + (live.status ?? t('gatewaySourceUnknown')) + (live.serverVersion ? ' · ' + live.serverVersion : '') + (live.fetchedAt > 0 ? ' · ' + t('gatewaySourceFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }) : '') + (live.message ? ' · ' + live.message : '')),
+        configNode: el(Fragment, null,
+          el('div', { className: 'cm-grid' },
+            field(t('gatewaySourceLabel'), s.label, e => patch({ label: e.target.value })),
+            !agyLink && field(t('gatewaySourceBaseURL'), s.baseURL, e => patch({ baseURL: e.target.value })),
+            el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceDisplay')), el('select', { className: 'cm-input', value: s.display ?? 'both', onChange: e => patch({ display: e.target.value }) }, ...displayOptions(t))),
+            el('div', { className: 'cm-field' }, el('label', null, t('gatewaySourceRefreshInterval')), numInput({ value: s.refreshMinutes ?? 15 }, v => patch({ refreshMinutes: Math.min(1440, Math.max(1, Math.floor(v))) }))),
+            !agyLink && field(t('gatewaySourceAllowlist'), (s.allowedHosts ?? []).join(', '), e => patch({ allowedHosts: e.target.value.split(/[\s,;]+/).filter(Boolean) })),
+            !agyLink && el('label', { className: 'cm-check' },
+              el('input', { type: 'checkbox', checked: s.allowInsecureHttp === true, onChange: e => patch({ allowInsecureHttp: e.target.checked }) }),
+              el('span', null, t('customBalanceHttp'))),
+          !agyLink && el('label', { className: 'cm-check' },
+            el('input', { type: 'checkbox', checked: s.antigravityOnlyGemini === true, onChange: e => patch({ antigravityOnlyGemini: e.target.checked }) }),
+            el('span', null, t('gatewayOnlyGemini')))),
+          varName ? el('div', { className: 'cm-field' }, el('label', null, t(s.type === 'antigravity-manager' ? 'managerCredential' : 'gatewaySourceCredential')), el(CredentialField, { target: 'customVar:' + varName, configured: state.customVarStatus?.[varName]?.configured === true, source: state.customVarStatus?.[varName]?.source ?? '', t, api, placeholder: varName })) : !agyLink && el('p', { className: 'cm-note' }, t('managerSaveFirst')),
+          live.unsupportedProviders.length > 0 ? el('div', { className: 'cm-note' }, t('gatewaySourceUnsupported') + ': ' + live.unsupportedProviders.join(', ')) : null,
+          live.accounts.length > 0 ? live.accounts.map(account) : ['ok', 'partial'].includes(live.status) ? el('div', { className: 'cm-bal-line' }, t('gatewaySourceNoAccounts')) : null),
+        onToggle: value => patch({ enabled: value }),
+        onRefresh: doRefresh,
+        onRemove: props.onRemove,
+        onToggleOpen: () => setOpen(v => !v),
+        t,
+      })
+    }
+
     /* CUSTOM_BALANCE_EDITOR_SOURCE */
+
+    /* QUOTA_SECTION_SOURCE */
     function AccountCredentialField(props) {
       const { state, draft, setDraft, target, api } = props
       const text = (zh, en) => resolveLocale(state.config) === 'en' ? en : zh
@@ -339,14 +467,18 @@ window.__ModuleLoader__.load({ id: 'dsh-cost-meter', chunk: 'client.plan-setting
     }
 
 
-    return props => {
+    function QuotaSettingsCard(props) {
+      if (props.mode === 'quotas') return el(QuotasSection, props)
       if (props.mode === 'add-fireworks') return el('button', { type: 'button', className: 'cm-btn small', disabled: props.disabled,
         onClick: () => props.onAdd({ adapter: 'fireworks', enabled: false, label: 'Fireworks.ai', labelEn: 'Fireworks.ai', unit: 'USD', display: 'both', refreshMinutes: 15,
             dashboardUrl: 'https://app.fireworks.ai/account/billing', channels: ['fireworks'], allowedHosts: ['api.fireworks.ai'],
             request: { url: '', method: 'GET', headers: { Authorization: 'Bearer {{FIREWORKS_API_KEY}}' } }, extract: { remaining: 'balance' } }) }, '+ Fireworks.ai')
+      if (props.mode === 'recovery') return el(QuotaSourceRecovery, props)
+      if (props.mode === 'gateway') return el(GatewayQuotaCard, props)
       if (props.mode === 'credential') return el(AccountCredentialField, props)
       if (props.mode === 'custom-balance') return el(CustomBalanceEntryPanel, props)
       return el(PlanQuotaCard, props)
     }
+    return QuotaSettingsCard
   } }
 } })
