@@ -6,9 +6,11 @@ import vm from 'node:vm'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_PROVIDER_PRICE_TABLE, normalizePrice, providerPriceEntryFor, buildPriceCatalog, tierFor, costOf, upgradeProviderPriceDefaults } from '../lib/pricing.js'
+import { NOVEMBER_PROVIDER_PRICES } from '../lib/provider-prices-2026-11-25.js'
+import { upgradeNovemberProviderPrices } from '../lib/pricing.js'
 import { VERIFIED_PROVIDER_PRICES } from '../lib/provider-prices.js'
 import { billingClassOf, enabledPlanSetOf, planProviderIdOf } from '../lib/plan-billing.js'
-import { defaultConfig, sanitizeConfig, applyConfigPatch, Ledger } from '../lib/store.js'
+import { defaultConfig, sanitizeConfig, applyConfigPatch, Ledger, resolveAccountBilling } from '../lib/store.js'
 import { stateSchema } from '../lib/typert.host.js'
 
 const config = defaultConfig()
@@ -21,8 +23,8 @@ assert.equal(billingClassOf('deepseek', 'qwen3.8-flash', config.planBilling, new
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} != ${expected}`)
 const modelsOf = p => VERIFIED_PROVIDER_PRICES[p].models
-assert.equal(Object.keys(modelsOf('opencode-zen')).length, 96, '83 current Zen endpoints and 13 retained historical IDs')
-assert.equal(Object.keys(modelsOf('opencode-go')).length, 41, '30 current Go endpoints and 11 retained historical IDs')
+assert.equal(Object.keys(modelsOf('opencode-zen')).length, 96 + Object.keys(NOVEMBER_PROVIDER_PRICES['opencode-zen'].models).length, 'October Zen routes and November additions')
+assert.equal(Object.keys(modelsOf('opencode-go')).length, 41 + Object.keys(NOVEMBER_PROVIDER_PRICES['opencode-go'].models).length, 'October Go routes and November additions')
 const shipped = JSON.parse(readFileSync(new URL('../docs/provider-pricing.json', import.meta.url)))
 assert.deepEqual(shipped.providers, DEFAULT_PROVIDER_PRICE_TABLE, 'shipped catalog and executable prices agree')
 for (const [provider, table] of Object.entries(VERIFIED_PROVIDER_PRICES)) {
@@ -31,7 +33,7 @@ for (const [provider, table] of Object.entries(VERIFIED_PROVIDER_PRICES)) {
     assert.ok(normalized, `${provider}:${id} has a valid catalog row`)
     assert.equal(providerPriceEntryFor(provider, id, config.prices, { mode: 'exact' }).priced, raw.unpriced !== true, `${provider}:${id} exact mounted price`)
     assert.match(raw.sourceUrl, /^https:\/\//)
-    assert.ok(['2026-10-03', '2026-10-15', '2026-10-16', '2026-10-28', '2026-11-05'].includes(raw.checkedAt))
+    assert.ok(['2026-10-03', '2026-10-15', '2026-10-16', '2026-10-28', '2026-11-05', '2026-11-25'].includes(raw.checkedAt))
     if (raw.unpriced !== true) for (const value of [normalized.cacheHit, normalized.cacheMiss, normalized.output]) assert.ok(Number.isFinite(value) && value >= 0)
   }
 }
@@ -40,6 +42,8 @@ assert.ok(Object.values(catalog).flatMap(f => Object.values(f).flatMap(Object.ke
 
 // New issue #224 models and official cache-write/full-input context tiers.
 const expected = [
+  ['openai', 'gpt-6.2-sol', 2, 0.1, 2.5, 10],
+  ['openai', 'gpt-6.2-astra', 8, 0.4, 10, 40],
   ['openai', 'gpt-6-sol', 2, 0.2, 2.5, 10],
   ['openai', 'gpt-6.1-sol', 2, 0.1, 2.5, 10],
   ['openai', 'gpt-6-luna', 0.1, 0.01, 0.125, 0.5],
@@ -60,6 +64,18 @@ const sol = providerPriceEntryFor('openai', 'gpt-6.1-sol', config.prices).entry
 near(costOf({ input: 100000, cacheRead: 100000, cacheWrite: 72000, output: 1000 }, sol, now), 0.4)
 near(costOf({ input: 100000, cacheRead: 100000, cacheWrite: 72001, output: 1000 }, sol, now), 0.795005)
 near(costOf({ input: 272000, output: 1000000 }, sol, now), 10.544, 'output does not affect OpenAI input threshold')
+
+for (const [id, shortCost, longCost] of [
+  ['gpt-6.2-sol', 0.4, 0.795005],
+  ['gpt-6.2-astra', 1.6, 3.18002],
+]) {
+  const { entry } = providerPriceEntryFor('openai', id, config.prices)
+  const tokens = { input: 100000, cacheRead: 100000, cacheWrite: 72000, output: 1000 }
+  near(costOf(tokens, entry, now), shortCost)
+  near(costOf({ ...tokens, cacheWrite: 72001 }, entry, now), longCost)
+  assert.equal(entry.longContext.aboveInputTokens, 272000)
+  assert.equal(catalog.openai['GPT-6.2'][id].sourceUrl, `https://developers.openai.com/api/docs/models/${id}`)
+}
 
 // Same model, separate direct/Zen/Go routes; hourly cache storage is not cache writes.
 const directGemini = providerPriceEntryFor('google', 'gemini-3.8-flash', config.prices)
@@ -116,6 +132,30 @@ try {
   assert.equal(twice.config.prices.providers.openai.models['gpt-6-luna'], undefined, 'unmount survives reload after catalog migration')
   assert.deepEqual(twice.config.prices.providers.google.models['gemini-3.8-flash'], { unpriced: true, notes: 'disabled' })
   twice.close()
+
+  const upgradePath = join(path, 'gpt-6.2-upgrade.json')
+  const migration = 'openai-gpt-6.2-prices-2026-11-25'
+  const oldConfig = sanitizeConfig({ prices: { providers: { openai: { models: {
+    'gpt-6.1-sol': manual,
+    'gpt-6.2-astra': { unpriced: true, notes: 'disabled' },
+  } } } } })
+  const old = new Ledger(oldConfig, {}, upgradePath, twice.migrations.filter(id => id !== migration))
+  const before = Date.now() - 60_000
+  const usage = { input: 1000 }
+  old.account(usage, 'gpt-6.2-sol', 'gpt-6.2-history', before, 'openai')
+  old.flush()
+  old.close()
+
+  const upgraded = Ledger.load(upgradePath)
+  assert.ok(upgraded.migrations.includes(migration))
+  const openaiModels = upgraded.config.prices.providers.openai.models
+  assert.deepEqual(openaiModels['gpt-6.2-sol'], config.prices.providers.openai.models['gpt-6.2-sol'])
+  assert.deepEqual(openaiModels['gpt-6.2-astra'], { unpriced: true, notes: 'disabled' })
+  assert.equal(openaiModels['gpt-6-luna'], undefined, 'upgrade does not restore other removed entries')
+  assert.equal(Object.values(upgraded.days)[0].apiCost, 0)
+  assert.equal(resolveAccountBilling(upgraded, 'openai', 'gpt-6.2-sol', '', usage, before, 'gpt-6.2-history').resolved.priced, false)
+  assert.equal(resolveAccountBilling(upgraded, 'openai', 'gpt-6.2-sol', '', usage, Date.now(), 'gpt-6.2-history').resolved.priced, true)
+  upgraded.close()
 } finally { rmSync(path, { recursive: true, force: true }) }
 
 // Exercise emitted browser codecs and token arithmetic, including the separate UTC calendar.
@@ -138,6 +178,42 @@ assert.equal(frontGo.currency, 'USD')
 assert.equal(frontGo.billingMode, 'utc-peak')
 assert.equal(client.tierFor(client.normalizeClientPrice(frontGo.entry), Date.parse('2026-10-01T02:00:00Z'), peak).cacheMiss, 1.32)
 console.log('[ok] #224 provider catalogs: complete Zen/Go coverage, verified new API rates, cache/context tiers, scoped prices, UTC Go calendar, codecs and manual-price persistence')
+
+const promoCases = [
+  ['google', 'gemini-4-carbon', '2026-11-30T23:59:59Z', 2, 'USD'],
+  ['opencode-zen', 'gemini-4-carbon', '2026-12-01T00:00:00Z', 4, 'USD'],
+  ['tencent', 'hy4-flash', '2026-11-30T03:59:59Z', .035, 'USD'],
+  ['tencent', 'hy4-flash', '2026-11-30T04:00:00Z', .07, 'USD'],
+  ['baidu', 'ernie-5.5-flash-preview', '2026-11-25T02:00:00Z', 1, 'CNY'],
+  ['baidu', 'ernie-5.5-flash-preview', '2026-12-01T02:00:00Z', 2, 'CNY'],
+  ['baidu', 'ernie-5.5-flash-preview', '2026-12-01T15:00:00Z', 1, 'CNY'],
+]
+for (const [provider, model, time, expected, currency] of promoCases) {
+  const back = providerPriceEntryFor(provider, model, config.prices)
+  const front = client.resolveClientPrice(provider, model, parsedConfig)
+  assert.equal(back.currency, currency)
+  assert.equal(front.currency, currency)
+  const at = Date.parse(time)
+  near(tierFor(back.entry, at, peak).cacheMiss, expected)
+  near(client.tierFor(client.normalizeClientPrice(front.entry), at, peak).cacheMiss, expected)
+}
+for (const [model, at, usd, cny] of [
+  ['hy4', '2026-12-31T15:59:59Z', .417, 3], ['hy4', '2026-12-31T16:00:00Z', .834, 6],
+  ['hy4-flash', '2026-11-30T03:59:59Z', .035, .25], ['hy4-flash', '2026-11-30T04:00:00Z', .07, .5],
+]) {
+  for (const [currency, expected] of [['USD', usd], ['CNY', cny]]) {
+    const prices = { ...config.prices, currency }
+    const back = providerPriceEntryFor('tencent', model, prices)
+    const front = client.resolveClientPrice('tencent', model, { ...parsedConfig, prices })
+    near(tierFor(back.entry, Date.parse(at), peak).cacheMiss, expected)
+    near(client.tierFor(client.normalizeClientPrice(front.entry), Date.parse(at), peak).cacheMiss, expected)
+  }
+}
+const novConfig = { prices: { providers: { google: { models: { 'gemini-4-carbon': manual, 'gemini-4-neon': { unpriced: true } } } } } }
+upgradeNovemberProviderPrices(novConfig)
+assert.deepEqual(novConfig.prices.providers.google.models['gemini-4-carbon'], manual)
+assert.deepEqual(novConfig.prices.providers.google.models['gemini-4-neon'], { unpriced: true })
+assert.equal(novConfig.prices.providers.baidu.models['ernie-light-dt-1.0'].currency, 'CNY')
 
 const sourceAudit = spawnSync(process.execPath, [fileURLToPath(new URL('./check-opencode-catalog.mjs', import.meta.url)), '--fixture=' + fileURLToPath(new URL('./fixtures/opencode-pricing-2026-10-28.json', import.meta.url))], { encoding: 'utf8' })
 assert.equal(sourceAudit.status, 0, sourceAudit.stdout + sourceAudit.stderr)

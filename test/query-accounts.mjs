@@ -16,6 +16,12 @@ const group = selected => ({ selected, accounts: [{ id: a, label: 'Work' }, { id
 const queryAccounts = Object.fromEntries(QUERY_ACCOUNT_SOURCES.map(source => [source, group(a)]))
 const config = sanitizeConfig({ queryAccounts })
 assert.deepEqual(config.queryAccounts, queryAccounts)
+const withVisibility = sanitizeConfig({ queryAccounts: { 'codingPlans.zai': { ...group(a), displayed: ['default', a] } } })
+const replaceAccounts = { selected: 'default', accounts: [{ id: b, label: 'Personal' }, { id: 'account-c3', label: 'Third' }] }
+const legacyEdit = applyConfigPatch(withVisibility, { queryAccounts: { 'codingPlans.zai': replaceAccounts } })
+assert.deepEqual(legacyEdit.errors, [])
+assert.deepEqual(legacyEdit.config.queryAccounts['codingPlans.zai'].displayed, ['default', 'account-c3'])
+assert.ok(applyConfigPatch(withVisibility, { queryAccounts: { 'codingPlans.zai': { ...replaceAccounts, displayed: [a] } } }).errors.length)
 for (const bad of [null, [], { unknown: group(a) }, { balance: { ...group(a), selected: 'absent-id' } },
   { balance: { ...group(a), accounts: [{ id: a, label: 'Work', apiKey: 'DO-NOT-PERSIST' }] } },
   { balance: { ...group(a), accounts: [group(a).accounts[0], group(a).accounts[0]] } },
@@ -76,12 +82,26 @@ const stateCheck = state => {
 }
 try {
   process.env.DSH_HOME = root; mkdirSync(join(root, 'storages', 'cost-meter'), { recursive: true })
-  writeFileSync(ledgerPath, JSON.stringify({ version: 1, days: {}, config: { locale: 'en', goQuota: { enabled: false }, balance: { display: 'off' } } }))
+  const dayKey = new Date().toLocaleDateString('sv-SE')
+  const day = zeroDay(dayKey)
+  day.byProviderModel = { 'my-qwen-account:qwen3.8-max-preview': { input: 1000000, calls: 1 } }
+  const zai = 'codingPlans.zai'
+  const oldGroup = { selected: b, accounts: [{ id: b, label: '我的智谱' }] }
+  const legacyConfig = { locale: 'zh', goQuota: { enabled: false }, balance: { display: 'off' },
+    codingPlans: { zai: { enabled: true, display: 'sidebar', refreshMinutes: 2 } }, queryAccounts: { [zai]: oldGroup } }
+  writeFileSync(ledgerPath, JSON.stringify({ version: 1, days: { [dayKey]: day }, config: legacyConfig }))
+  values.set(queryAccountTarget(legacyConfig, zai + '@default', secretRefOf).ref, 'KEY-A')
+  values.set(queryAccountTarget(legacyConfig, zai + '@' + b, secretRefOf).ref, 'KEY-B')
   globalThis.fetch = async (url, init) => {
-    const key = init.headers.authorization.slice('Bearer '.length)
+    const key = init.headers.authorization.replace(/^Bearer /, '')
     requests.push({ url: String(url), key })
     if (gate && key === 'KEY-A') { const current = gate; gate = null; current.started = true; current.signal = init.signal; await current.promise }
     const amount = key === 'KEY-A' ? 11 : key === 'KEY-B' ? 22 : 33
+    if (String(url).endsWith('/inference/go/v1/usage')) return Response.json({ usage: { rolling: { percent: amount, resetsAt: '' } } })
+    if (String(url).endsWith('/api/monitor/usage/quota/limit')) return Response.json({ data: { limits: [{ type: 'TOKENS_LIMIT', unit: 3, percentage: amount }] } })
+    if (String(url).endsWith('/alpha/billing/credits')) return Response.json({ credits: { monthlyCredits: amount } })
+    if (String(url).endsWith('/alpha/billing/subscriptions')) return Response.json({ data: { planId: 'pro' } })
+    if (String(url).endsWith('/alpha/usage/summary')) return Response.json({})
     if (String(url).startsWith('https://openrouter.ai/')) return Response.json({ data: { total_credits: 100, total_usage: amount } })
     assert.equal(url, 'https://api.deepseek.com/user/balance', 'only the expected quota endpoint is used')
     return Response.json({ is_available: true, balance_infos: [{ currency: 'USD', total_balance: String(amount), granted_balance: '0', topped_up_balance: String(amount) }] })
@@ -90,6 +110,39 @@ try {
     provide: (name, service) => { if (name === 'costMeter') api = service }, on: () => () => {}, inject() {}, logger: { info() {}, warn() {}, error() {} },
     effect: (fn, label) => { const cleanup = fn(); if (label === 'cost-meter: backfill timer' || label === 'cost-meter: openrouter refresh timer') cleanup?.(); else if (typeof cleanup === 'function') cleanups.push(cleanup) },
   })
+  const wire = CLIENT_CONTRIBUTION.descriptors.find(d => d.method === 'getState').result.create()
+  const migrated = await api.getState()
+  assert.deepEqual(migrated.config.queryAccounts[zai].displayed, ['default', b], 'upgrade should retain the configured default and named account')
+  const refreshDefault = await api.refreshCodingPlan('zai@default')
+  assert.ok(refreshDefault.ok, refreshDefault.message)
+  const restored = wire.parse(stateSchema.parse(refreshDefault.state))
+  assert.deepEqual(Array.from(restored.config.queryAccounts[zai].displayed), ['default', b])
+  assert.equal(restored.codingPlans.zai.accountLabel, '我的智谱')
+  assert.equal(restored.codingPlans.zai.windows.fiveHour.percent, 22)
+  assert.equal(restored.codingPlans.zai.accountQuotas[0].accountId, 'default')
+  assert.equal(restored.codingPlans.zai.accountQuotas[0].windows.fiveHour.percent, 11)
+  await api.updateConfig({ locale: 'en', queryAccounts: { [zai]: { ...oldGroup, displayed: [] } } })
+  assert.deepEqual((await api.getState()).codingPlans.zai.accountQuotas ?? [], [], 'keep intentionally hidden accounts hidden')
+  assert.ok(!(await api.refreshCodingPlan('zai@default')).ok)
+  // The serving account may be hidden on the quota card, or the card may be disabled.
+  const commandSource = 'codingPlans.commandcode'
+  await api.updateConfig({ queryAccounts: { [commandSource]: { ...group(a), displayed: [a] } },
+    commandCodeProvider: { modelNames: { model1: 'Custom model' } } })
+  values.set(queryAccountTarget(config, commandSource + '@' + b, secretRefOf).ref, 'KEY-B')
+  const command = await api.commandCodeRuntime({ quotaAccountId: b })
+  assert.equal(command.quota.accountId, b)
+  assert.equal(command.quota.credits, 22)
+  assert.equal(command.quota.plan, 'pro')
+  assert.ok(!JSON.stringify(command).includes('KEY-B'))
+  await assert.rejects(api.commandCodeRuntime({ quotaAccountId: 'missing1' }))
+  const updated = await api.updateConfig({ commandCodeProvider: { favorites: ['model1'] } })
+  assert.deepEqual(updated.config.commandCodeProvider.modelNames, {}, 'removed model overrides stay removed')
+  await api.updateConfig({ commandCodeProvider: { preferredAccount: b, inferenceAccounts: [a, b], modelAccounts: { model1: b } } })
+  const afterRemoval = await api.updateConfig({ queryAccounts: { [commandSource]: { selected: a, displayed: [a], accounts: [group(a).accounts[0]] } } })
+  assert.deepEqual(afterRemoval.config.commandCodeProvider.inferenceAccounts, [a])
+  assert.equal(afterRemoval.config.commandCodeProvider.preferredAccount, '')
+  assert.deepEqual(afterRemoval.config.commandCodeProvider.modelAccounts, {})
+  await assert.rejects(api.updateConfig({ commandCodeProvider: { apiKey: 'DO-NOT-PERSIST' } }))
   await api.updateConfig({ queryAccounts: { balance: group(a), 'codingPlans.openrouter': group(a) } })
   for (const target of ['balance', 'codingPlans.openrouter']) {
     assert.equal((await api.setCredential(target + '@' + a, 'KEY-A')).ok, true)
@@ -124,6 +177,55 @@ try {
   assert.equal(requests.filter(row => row.url.startsWith('https://openrouter.ai/')).at(-1).key, 'KEY-B')
   await api.clearCredential('codingPlans.openrouter@' + a)
   assert.equal(values.get(queryAccountTarget(config, 'codingPlans.openrouter@' + b, secretRefOf).ref), 'KEY-B', 'clearing one account preserves another')
+  await api.updateConfig({ queryAccounts: { [zai]: { ...group(a), displayed: [a, b] } } })
+  await api.setCredential(zai + '@' + a, 'KEY-A')
+  await api.setCredential(zai + '@' + b, 'KEY-B')
+  await api.updateConfig({ codingPlans: { zai: { enabled: true, display: 'both' } } })
+  await api.refreshCodingPlan('zai')
+  const dual = await api.refreshCodingPlan('zai@' + b)
+  assert.equal(dual.ok, true, dual.message)
+  const plans = stateCheck(dual.state).codingPlans.zai
+  assert.equal(plans.accountLabel, 'Work')
+  assert.equal(plans.windows.fiveHour.percent, 11)
+  assert.equal(plans.accountQuotas[0].accountLabel, 'Personal')
+  assert.equal(plans.accountQuotas[0].windows.fiveHour.percent, 22)
+  const requestCount = () => requests.filter(row => row.url.endsWith('/api/monitor/usage/quota/limit') && row.key === 'KEY-A').length
+  const mainBefore = requestCount()
+  await api.refreshCodingPlan('zai@' + b)
+  assert.equal(requestCount(), mainBefore, 'refreshing Personal does not refresh Work')
+  await api.clearCredential(zai + '@' + b)
+  const missing = stateCheck((await api.refreshCodingPlan('zai@' + b)).state).codingPlans.zai
+  assert.deepEqual(missing.accountQuotas[0].windows, {})
+  assert.equal(missing.windows.fiveHour.percent, 11)
+  assert.equal((await api.refreshCodingPlan('zai@missing1')).ok, false)
+  await api.updateConfig({ queryAccounts: { [zai]: { ...group(a), displayed: [a] } } })
+  assert.equal((await api.refreshCodingPlan('zai@' + b)).ok, false)
+  const persistedGroup = { ...group(a), displayed: [a, b] }
+  await api.updateConfig({ queryAccounts: { [zai]: persistedGroup }, codingPlans: { zai: { enabled: false } } })
+  assert.equal((await api.refreshCodingPlan('zai@' + b)).ok, false)
+  await api.updateConfig({ queryAccounts: { goQuota: { ...group(a), displayed: [a, b] } } })
+  await api.setCredential('goQuota@' + a, 'KEY-A'); await api.setCredential('goQuota@' + b, 'KEY-B')
+  await api.updateConfig({ goQuota: { enabled: true, display: 'both' } })
+  await api.refreshGoQuota()
+  const goPair = stateCheck((await api.refreshCodingPlan('go@' + b)).state).goQuota
+  assert.equal(goPair.rolling.percent, 11); assert.equal(goPair.accountQuotas[0].windows.rolling.percent, 22)
+  const local = { id: 'local-001', label: 'Qwen 2', provider: 'my-qwen-account', enabled: true, planCredits: 1000, planStart: '' }
+  await api.updateConfig({ codingPlans: { qwen: { enabled: true, display: 'both', localAccounts: [local] } } })
+  const localResult = await api.refreshCodingPlan('qwen@local-001')
+  assert.ok(localResult.ok, localResult.message)
+  const localQuota = stateCheck(localResult.state).codingPlans.qwen.accountQuotas[0]
+  assert.equal(localQuota.accountLabel, 'Qwen 2')
+  assert.equal(localQuota.windows.monthly.percent, 6)
+  assert.match(localQuota.windows.credits.text, /60 \/ 1,000 Credits/)
+  assert.ok(applyConfigPatch(localResult.state.config, { codingPlans: { qwen: { localAccounts: [local, local] } } }).errors.length)
+  const captured = Date.now() - 75000
+  const quotaEntry = (label, remaining) => ({ label, labelEn: label, adapter: 'manual-quota', enabled: true, display: 'both', refreshMinutes: 15, unit: 'CREDITS', request: { url: '', method: 'GET', headers: {} }, extract: {}, quotaReading: { remaining, total: 100, observedAt: captured } })
+  await api.updateConfig({ customBalances: [quotaEntry('Other A', 0), quotaEntry('Other B', 39)] })
+  const manualState = stateCheck((await api.refreshCustomBalance(1)).state)
+  assert.equal(manualState.customBalances[1].remaining, 39)
+  assert.equal(manualState.customBalances[1].fetchedAt, captured)
+  assert.equal(manualState.customBalances[0].remaining, 0)
+  assert.ok(applyConfigPatch(manualState.config, { customBalances: [{ ...quotaEntry('X', 1), quotaReading: { remaining: -1 } }] }).errors.length)
   const description = defer(), describe = credentials.describe
   credentials.describe = async ref => {
     if (!description.started && String(ref).includes('OPENROUTER')) { description.started = true; await description.promise }
@@ -143,6 +245,7 @@ try {
   const persisted = sanitizeConfig(JSON.parse(disk).config)
   assert.equal(persisted.queryAccounts['codingPlans.openrouter'].selected, a)
   assert.ok(!JSON.parse(disk).planSamples?.openrouter, 'account selection resets the provider sampling baseline')
+  assert.deepEqual(persisted.queryAccounts[zai], persistedGroup)
   assert.equal(persisted.queryAccounts.balance.accounts.length, 2)
   console.log('[ok] #427: all provider credential isolation, AK/SK pairing, config/codec persistence, real service account switching, cancellation, no fallback and no credential leakage')
 } finally {

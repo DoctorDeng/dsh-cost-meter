@@ -157,19 +157,25 @@ for (const pattern of [/[a-z-]+:[^;{}]+;?/g, /\.cm-[a-z-]+/g, /var\(--[a-z0-9-]+
 for (const phrase of ['var(--dsw-alias-', '.cm-', 'background:', 'align-items:', 'border-radius:', 'font-size:', 'display:', 'padding:', 'justify-content:', 'margin:', 'gap:', 'font-weight:', 'line-height:', 'border:', 'min-width:', 'max-width:']) {
   cssCounts.set(phrase, compactCss.split(phrase).length - 1)
 }
+// Include recurring declaration values and selector suffixes independently of their property or component.
+for (const pattern of [/(?<=:)[^;{}]+(?=[;{}])/g, /:(?:hover|focus-visible|first-child|last-child)|\[data-[\w-]+/g, /var\(--(?:dsw-alias-[a-z]+-|cm-)/g]) {
+  for (const [phrase] of compactCss.matchAll(pattern)) {
+    if (phrase.length > 4 && !phrase.includes('~')) cssCounts.set(phrase, compactCss.split(phrase).length - 1)
+  }
+}
 const cssCandidates = [...cssCounts].filter(([, count]) => count >= 2).sort((a, b) =>
   (Buffer.byteLength(b[0]) - 2) * (b[1] - 1) - (Buffer.byteLength(a[0]) - 2) * (a[1] - 1) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-const cssPhrases = [], cssTokenBase = 0x0180
+const cssPhrases = [], cssTokenBase = 0x0180, cssTokenCount = 256
 // Prefer unused one-byte markers for the first phrases; preserve the exact CSS on decode.
 const cssAsciiMarkers = ['`', '|', '$', '&', '?', '@'].filter(value => !compactCss.includes(value)).join('')
-const cssTokenRange = `[${cssAsciiMarkers}${String.fromCharCode(cssTokenBase)}-${String.fromCharCode(cssTokenBase + 127)}]`
+const cssTokenRange = `[${cssAsciiMarkers}${String.fromCharCode(cssTokenBase)}-${String.fromCharCode(cssTokenBase + cssTokenCount - 1)}]`
 const cssTokenIndex = token => token.charCodeAt(0) >= cssTokenBase ? token.charCodeAt(0) - cssTokenBase : cssAsciiMarkers.indexOf(token)
 assert.ok(!new RegExp(cssTokenRange).test(compactCss), 'CSS packing markers must be unused')
 let packedCss = compactCss
 // Greedy by measured saving: each round re-counts every candidate in the already
 // packed text (earlier tokens change later counts) and takes the largest positive
 // net gain. Ties keep the deterministic candidate order above.
-while (cssPhrases.length < 128) {
+while (cssPhrases.length < cssTokenCount) {
   let best = null, bestGain = 0
   for (const [phrase] of cssCandidates) {
     const count = packedCss.split(phrase).length - 1, bytes = Buffer.byteLength(phrase)
@@ -207,12 +213,16 @@ console.log('✓ lib/client.js within DSH STORE per-file bound (262144)')
 
 // DSH 0.2.0-rc.2 package-local chunks use the host's require.async contract.
 // Each on-demand screen has readable source and a bounded runtime asset.
-for (const chunk of ['billing-storage', 'settings-overview', 'statistics', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak', 'session-list', 'sidebar-order', 'plan-settings', 'notices', 'local-savings', 'sidebar-icons', 'agy-quota']) {
-  let source = readFileSync(resolve(projectRoot, `src/${chunk}/index.js`), 'utf8')
+for (const chunk of ['billing-storage', 'settings-overview', 'statistics', 'commandcode', 'openrouter', 'community', 'pricing', 'display', 'codex', 'peak', 'session-list', 'sidebar-order', 'plan-settings', 'plan-accounts', 'notices', 'local-savings', 'sidebar-icons', 'agy-quota', 'trae-quota', 'subscriptions-quota', 'footer-chip']) {
+  const input = chunk === 'plan-accounts' ? 'src/plan-settings/index.js'
+    : chunk === 'plan-settings' ? 'src/plan-settings/legacy.js' : `src/${chunk}/index.js`
+  let source = readFileSync(resolve(projectRoot, input), 'utf8')
   if (['peak', 'display', 'pricing'].includes(chunk)) source = source.replace('factory: require => {', 'factory: require => {\n' + readFileSync(resolve(projectRoot, 'lib/peak-timezone.js'), 'utf8').replace(/^export /gm, '') + (chunk === 'peak' ? '' : readFileSync(resolve(projectRoot, 'src/peak/timezone-control.js'), 'utf8')))
+  if (chunk === 'trae-quota') source = source.replace('/* TRAE_QUOTA_SOURCE */', () => readFileSync(resolve(projectRoot, 'lib/trae-quota.js'), 'utf8').replace(/^export /gm, ''))
   if (chunk === 'agy-quota') source = source.replace('/* AGY_POOL_SOURCE */', () => readFileSync(resolve(projectRoot, 'lib/agy-link-pool.js'), 'utf8').replace(/^export /gm, ''))
+  if (chunk === 'subscriptions-quota' || chunk === 'codex') source = source.replace('/* SUBSCRIPTIONS_QUOTA_SOURCE */', () => readFileSync(resolve(projectRoot, 'lib/subscriptions-quota.js'), 'utf8').replace(/^export /gm, ''))
   if (chunk === 'pricing') source = source.replace('/* PEAK_PANEL_SOURCE */', readFileSync(resolve(projectRoot, 'src/pricing/peak-panel.js'), 'utf8'))
-  if (chunk === 'plan-settings') {
+  if (chunk === 'plan-accounts') {
     source = source.replace('/* SUBSCRIPTION_CATALOG_SOURCE */ {}', () => javascriptLiteral(SUBSCRIPTION_CATALOG))
     const headerFilter = readFileSync(resolve(projectRoot, 'lib/secret-headers.js'), 'utf8').replace('export function', 'function')
     source = source.replace('/* SECRET_HEADER_FILTER */', () => headerFilter)
@@ -245,7 +255,7 @@ for (const chunk of ['billing-storage', 'settings-overview', 'statistics', 'open
   assert.equal(registration?.chunk, `client.${chunk}.js`, `${chunk}: missing or incorrect chunk registration`)
   const result = await transform(withClientRegistration(source), { minify: true, target: 'es2022', charset: 'utf8', legalComments: 'none' })
   const code = ';' + result.code
-  for (const [name, text] of [[`src/${chunk}/index.js`, source], [`lib/client.${chunk}.js`, code]]) {
+  for (const [name, text] of [[input, source], [`lib/client.${chunk}.js`, code]]) {
     if (Buffer.byteLength(text) > 262144) throw new Error(`${name} exceeds the 262144-byte bound`)
   }
   writeFileSync(resolve(projectRoot, `lib/client.${chunk}.js`), code)

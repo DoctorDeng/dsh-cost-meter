@@ -1,5 +1,44 @@
 # Changelog
-## [Unreleased]
+
+## [1.9.94] - 2026-11-26
+
+- **额度文案。** 「设置 → 费用 → 额度」新增「翻译供应商额度标签」，默认开启。DSH 和插件都使用中文时，侧栏额度卡、入口浮层、额度设置和费用总览会翻译 Total credits、Add-on credits 等固定短语。任一方使用英语时，供应商标签保留原文。Credits、7 days、动态读数和自定义标签沿用原文。感谢 @abworks-dev 提出并实现固定短语精确匹配，并复核额度卡片的构建产物。[PR #604](https://github.com/Han-1413141/dsh-cost-meter/pull/604)
+
+## [1.9.93] - 2026-11-26
+
+- **历史会话读取。** 修复启动回填逐个会话重复扫描整个目录的问题，并复用侧栏的会话目录缓存。在 DSH 0.2.2-rc.5 的 256 个压缩会话测试中，完整读取所有会话共读取 256 次文件头。感谢 @sigmaraye 提供 CPU 采样和插件启停对照。[#597](https://github.com/Han-1413141/dsh-cost-meter/issues/597)
+- **CommandCode。** 在「设置 → 费用 → CommandCode」管理登录、推理账号、模型、搜索和零数据保留。原有额度卡继续使用同一套宿主凭据。原生推理复用 Mars-Sea 的 CommandCode 适配器，调用费用进入现有账本。感谢 @lordraiden 整理需求与参考实现。[#596](https://github.com/Han-1413141/dsh-cost-meter/issues/596)
+- **OpenCode Go。** 在原有额度卡查看查询账号、凭据来源、最近成功时间和限额状态。额度查询迁移到官方 Go API，并可复用宿主模型配置中的密钥。Extra Usage 的实际扣款请以 OpenCode Console 为准。感谢 @lordraiden 梳理接口与计费要求。[#595](https://github.com/Han-1413141/dsh-cost-meter/issues/595)
+- **Magpie 侧栏。** 额度卡可以跟随当前会话的供应商，入口内可查看各供应商的账号。没有实际路由信息时显示待确认。插件生成的余额、积分和套餐标签随界面语言显示。感谢 @abworks-dev 实现会话跟随、账号总览和额度本地化。[#598](https://github.com/Han-1413141/dsh-cost-meter/pull/598) · [#599](https://github.com/Han-1413141/dsh-cost-meter/pull/599)
+- **用量设置。** 「每 1% 与满窗估算」宽表可在卡片内横向滚动，阅读最后一列时标题和其它卡片保持原位。感谢 @fishdivinity 提供复现步骤和布局定位。[#600](https://github.com/Han-1413141/dsh-cost-meter/issues/600)
+
+## [1.9.92] - 2026-11-25
+
+- 在「设置 → 费用 → 额度」添加并启用 Magpie 网关，可查看各提供商和账号的使用比例、重置时间及余额。已配置 Magpie 连接器的用户可以留空地址，直接使用连接器线路。手动配置支持含 `/v1` 的地址，非本机 HTTP 需要显式启用。感谢 @abworks-dev 实现 Magpie 额度来源与连接器接入。[PR #591](https://github.com/Han-1413141/dsh-cost-meter/pull/591)
+- Codex Subscription 兼容基线更新至 3.2.30，覆盖额度读取、手动刷新、账号切换和授权失效恢复。[Issue #592](https://github.com/Han-1413141/dsh-cost-meter/issues/592)
+
+## [1.9.91] - 2026-11-25
+
+- **升级后恢复同套餐的多个账号。** 对旧版已添加账号、尚无显示名单的套餐，保留当前账号并恢复已命名的账号；检测到原默认凭据时，同时显示默认账号。已手动隐藏的账号继续隐藏，无需重新输入密钥。
+- **额度页和侧栏。** 账号选择、添加、改名与编辑凭据分行显示，窄窗口按钮自动换行。紧凑侧栏保留已选账号的查询状态，单个账号查询失败时可以直接重试。新版主界面使用独立的多账号设置文件，避免复用旧版单账号选择器。
+
+## [1.9.90] - 2026-11-25
+
+- **同一套餐并排显示多个账号。** 在「设置 → 额度」展开套餐，在凭据区给账号命名并勾选「同时显示额度的账号」。智谱、Claude、Kimi、MiniMax、OpenRouter、火山方舟、OpenCode Go 等分别查询每个账号，支持设置、侧栏和输入框上方的额度显示。工作账号和个人账号可以独立刷新，旧的单账号配置继续生效。
+- **账本与账号池来源。** 千问和 SCNet 可将不同的 DSH 渠道分别绑定到套餐账号，单独估算 Credits。WorkBuddy 和 Trae 可展示连接插件返回的逐账号额度。Codex 等订阅可通过已有的 dsh-plugin-subscriptions 账号池查询。没有查询接口的套餐可添加多个手动账号，录入余额后保留记录时间。
+- **模型计价。** 感谢 [@Z-Only 的 PR #588](https://github.com/Han-1413141/dsh-cost-meter/pull/588) 补齐 GPT-6.2 Sol 和 Astra 的标准价、缓存写入与长上下文档。本版另收录 14 个供应商和网关的 92 条目录记录，含 82 条可按 Token 计算的价格及 10 条需按其他单位或等待公开报价的记录。补齐人民币原价、促销到期和 OpenRouter 分档，升级保留用户自定价格和已记账金额。
+- **Trae 额度。** 针对 [@2TimesMeta 在 #583 中反馈的账号池读取失败](https://github.com/Han-1413141/dsh-cost-meter/issues/583#issuecomment-7149462556)，宿主读取被拒时提供同源浏览器读取，并显示具体状态。同步收紧额度来源导入、缓存和凭据处理。
+
+## [1.9.89] - 2026-11-24
+
+- **修复大配置树下主线程持续 100% CPU 热点**：新增单命名空间轻量宿主配置读取器（`lib/host-settings.js`），在读取 `locale` 与官方余额模型路由时优先使用 `settings.get(ns)`（DSH 0.2.0）或 `configEditor.entries()` 内存直接读取活跃条目并解包 Cosmokit `Volatile` 引用（DSH 0.2.1+/0.2.2+/0.2.3+），彻底避免反复调用 `settings.describe({ redactSecrets: true })` 触发 `cordis.patch.yml` 磁盘解析与全量 Schemastery `volatileForm` / `toJSON` 序列化；仅在无直读能力的宿主上回退到 `settings.describe()`，并合并为跨 locale/路由共享的单重入保护与 60 秒缓存。同时将 `settings/document-updated` 监听按 `ns === 'locale'` 过滤并改为惰性失效，跳过 15 个非本地化只读统计/会话 RPC 的 `syncMessageLocale()` 包装，以及在余额晚登录自愈检查中补齐 `getBalance` 存在性与 3 秒冷却保持。感谢 @sigmaraye 报告问题并提供 V8 CPU profiler 采样、调用栈定位与版本对比分析。[#586](https://github.com/Han-1413141/dsh-cost-meter/issues/586)
+
+## [1.9.88] - 2026-11-24
+
+- **手机端侧栏专用适配（不影响桌面端默认界面）**：仅在手机/触屏/Pocket 端生效——侧栏底部处于纵向排列或与其他插件共存时自动收为 36 × 36 钱包按钮，点击在安全区内居中浮出完整卡片（按 Esc 捕获关闭或点外部关闭，邻居插件移除后自动恢复整卡）；显式选择「图标」布局时在手机端按 §20 触控几何生效（36 × 36 / 12px 圆角），桌面端标准/图标/折叠窄栏保持原样零改动。侧栏布局新增主动勾选的「入口（`entry`）」模式供需要按钮形态的用户使用。@abworks-dev 提供了手机端布局分析、纵向降级方案（#581）、§20 图标几何方案（#582）与入口模式讨论建议（#576）。[#576](https://github.com/Han-1413141/dsh-cost-meter/issues/576) [#581](https://github.com/Han-1413141/dsh-cost-meter/pull/581) [#582](https://github.com/Han-1413141/dsh-cost-meter/pull/582)
+- **官方余额空数据诊断与登录态自愈**：修复设置 → 显示 → 官方余额仅提示「允许显示，暂无可用数据」却不展示原因的问题；直接展示脱敏后的真实原因（非官方端点提示仅显示主机名，不泄露凭据/路径/参数），新增「余额来源（自动 / DSH 登录钱包）」切换与「官方账户余额设置 →」直达按钮；概览余额面板在 `off` 状态也展示具体原因；补齐桌面版晚于插件挂载登录时的节流自愈与切源即刻刷新。
+- **字节 Trae 连接器额度支持**：通过本机 `dsh-connect-trae` 插件读取国内版（通用/Work 积分、小数与 0 值、消耗比例、账号与设备签到区分、包到期提醒、多账号余额）、企业版（明确指引至 `console.enterprise.trae.cn`，不以个人积分顶替）与国际版（套餐/试用与美区提示），支持版本筛选、计费别名与侧栏卡片展示。@2TimesMeta 提出了功能需求并提供了接口参考。[#583](https://github.com/Han-1413141/dsh-cost-meter/issues/583)
+- **`dsh-plugin-subscriptions` 多渠道订阅额度支持**：通过宿主已鉴权 RPC（`subscriptions-auth.status` / `subscriptions-auth.usage`，不读取 `auth.json`）读取 Codex、Claude、Grok（映射为 xAI）与 Antigravity 额度，标注不支持额度接口的 Copilot；公开快照对账号键哈希脱敏，支持单账号上次有效值保留与登出/断连即时清空，同时接入 Codex 单卡数据源与自动回退。@huct8 提出了功能需求。[#578](https://github.com/Han-1413141/dsh-cost-meter/issues/578)
 
 ## [1.9.87] - 2026-11-24
 

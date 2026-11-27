@@ -264,8 +264,8 @@ console.log('[ok] 浏览器端 bundle 语法门禁(client.js vm 编译)通过')
   assert.ok(src96.includes('live.accounts.length === 0') && src96.includes("if (rows.length === 0) rows.push({ name: t('gatewayQuotaEmpty')"), '无账号的来源隐藏；空额度账号保留切换入口')
   // 挂载:SidebarFooter 早退条件与节点插入都包含网关卡片(此前整条路径无 gateway 分支)。
   assert.ok(src96.includes('!showToday && !peakOn && gatewayNodes.length === 0) return null'), 'issue #96:SidebarFooter 早退条件纳入网关卡片与独立峰谷条')
-  assert.ok(src96.includes('nodes.push(...gatewayNodes)'), 'issue #96:SidebarFooter 节点序列插入网关卡片(计划卡之后、Codex 之前)')
-  assert.ok(src96.indexOf('nodes.push(...gatewayNodes)') > src96.indexOf("MiniMaxPlanBox, { key: 'plan:' + id, state, wide, api: api }") && src96.indexOf('nodes.push(...gatewayNodes)') < src96.indexOf('el(CodexPlanBox'), 'issue #96:网关卡片排序在计划卡之后、Codex 探测卡之前')
+  const gatewayInsert = src96.indexOf('nodes.push(...(filterGateways ? filterGateways(gatewayNodes) : gatewayNodes))')
+  assert.ok(gatewayInsert > src96.indexOf("MiniMaxPlanBox, { key: 'plan:' + id, state, wide, api: api }") && gatewayInsert < src96.indexOf('el(CodexPlanBox'), 'issue #96:网关卡片排序在计划卡之后、Codex 探测卡之前')
   // 行渲染:复用 MiniMax 行(已用口径/告警阈值一致),Provider 前缀与 credits 兜底都在。
   assert.ok(/function GatewayQuotaBox[\s\S]*miniMaxRow\(name, win, direction, t\)/.test(src96), 'issue #96:网关卡片行渲染复用 miniMaxRow(与计划卡同口径)')
   assert.ok(/function GatewayQuotaBox[\s\S]*GATEWAY_PROVIDER_LABELS\[account\.provider\]/.test(src96), 'issue #96:多账号时行标签带 Provider 前缀')
@@ -1458,7 +1458,7 @@ assert.deepEqual(CODING_PLAN_PROVIDERS.scnet.credentialEnvs, [], 'scnet 不需�
   // 六类图框接线:官方余额(框+行+今日/余额合并卡)、自定义余额(框+行)、Coding Plan(通用+MiniMax)。
   assert.equal((clientSource.match(/useClickRefresh\(api \? \(\) => api\.refreshBalance\(\) : null\)/g) ?? []).length, 3, '官方余额框/行/今日余额合并卡均接 refreshBalance')
   assert.equal((clientSource.match(/useClickRefresh\(api \? \(\) => api\.refreshCustomBalance\(index\) : null\)/g) ?? []).length, 2, '自定义余额框/行均接 refreshCustomBalance(多配置形态按条目 index 刷新,issue #79)')
-  assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan(id) : null)"), '通用 Coding Plan 图框接 refreshCodingPlan(id)')
+  assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan(live?.accountId ? id + '@' + live.accountId : id) : null)"), '通用套餐卡按账号选择刷新目标')
   assert.ok(clientSource.includes("useClickRefresh(api ? () => api.refreshCodingPlan('minimax') : null)"), 'MiniMax 图框接 refreshCodingPlan(minimax)')
   // 上游 v1.9.x 起签名多出 provider 形参,故用宽松匹配抓函数体与调用点。
   const footerSource = clientSource.match(/function renderSidebarFooter\([^)]*\) \{([\s\S]*?)\n    \}/)?.[0] ?? ''
@@ -1698,6 +1698,11 @@ vm.runInNewContext(readFileSync(new URL('../lib/client.session-list.js', import.
   window: { __ModuleLoader__: { load: value => { sessionListFactory = value.factory } } },
 })
 descriptors.push(...sessionListFactory(() => ({})).CONTRIBUTION.descriptors)
+let commandCodeFactory
+vm.runInNewContext(readFileSync(new URL('../lib/client.commandcode.js', import.meta.url), 'utf8'), {
+  window: { __ModuleLoader__: { load: value => { commandCodeFactory = value.factory } } },
+})
+descriptors.push(...commandCodeFactory(() => ({})).CONTRIBUTION.descriptors)
 const clientMethods = Array.from(descriptors, d => d.method).sort()
 const serverMethods = TYPERT.invocations.map(i => i.method).sort()
 assert.deepEqual(clientMethods, serverMethods, '客户端 descriptor 与服务端 typert 清单方法一一对齐')
@@ -1942,6 +1947,16 @@ console.log('[ok] 宽泛匹配与跨厂商兑底(路由 provider 费用为零修
   assert.ok(def.schema !== undefined, '旧宿主 0.1.0 的 schema 字段保留')
   // 冷启动:init state 可被 stateSchema parse(checkpoint 空会话路径)。
   usageProjectionStateSchema.parse(def.init())
+  // The host forwards the raw projection with api-session/added before any JSON normalization.
+  const blankSummary = { projections: { values: { costUsage: def.wire.view(def.init()) } } }
+  assert.deepEqual(JSON.parse(JSON.stringify(blankSummary)), blankSummary, '新会话摘要必须可无损转发，不能含 undefined 字段')
+  const routedMessage = response => ({ type: 'assistant/message', data: { message: { source: {
+    provider: 'dsh-magpie-connector-routing', model: 'group/team', replayState: { response },
+  } } } })
+  const routed = def.apply(def.init(), routedMessage({ kind: 'dsh-magpie-connector-pi', version: 1, magpieProvider: 'workbuddy' }))
+  assert.deepEqual(def.wire.viewSchema.parse(def.wire.view(routed)).magpieRoute, { requestedModel: 'group/team', provider: 'workbuddy' })
+  const unconfirmed = def.apply(routed, routedMessage({ kind: 'dsh-magpie-connector-pi', version: 1 }))
+  assert.equal(Object.hasOwn(def.wire.view(unconfirmed), 'magpieRoute'), false, '缺少实际路由信息时清除上一次归属')
   // 喂事件到真实 state:header + 流式样本 + 最终样本替换 + 多轮去重。
   const events = [
     { type: 'session', createdAt: 1720000000000 },
@@ -3587,13 +3602,13 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
   for (const { tag, script, wantOk, wantStatus, wantCalls, wantPercent } of scenarios) {
     const home = mkHome(tag)
     let calls = 0
-    let sawBrowserUa = false
+    let sawProductUa = false
     globalThis.fetch = async (url, init = {}) => {
       // Background price refreshes must not consume the Go quota retry script.
-      if (String(url) !== 'https://opencode.ai/zen/go/v1/usage') return prevFetch(url, init)
+      if (String(url) !== 'https://opencode.ai/inference/go/v1/usage') return prevFetch(url, init)
       const step = script[Math.min(calls, script.length - 1)]
       calls += 1
-      if (init.headers?.['user-agent']?.includes('Mozilla/5.0')) sawBrowserUa = true
+      if (init.headers?.['user-agent']?.startsWith('dsh-cost-meter')) sawProductUa = true
       if (step === null) {
         const error = new TypeError('fetch failed')
         error.cause = { code: 'ECONNRESET' }
@@ -3619,7 +3634,7 @@ console.log('[ok] OpenRouter/SiliconFlow/CommandCode 解析器与白名单通过
       assert.equal(res.state.goQuota.rolling.percent, wantPercent, 'retry:rolling 用量百分比')
       assert.equal(res.state.goQuota.monthly.percent, 7.25, 'retry:monthly 用量百分比')
     }
-    assert.equal(sawBrowserUa, true, tag + ':浏览器 UA 头保留(Cloudflare error 1010 防护)')
+    assert.equal(sawProductUa, true, tag + ':额度请求使用插件标识')
     await removeFixture(home, { recursive: true, force: true })
   }
   globalThis.fetch = prevFetch
@@ -6953,10 +6968,12 @@ await import('./aliyun-balance.mjs')
 await import('./plan-quota-integration.mjs')
 await import('./tokenrhythm-balance.mjs')
 await import('./gateway-retry.mjs')
+await import('./gateway-magpie.mjs')
 await import('./cache-lifecycle.mjs')
 await import('./core-boundaries.mjs')
 await import('./go-credentials.mjs')
 await import('./go-authentication.mjs')
+await import('./commandcode-auth.mjs')
 await import('./commandcode-monthly.mjs')
 await import('./model-labels.mjs')
 await import('./session-list-costs.mjs')
@@ -7053,6 +7070,7 @@ await import('./mimo-enable-flow.mjs')
 await import('./mimo-v26-pricing.mjs')
 await import('./host-locale.mjs')
 await import('./host-locale-client.mjs')
+await import('./issue-586-cpu-hotpath.mjs')
 await import('./conversation-totals.mjs')
 await import('./ledger-frozen-fx.mjs')
 await import('./session-cost-display-fx.mjs')
@@ -7125,6 +7143,9 @@ await import('./billing-check.mjs')
 await import('./coding-plan-placeholder.mjs')
 await import('./local-savings.mjs')
 await import('./sidebar-icons.mjs')
+await import('./footer-chip-mobile.mjs')
+await import('./trae-quota.mjs')
+await import('./subscriptions-quota.mjs')
 await import('./response-model-pricing.mjs')
 await import('./kimi-degraded-quota.mjs')
 

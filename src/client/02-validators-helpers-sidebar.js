@@ -113,7 +113,8 @@
     }
     function parseConfig(v, path) {
     const parseCustomEntry = e => (e == null ? undefined : {
-      ...(['aliyun', 'tokenrhythm', 'openai-credits', 'fireworks'].includes(e.adapter) ? { adapter: e.adapter } : {}),
+      ...(['aliyun', 'tokenrhythm', 'openai-credits', 'fireworks', 'manual-quota'].includes(e.adapter) ? { adapter: e.adapter } : {}),
+      ...(e.quotaReading ? { quotaReading: e.quotaReading } : {}),
       ...(e.adapter === 'openai-credits' ? { grantAmount: num0(e.grantAmount), grantStart: e.grantStart ?? '', grantExpiry: e.grantExpiry ?? '' } : {}),
       enabled: e.enabled === true,
       label: typeof e.label === 'string' ? e.label : '',
@@ -135,6 +136,7 @@
         for (const id of Object.keys(v.prices.models)) models[id] = parsePrice(v.prices.models[id], path + '.prices.models.' + id)
       }
       return {
+        commandCodeProvider: v.commandCodeProvider ?? {},
         queryAccounts: v.queryAccounts && typeof v.queryAccounts === 'object' ? v.queryAccounts : {},
         locale: v.locale === 'zh' || v.locale === 'en' || v.locale === 'auto' ? v.locale : 'auto',
         position: v.position === 'header' || v.position === 'off' ? v.position : 'dock',
@@ -143,11 +145,13 @@
         // 会话列表附显 ID 自上线以来实际从未生效(v1.5.38 起一并修复)。
         showSessionId: v.showSessionId === true,
         hideOfficialBalance: v.hideOfficialBalance === true,
+        translateGatewayQuotaLabels: v.translateGatewayQuotaLabels !== false,
         hideCustomBalance: v.hideCustomBalance === true,
         hideTodayCost: v.hideTodayCost === true,
         sessionListCostPeriod: v.sessionListCostPeriod === 'today' ? 'today' : 'total',
         modelStatistics: v.modelStatistics ?? {},
-        ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'followSkinTransparency', 'sidebarTodayBalanceInline', 'sessionListCosts', 'hideBudget', 'sessionCostCompact', 'contextCostsEnabled', 'contextCostsPromptSeen', 'showTotalWithPlan', 'sidebarSimple', 'codexQuotaEnabled', 'codexCompatPromptDismissed', 'includeSubagentCost', 'peakEnabled', 'peakAlertWebNotify'], value => value === true),
+        ...mapFields(v, ['hideSessionCostHeader', 'hideSessionCostDock', 'hideTurnCost', 'followSkinTransparency', 'sidebarTodayBalanceInline', 'sessionListCosts', 'hideBudget', 'sessionCostCompact', 'contextCostsEnabled', 'contextCostsPromptSeen', 'showTotalWithPlan', 'sidebarSimple', 'sidebarMagpieOverview', 'codexQuotaEnabled', 'codexCompatPromptDismissed', 'includeSubagentCost', 'peakEnabled', 'peakAlertWebNotify'], value => value === true),
+        sidebarFocusProvider: v.sidebarFocusProvider !== false,
         sidebarTodayMetric: ['tokens', 'both'].includes(v.sidebarTodayMetric) ? v.sidebarTodayMetric : 'cost',
         sidebarTextOnly: v.sidebarTextOnly === true,
         localSavings: v.localSavings,
@@ -156,11 +160,11 @@
         sidebarModels: Object.fromEntries(Object.entries(MODEL_SIDEBAR_DEFAULTS).map(([k, v0]) => [k, v.sidebarModels?.[k] ?? v0])),
         codexQuotaSidebar: v.codexQuotaSidebar !== false,
         codexQuotaStrip: v.codexQuotaStrip !== false,
-        codexQuotaSource: ['connect', 'subscription', 'chatgpt', 'pi-ai', 'chatgpt-sub'].includes(v.codexQuotaSource) ? v.codexQuotaSource : 'auto',
+        codexQuotaSource: ['connect', 'subscription', 'chatgpt', 'pi-ai', 'chatgpt-sub', 'subscriptions'].includes(v.codexQuotaSource) ? v.codexQuotaSource : 'auto',
         // Codex 订阅兼容(契约 B-5):用户已关闭一次性提示 / 已应用历史归类的时点。
         // 直通白名单缺失会导致关闭后重开页面又弹提示,或应用后状态行回落「未应用」。
         codexCompatHistoryAppliedAt: num0(v.codexCompatHistoryAppliedAt),
-        sidebarStyle: oneOf(v.sidebarStyle, ['standard', 'compact', 'summary', 'icons'], 'standard'),
+        sidebarStyle: oneOf(v.sidebarStyle, ['standard', 'compact', 'summary', 'icons', 'entry'], 'standard'),
         planQuotaStyle: v.planQuotaStyle === 'gauge' ? 'gauge' : 'bars',
         ...mapFields(v, ['sidebarSimplePromptSeen', 'sidebarSummaryPromptSeen', 'peakProgressPromptSeen'].filter(key => Object.hasOwn(v, key)), value => value === true),
         billionContextNoticeEnabled: v.billionContextNoticeEnabled !== false,
@@ -213,7 +217,7 @@
               const e = v.codingPlans[id]
               if (e === null || typeof e !== 'object' || Array.isArray(e)) continue
               out[id] = {
-                enabled: e.enabled === true,
+                enabled: e.enabled === true, localAccounts: e.localAccounts, showAccountQuotas: e.showAccountQuotas,
                 display: e.display === 'sidebar' || e.display === 'both' || e.display === 'off' ? e.display : 'settings',
                 ...(typeof e.sidebarAfterSuccess === 'boolean' ? { sidebarAfterSuccess: e.sidebarAfterSuccess } : {}),
                 ...(typeof e.showInComposer === 'boolean' ? { showInComposer: e.showInComposer } : {}),
@@ -222,6 +226,7 @@
                 ...(id === 'minimax' ? { baseUrl: typeof e.baseUrl === 'string' ? e.baseUrl : '' } : {}),
                 ...(id === 'factory' ? { orgId: typeof e.orgId === 'string' ? e.orgId : '', factoryPool: ['core', 'both'].includes(e.factoryPool) ? e.factoryPool : 'standard' } : {}),
                 ...(id === 'workbuddy' ? { accountScope: e.accountScope ?? 'current', accountIds: Array.isArray(e.accountIds) ? e.accountIds : [], ...(typeof e.accountSource === 'string' ? { accountSource: e.accountSource } : {}) } : {}),
+                ...(id === 'trae' ? { editionScope: ['auto', 'cn', 'enterprise', 'ai'].includes(e.editionScope) ? e.editionScope : 'auto' } : {}),
                 ...(id === 'opendesign' ? { workspaceId: typeof e.workspaceId === 'string' ? e.workspaceId : '' } : {}),
                 ...(id === 'qwen' ? { quotaSource: ['cli', 'bailian'].includes(e.quotaSource) ? e.quotaSource : 'local' } : {}),
                 // SCNet / 千问本地计量字段(issue #26/#78):其余厂商无此键,缺省剔除。
@@ -286,7 +291,7 @@
           const raw = Array.isArray(v.gatewayQuotas) ? v.gatewayQuotas : v.gatewayQuotas?.sources
           const sources = Array.isArray(raw) ? raw.slice(0, 4).filter(x => x !== null && typeof x === 'object' && !Array.isArray(x)).map(x => ({
             id: typeof x.id === 'string' ? x.id.slice(0, 48) : '',
-            type: oneOf(x.type, ['agy-link', 'antigravity-manager'], 'cliproxyapi'),
+            type: oneOf(x.type, ['agy-link', 'subscriptions', 'antigravity-manager', 'magpie'], 'cliproxyapi'),
             label: typeof x.label === 'string' ? x.label.slice(0, 80) : '',
             baseURL: typeof x.baseURL === 'string' ? x.baseURL : '',
             enabled: x.enabled !== false,
@@ -371,6 +376,7 @@
       if (v === null || v === undefined) return null
       if (typeof v !== 'object' || Array.isArray(v)) fail(path, 'object')
       return {
+        status: v.status,
         percent: num0(v.percent),
         resetsAt: typeof v.resetsAt === 'string' ? v.resetsAt : '',
       }
@@ -378,6 +384,9 @@
     function parseGoQuota(v, path) {
       return {
         ...parseSnapshotStatus(v, path),
+        keyConfigured: v.keyConfigured === true, keySource: v.keySource, keyRef: v.keyRef,
+        routeConfigured: v.routeConfigured === true, lastSuccessAt: num0(v.lastSuccessAt ?? (v.status === 'ok' ? v.fetchedAt : 0)),
+        accountLabel: v.accountLabel, accountQuotas: Array.isArray(v.accountQuotas) ? v.accountQuotas : [],
         rolling: parseGoWindow(v.rolling, path + '.rolling'),
         weekly: parseGoWindow(v.weekly, path + '.weekly'),
         monthly: parseGoWindow(v.monthly, path + '.monthly'),
@@ -401,14 +410,14 @@
     // 六家网关 Provider 白名单与展示名(与服务端 lib/store.js 的 GATEWAY_PROVIDER_IDS 一致);
     // 侧边栏卡片(02)与设置页面板(03)共用,故定义在首个使用方之前。
     const GATEWAY_PROVIDERS = ['antigravity', 'claude', 'codex', 'kimi', 'xai', 'workbuddy']
-    const GATEWAY_PROVIDER_LABELS = { antigravity: 'Antigravity', claude: 'Claude', codex: 'Codex', kimi: 'Kimi', xai: 'xAI', workbuddy: 'WorkBuddy' }
+    const GATEWAY_PROVIDER_LABELS = { __proto__: null, antigravity: 'Antigravity', claude: 'Claude', codex: 'Codex', kimi: 'Kimi', xai: 'xAI', workbuddy: 'WorkBuddy' }
     function parseGatewayQuota(v, path) {
       needObject(v, path)
       const s0 = (s, d = '') => (typeof s === 'string' ? s : d)
       const n = x => numOrNull(x)
-      const windowOf = x => x !== null && typeof x === 'object' && !Array.isArray(x) ? { id: s0(x.id), label: s0(x.label), ...(n(x.percent) === null ? {} : { percent: n(x.percent) }), resetsAt: s0(x.resetsAt), periodHours: n(x.periodHours), scope: s0(x.scope) } : null
-      const creditsOf = x => x !== null && typeof x === 'object' && !Array.isArray(x) ? { unit: s0(x.unit, 'credits'), used: n(x.used), remaining: n(x.remaining), limit: n(x.limit), fetchedAt: s0(x.fetchedAt), packages: Array.isArray(x.packages) ? x.packages.filter(p => p !== null && typeof p === 'object' && !Array.isArray(p)).map(p => ({ id: s0(p.id), label: s0(p.label), used: n(p.used), remaining: n(p.remaining), limit: n(p.limit), startsAt: s0(p.startsAt), resetsAt: s0(p.resetsAt) })) : [] } : undefined
-      return { browserAccessDenied: v.browserAccessDenied === true, id: s0(v.id), type: oneOf(v.type, ['agy-link', 'antigravity-manager'], 'cliproxyapi'), label: s0(v.label), status: gatewaySourceStatuses.has(v.status) ? v.status : 'error', message: s0(v.message), fetchedAt: n(v.fetchedAt) ?? 0, attemptedAt: n(v.attemptedAt) ?? 0, serverVersion: s0(v.serverVersion), keyConfigured: v.keyConfigured === true, keySource: s0(v.keySource, 'none'), accounts: Array.isArray(v.accounts) ? v.accounts.filter(a => a !== null && typeof a === 'object' && !Array.isArray(a)).slice(0, 16).map(a => ({ id: s0(a.id), provider: s0(a.provider, 'unknown'), label: s0(a.label, 'unknown'), status: gatewayAccountStatuses.has(a.status) ? a.status : 'unknown', message: s0(a.message), plan: s0(a.plan), windows: Array.isArray(a.windows) ? a.windows.map(windowOf).filter(Boolean) : [], credits: creditsOf(a.credits) })) : [], unsupportedProviders: Array.isArray(v.unsupportedProviders) ? v.unsupportedProviders.filter(x => typeof x === 'string').slice(0, 32) : [] }
+      const windowOf = x => x !== null && typeof x === 'object' && !Array.isArray(x) ? { id: s0(x.id), label: s0(x.label), reading: s0(x.reading), ...(n(x.percent) === null ? {} : { percent: n(x.percent) }), resetsAt: s0(x.resetsAt), periodHours: n(x.periodHours), scope: s0(x.scope) } : null
+      const creditsOf = x => x !== null && typeof x === 'object' && !Array.isArray(x) ? { unit: s0(x.unit), used: n(x.used), remaining: n(x.remaining), limit: n(x.limit), fetchedAt: s0(x.fetchedAt), packages: Array.isArray(x.packages) ? x.packages.filter(p => p !== null && typeof p === 'object' && !Array.isArray(p)).map(p => ({ id: s0(p.id), label: s0(p.label), used: n(p.used), remaining: n(p.remaining), limit: n(p.limit), startsAt: s0(p.startsAt), resetsAt: s0(p.resetsAt) })) : [] } : undefined
+      return { browserAccessDenied: v.browserAccessDenied === true, id: s0(v.id), type: oneOf(v.type, ['agy-link', 'subscriptions', 'antigravity-manager', 'magpie'], 'cliproxyapi'), label: s0(v.label), status: gatewaySourceStatuses.has(v.status) ? v.status : 'error', message: s0(v.message), fetchedAt: n(v.fetchedAt) ?? 0, attemptedAt: n(v.attemptedAt) ?? 0, serverVersion: s0(v.serverVersion), keyConfigured: v.keyConfigured === true, keySource: s0(v.keySource, 'none'), accounts: Array.isArray(v.accounts) ? v.accounts.filter(a => a !== null && typeof a === 'object' && !Array.isArray(a)).slice(0, 64).map(a => ({ id: s0(a.id), provider: s0(a.provider, 'unknown'), label: s0(a.label, 'unknown'), status: gatewayAccountStatuses.has(a.status) ? a.status : 'unknown', message: s0(a.message), plan: s0(a.plan), windows: Array.isArray(a.windows) ? a.windows.map(windowOf).filter(Boolean) : [], credits: creditsOf(a.credits) })) : [], unsupportedProviders: Array.isArray(v.unsupportedProviders) ? v.unsupportedProviders.filter(x => typeof x === 'string').slice(0, 32) : [] }
     }
     function parsePlanStats(v) {
       if (v === null || typeof v !== 'object' || Array.isArray(v)) return null
@@ -468,7 +477,7 @@
         localSavings: v.localSavings,
         balance: v.balance == null ? EMPTY_BAL : parseBalance(v.balance, path + '.balance'),
         balanceAccounts: Array.isArray(v.balanceAccounts) ? v.balanceAccounts.slice(0, 11).map(row => ({ ...parseBalance(row, path + '.balanceAccounts'), id: needStr(row.id, path), label: needStr(row.label, path) })) : [],
-        goQuota: v.goQuota == null ? EMPTY_GO : parseGoQuota(v.goQuota, path + '.goQuota'),
+        goQuota: v.goQuota == null ? EMPTY_GO : parseGoQuota({ keyConfigured: v.config?.goQuota?.keyConfigured, keySource: v.config?.goQuota?.keySource, ...v.goQuota }, path + '.goQuota'),
         customBalance: v.customBalance == null ? emptyCustomSnapshot() : parseCustomBalance(v.customBalance, path + '.customBalance'),
         // 多配置形态(v1.7.0,issue #79):全部条目快照;缺失/畸形回落空数组
         // (旧宿主快照),渲染退化为旧单条 customBalance 镜像。
@@ -507,6 +516,7 @@
         // 客户端据此沿用上一份,并按同一版本号回传以避免重复下发。
         pricesRev: typeof v.pricesRev === 'string' ? v.pricesRev : undefined,
         modelLabels: Object.fromEntries(Object.entries(v.modelLabels ?? {}).filter(([, label]) => typeof label === 'string')),
+        commandCodeSettingsNs: v.commandCodeSettingsNs,
         modelDirectory: v.modelDirectory,
         reconcile: v.reconcile == null ? undefined : { ok: v.reconcile.ok === true, message: typeof v.reconcile.message === 'string' ? v.reconcile.message : '',
           ...(typeof v.reconcile.searchMessage === 'string' ? { searchMessage: v.reconcile.searchMessage, balanceMessage: String(v.reconcile.balanceMessage ?? '') } : {}) },
@@ -710,6 +720,8 @@
           ],
           result: strictCodec('TopSessions', topSessionsCodec),
         },
+        { method: 'commandCodeAuth', parameters: [rpcParam('request', 'CommandCodeAuthQuery', patchCodec)],
+          result: strictCodec('CommandCodeAuthState', dayCodec) },
         {
           // 写入一枚密钥到 DSH 凭据库(v1.6.8):与服务端 typert 清单一一对应。
           method: 'setCredential',
@@ -829,6 +841,7 @@
       const base = normalizeClientTier(raw)
       if (base === undefined) return null
       Object.assign(base, priceMultiplierSettings(raw), peakScheduleSettings(raw))
+      if (raw.currency === 'CNY') base.currency = 'CNY'
       if (raw.billingMode === 'utc-peak') base.billingMode = 'utc-peak'
       if (raw.peakSchedule === 'volcengine') base.peakSchedule = 'volcengine'
       // 峰谷/历史子档必须随主档一起保留:usageSplit 回退计价与 Plan 拆分靠 tierFor
@@ -1293,6 +1306,7 @@
       if (!result.currency && !result.priced) {
         result = legacyDeepseekOverride(normalized, config?.priceOverrides?.[normalized + ':' + modelId], config?.prices ?? {}, config?.priceMatch === 'exact' ? 'exact' : 'auto') ?? result
       }
+      if (!result.currency && result.entry?.currency === 'CNY') result.currency = 'CNY'
       if (!result.currency) {
         result = result.priced && config?.prices?.currency === 'CNY' && result.entry?.cny
           ? { ...result, entry: cnyPrice(result.entry), currency: 'CNY' }
@@ -1365,6 +1379,7 @@
       commandcode: ['commandcode', 'command-code'],
       clinepass: ['clinepass', 'cline-pass'],
       workbuddy: ['workbuddy', 'workbuddy-subscription', 'workbuddy-ai', 'workbuddy-global', 'xdpool', 'xdpool-global'],
+      trae: ['trae', 'trae-cn', 'trae-global', 'trae-enterprise', 'dsh-connect-trae'],
       antigravity: ['antigravity'],
       stepfun: ['stepfun', 'step-code'],
       'volcengine-agent': ['volcengine-agent', 'ark-agent-plan', 'volcengine-agent-plan'],
@@ -1377,7 +1392,7 @@
       mimo: ['mimo', 'xiaomimimo', 'mimo-token-plan', 'xiaomi-token-plan', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-ams'],
       factory: ['factory', 'droid', 'factory-a', 'factory-g', 'factory-o'],
     }
-    const PLAN_PROVIDER_IDS_LOCAL = ['opendesign', 'anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'clinepass', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go', 'codex', 'volcengine-agent', 'tencent-coding', 'tencent-token', 'baidu-coding', 'workbuddy', 'antigravity', 'stepfun']
+    const PLAN_PROVIDER_IDS_LOCAL = ['opendesign', 'anthropic', 'zai', 'minimax', 'kimi', 'openrouter', 'siliconflow', 'commandcode', 'clinepass', 'scnet', 'volcengine', 'qwen', 'mimo', 'factory', 'go', 'codex', 'volcengine-agent', 'tencent-coding', 'tencent-token', 'baidu-coding', 'workbuddy', 'trae', 'antigravity', 'stepfun']
     const PLAN_NAME_HINTS_LOCAL = {
       opendesign: 'opendesign|open[._-]?design',
       codex: 'codex|chatgpt', 'baidu-coding': 'baidu|qianfan|百度|千帆',
@@ -1386,7 +1401,7 @@
       kimi: 'kimi|moonshot|moonshotai|月之暗面', openrouter: 'openrouter', siliconflow: 'siliconflow|硅基',
       commandcode: 'commandcode', clinepass: 'cline[._-]?pass|clinepass', scnet: 'scnet|sugon|超算',
       volcengine: 'volcengine|volcano|volc|ark|火山|方舟', qwen: 'qwen|qianwen|千问|通义',
-      mimo: 'mimo|xiaomi|小米', factory: 'factory|droid', go: 'opencode(?:[-_\\s]?go)?|zen|go',
+      mimo: 'mimo|xiaomi|小米', factory: 'factory|droid', go: 'opencode(?:[-_\\s]?go)?|zen|go', trae: 'trae',
     }
     const PLAN_NAME_MATCHERS_LOCAL = Object.entries(PLAN_NAME_HINTS_LOCAL).map(([id, hints]) => [id, new RegExp('(?:^|[^a-z0-9])(?:' + hints + ')(?=$|[^a-z0-9])')])
     function inferPlanProviderIdLocal(provider, modelId) {
@@ -1666,24 +1681,33 @@
      * 注意:本组件在 return 之前无条件调用全部 Hook(项目有 Hook 顺序门禁扫描)。
      */
     function CredentialField({ target, configured, source, t, api, placeholder, disabled }) {
-      const [text, setText] = useState('')
+      const [hasValue, setHasValue] = useState(false)
       const [editing, setEditing] = useState(false)
       const [busy, setBusy] = useState(false)
       const [msg, setMsg] = useState(null)
       const pending = useRef(false)
       const blocked = disabled === true || busy
-      const save = async () => {
-        const value = text.trim()
+      const save = async event => {
+        event.preventDefault()
+        const input = event.currentTarget.elements.namedItem('cm-credential-' + target)
+        const value = input.value.trim()
         if (value.length === 0 || blocked || pending.current) return
+        input.value = ''
+        setHasValue(false)
         pending.current = true
         setBusy(true)
         setMsg(null)
         try {
           const result = await api.setCredential(target, value)
-          setText('')
+          if (result?.ok === false) throw new Error(result.message || t('unknownError'))
           setEditing(false)
           setMsg({ kind: 'ok', text: result?.message ?? t('credentialSave') })
         } catch (error) {
+          // Restore only the original, still-mounted password field for an explicit retry.
+          if (input.isConnected && input.name === 'cm-credential-' + target) {
+            input.value = value
+            setHasValue(true)
+          }
           setMsg({ kind: 'err', text: String(error?.message ?? error) })
         } finally {
           pending.current = false
@@ -1697,7 +1721,8 @@
         setMsg(null)
         try {
           const result = await api.clearCredential(target)
-          setText('')
+          if (result?.ok === false) throw new Error(result.message || t('unknownError'))
+          setHasValue(false)
           setEditing(false)
           setMsg({ kind: 'ok', text: result?.message ?? t('credentialClear') })
         } catch (error) {
@@ -1707,32 +1732,32 @@
           setBusy(false)
         }
       }
-      const cancel = () => { setText(''); setEditing(false) }
+      const cancel = () => { setHasValue(false); setEditing(false) }
       const clearButton = configured === true
         ? el('button', { className: 'cm-btn small', type: 'button', onClick: clear, disabled: blocked }, t('credentialClear'))
         : null
       // 浏览器可能忽略 password 的 autocomplete=off，并把前一个文本框当用户名。
       // 概览打开时不挂载密码框；明确编辑后使用独立 form，避免串到宿主会话搜索。
       return el('div', { className: 'cm-field' },
-        editing ? el('form', { className: 'cm-field', autoComplete: 'off', onSubmit: event => { event.preventDefault(); void save() } },
+        editing ? el('form', { className: 'cm-field', autoComplete: 'off', onSubmit: save },
         el('input', {
           className: 'cm-input',
           type: 'password',
           name: 'cm-credential-' + target,
           autoFocus: true,
-          value: text,
+          defaultValue: '',
           placeholder: typeof placeholder === 'string' ? placeholder : '',
           disabled: blocked,
           autoComplete: 'new-password',
           'data-lpignore': 'true', 'data-1p-ignore': 'true', 'data-bwignore': 'true',
           'aria-label': t('credentialInputHint'),
-          onChange: event => setText(event.target.value),
+          onChange: event => setHasValue(Boolean(event.target.value.trim())),
         }),
         el('div', { className: 'cm-buttons' },
           el('button', {
             className: 'cm-btn small',
             type: 'submit',
-            disabled: blocked || text.trim().length === 0,
+            disabled: blocked || !hasValue,
           }, busy ? t('credentialSaving') : t('credentialSave')),
           el('button', { className: 'cm-btn small', type: 'button', onClick: cancel, disabled: busy }, t('cancel')), clearButton))
           : el('div', { className: 'cm-buttons' },
@@ -1760,13 +1785,9 @@
 
     function WalletIcon({ size = 16, className }) {
       return el('svg', { width: size, height: size, className, viewBox: '0 0 16 16', fill: 'none', xmlns: 'http://www.w3.org/2000/svg' },
-        el('path', {
-          d: 'M4 4H12A2 2 0 0 1 14 6V11.5A2 2 0 0 1 12 13.5H4A2 2 0 0 1 2 11.5V6A2 2 0 0 1 4 4ZM4 5.3H12A0.7 0.7 0 0 1 12.7 6V11.5A0.7 0.7 0 0 1 12 12.2H4A0.7 0.7 0 0 1 3.3 11.5V6A0.7 0.7 0 0 1 4 5.3Z',
-          fill: 'currentColor',
-          fillRule: 'evenodd',
-        }),
-        el('path', { d: 'M3.3 5.3H12.7V7.1H3.3Z', fill: 'currentColor' }),
-        el('path', { d: 'M8 2.8A1.3 1.3 0 1 0 8 5.4A1.3 1.3 0 1 0 8 2.8Z', fill: 'currentColor' }))
+        el('path', { d: 'M3 5.6A2 2 0 0 1 5 3.6H11', stroke: 'currentColor', strokeWidth: '1.3', strokeLinecap: 'round' }),
+        el('rect', { x: '3', y: '5.6', width: '10', height: '8', rx: '1.9', stroke: 'currentColor', strokeWidth: '1.3' }),
+        el('circle', { cx: '10.6', cy: '9.6', r: '0.9', fill: 'currentColor' }))
     }
 
     function costDetailsLabel(en) {
@@ -1916,9 +1937,9 @@
         prettyProviderKey(row.provider + ':' + row.model) + ' · ' + (names[row.bucket] || (row.bucket === 'fetchRequests' ? (en ? 'Fetch requests' : '抓取请求') : (en ? 'Search requests' : '搜索请求'))) + (row.plan ? ' (Plan)' : '') + ': ' + (row.requests ? row.requests + (en ? ' requests' : ' 次') : row.tokens.toLocaleString()) + ' × ' + (row.priced ? unitPrice(row.rate) : '?') + (row.requests ? ' ≈ ' : ' / 1,000,000 ≈ ') + (row.priced ? money(row.cost) : '?'),
         !row.priced ? (en ? ' (price unavailable)' : '（未配置价格）') : row.bucket === 'reasoning' && row.rate === 0 ? (en ? ' (no separate charge)' : '（不单独收费）') : '')
       return el('details', { className: 'cm-note', style: { fontSize: 12, marginTop: 6 } },
-        el('summary', { style: { cursor: 'pointer' }, title: en ? 'Log estimate at configured prices; session cost uses recorded ledger amounts.' : '本轮按日志和配置价格估算，本会话按账本已入账金额汇总。' }, en ? 'Turn cost' : '本轮费用', value?.found ? ' ≈ ' + money(displayCostOf(value, config)) + (value.rows.some(r => !r.priced) ? (en ? ' + unpriced usage' : ' + 未定价用量') : '') : value?.inherited ? (en ? ' · inherited history' : ' · 继承历史') : error ? ' ⚠' : ''),
+        el('summary', { style: { cursor: 'pointer' }, title: en ? 'Calls in this session and turn. Find team and subagent totals in session billing details.' : '本轮费用按当前会话的调用估算。团队和子代理费用见会话账单明细。' }, en ? 'Turn cost' : '本轮费用', value?.found ? ' ≈ ' + money(displayCostOf(value, config)) + (value.rows.some(r => !r.priced) ? (en ? ' + unpriced usage' : ' + 未定价用量') : '') : value?.inherited ? (en ? ' · inherited history' : ' · 继承历史') : error ? ' ⚠' : ''),
         error ? el('div', { role: 'alert' }, error) : !value ? (en ? 'Loading…' : '加载中…') : !value.found ? value.inherited ? (en ? 'Inherited usage is not billed again in this conversation.' : '继承的历史用量不在本会话重复计费。') : (en ? 'Complete usage records unavailable' : '没有完整用量记录') :
-          el(Fragment, null, el('p', null, en ? 'Estimated from recorded usage and configured prices; rates per 1M tokens.' : '按已记录用量和配置价格估算；单价单位为每百万 Token。'),
+          el(Fragment, null, el('p', null, en ? 'Estimated from this session’s calls in this turn, at rates per 1M tokens. Team calls are listed in session billing details.' : '按当前会话本轮的调用估算，单价单位为每百万 Token。团队成员的调用列在会话账单明细中。'),
             el('p', null, 'API ≈ ' + money(displayCostOf(value, { ...config, showTotalWithPlan: false })) + ' · Plan ≈ ' + money(displayCostOf(value, { ...config, showTotalWithPlan: true }) - displayCostOf(value, { ...config, showTotalWithPlan: false })) + (en ? ' (equivalent)' : '（等值）')),
             value.rows.map(rowView),
             el('details', null, el('summary', { style: { cursor: 'pointer' } }, (en ? 'Individual calls' : '逐次调用明细') + ' (' + value.calls.length + ')'),
@@ -2892,11 +2913,11 @@
       // 条形方向(issue #67):默认已用方向;剩余方向时填充与标签显示剩余%。
       const barView = simpleBarByDirection(pct, barDirectionOf(config, 'go'))
       return {
-        level: pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok',
+        level: pct >= 100 || [mainKey, ...others].some(k => goQuota[k]?.status === 'rate-limited') ? 'over' : pct >= 80 ? 'warn' : 'ok',
         rail: barView.label === null ? '—' : Math.round(barView.label) + '%',
         body: el(Fragment, null,
           el('div', { className: 'cm-bbox-head' },
-            el('span', { className: 'cm-bbox-label' }, t('goQuotaRowLabel') + ' ' + shortOf(mainKey)),
+            el('span', { className: 'cm-bbox-label' }, [t('goQuotaRowLabel'), goQuota.accountLabel, shortOf(mainKey)].filter(Boolean).join(' ')),
             el('span', { className: 'cm-bbox-pct cm-num' }, barView.label === null ? '—' : Math.round(barView.label) + '%')),
           el('div', { className: 'cm-bbox-bar' },
             el('div', { className: 'cm-bbox-fill', style: { width: barView.width + '%' } })),
@@ -2914,7 +2935,7 @@
       return ['rolling', 'weekly', 'monthly'].map((key, i) => {
         const win = go?.[key], pct = typeof win?.percent === 'number' && Number.isFinite(win.percent) ? Math.max(0, Math.min(100, win.percent)) : null
         const reset = win?.resetsAt && Number.isFinite(Date.parse(win.resetsAt)) ? ' · ' + t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() }) : ''
-        return t(['goWindowRolling', 'goWindowWeekly', 'goWindowMonthly'][i]) + ': ' + (pct === null ? '—' : quotaValueText(simpleBarByDirection(pct, direction).label, direction, t)) + reset
+        return t(['goWindowRolling', 'goWindowWeekly', 'goWindowMonthly'][i]) + ': ' + (pct === null ? '—' : quotaValueText(simpleBarByDirection(pct, direction).label, direction, t)) + (win?.status === 'rate-limited' ? ' · ' + t('goLimited') : '') + reset
       }).concat(go?.fetchedAt > 0 ? t('goQuotaFetchedAt', { time: new Date(go.fetchedAt).toLocaleTimeString() }) : []).join('\n')
     }
 
@@ -3180,6 +3201,9 @@
             const resp = await fetch(CODEX_STATUS_PATH, { credentials: 'same-origin', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) })
             if (resp.ok) windows = parseCodexStatus(await resp.json().catch(() => null)) ?? {}
           }
+          if (Object.keys(windows).length === 0 && (source === 'auto' || source === 'subscriptions')) {
+            try { windows = await boundedCodexRead(signal => require.async('./client.codex.js').then(page => page.readSubscriptionsCodexQuota(codexQuotaCache.rpc, force, { signal }))) ?? {} } catch {}
+          }
         } catch {} finally {
           // Only the latest selected source may publish or clear its request.
           if (codexQuotaCache.request !== request) return
@@ -3325,14 +3349,15 @@
     function CodingPlanBox(props) {
       const hoverProps = useQuotaHoverRefresh()
       const { id, state, wide, api } = props
-      const live = state.codingPlans?.[id]
+      const live = props.account ?? state.codingPlans?.[id]
       const t = makeT(resolveLocale(state.config))
-      const refresh = useClickRefresh(api ? () => api.refreshCodingPlan(id) : null)
-      const rowDef = CODING_PLAN_ROWS.find(r => r.id === id)
+      const refresh = useClickRefresh(api ? () => api.refreshCodingPlan(live?.accountId ? id + '@' + live.accountId : id) : null)
+      const rowDef = id === 'go' ? { labelKey: 'goQuotaTitle' } : CODING_PLAN_ROWS.find(r => r.id === id)
       if (!rowDef) return null
+      const title = [t(rowDef.labelKey), live?.accountLabel].filter(Boolean).join(' · ')
       const windows = live?.windows !== null && typeof live?.windows === 'object' ? live.windows : {}
       const entries = codingPlanWindowEntries(windows, id)
-      if (live?.status !== 'ok' || entries.length === 0) return codingPlanPlaceholder(id, t(rowDef.labelKey), live, t, wide, refresh)
+      if (live?.status !== 'ok' || entries.length === 0) return codingPlanPlaceholder(id, title, live, t, wide, refresh)
       const pctOf = win => win !== null && typeof win === 'object' && typeof win.percent === 'number'
         ? Math.max(0, Math.min(100, Math.round(Number(win.percent) || 0))) : null
       // 条形方向(issue #67):Plan 卡默认已用方向,剩余方向时填充与标签显示剩余%。
@@ -3340,7 +3365,7 @@
       const gauge = wide !== false && state.config.planQuotaStyle === 'gauge' && !state.config.sidebarTextOnly
       // 余额放在标题行右端,正文只保留额度窗口;
       // 窗口文本只装数值,标题行自己补「余额:」标签。textWindowOf 只产非空文本,真值检查即可。
-      const titleValue = (id === 'workbuddy' || id === 'opendesign') && windows.balance?.text
+      const titleValue = (id === 'workbuddy' || id === 'opendesign' || id === 'trae') && windows.balance?.text
         ? t('codingPlanWindowBalance') + ': ' + windows.balance.text : null
       const locale = resolveLocale(state.config)
       const rows = (titleValue ? entries.filter(([name]) => name !== 'balance') : entries).map(([name, win]) => {
@@ -3370,7 +3395,7 @@
       if (live.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }))
       if (live.message) detailParts.push(live.message)
       detailParts.push(...clickRefreshTipLines(t, refresh))
-      const detail = [t(rowDef.labelKey), ...detailParts].join('\n')
+      const detail = [title, ...detailParts].join('\n')
       const pcts = entries.map(([, win]) => pctOf(win)).filter(p => p !== null)
       const level = codingPlanQuotaLevel(Math.max(0, ...pcts), id)
       const railText = pcts.length > 0
@@ -3383,7 +3408,7 @@
             : el(Fragment, null,
               // 标题和余额共用一行,保留悬停提示中的完整余额标签。
               el('div', { className: titleValue ? 'cm-mm-title cm-mm-row wide' : 'cm-mm-title' },
-                t(rowDef.labelKey),
+                title,
                 titleValue && el('span', { className: 'cm-mm-text' }, titleValue)),
               el(gauge ? 'div' : Fragment, gauge ? { className: 'cm-plan-gauges' } : null, ...rows))))
     }
@@ -3395,6 +3420,8 @@
       try { window.localStorage?.setItem?.('cm.gw.' + id, accountId) } catch {}
     }
 
+    const gwFocusKey = raw => String(raw || '').toLowerCase().replace(/^(?:llm-)?(?:dsh-)?magpie(?:-connector)?-/, '')
+
     // ── 网关(CLIProxyAPI)额度侧边栏卡片(issue #96)─────────────────────────
     // 此前 display=sidebar/both 是未接线开关:宿主每刷新周期正常下发 state.gatewayQuotas,
     // 但侧边栏渲染路径没有任何 gateway 分支,配置侧边栏显示后什么也看不到。
@@ -3404,17 +3431,22 @@
     // 防撑爆;仅有 credits 无窗口的账号(如 WorkBuddy)退化为文本行。
     function GatewayQuotaBox(props) {
       const hoverProps = useQuotaHoverRefresh()
-      const { source, snapshot, state, wide, api } = props
+      const { source, snapshot, state, wide, api, focusProvider, grouped, routePending } = props
       const t = makeT(resolveLocale(state.config))
-      const [selection, setSelection] = useState(() => ({ source: source.id, id: readGatewayAccountLS(source.id) }))
+      const labelOf = value => quotaLabel(value, t, state.config.translateGatewayQuotaLabels, state.config.activeLocale)
+      const [manual, setManual] = useState(null)
+      const scope = props.sessionId
+      const manualId = manual?.source === source.id && manual.sessionId === scope && manual.provider === focusProvider ? manual.id : null
+      if (manual && !manualId) setManual(null)
       const refresh = useClickRefresh(api ? () => api.refreshGatewayQuota(source.id) : null)
       const agyLink = source.type === 'agy-link'
       const direction = agyLink ? 'remaining' : barDirectionOf(state.config, 'plan')
-      const maxRows = agyLink ? 10 : 4
-      const multi = snapshot.accounts.length > 1
-      const selectedId = selection.source === source.id ? selection.id : readGatewayAccountLS(source.id)
-      const selectedIdx = snapshot.accounts.findIndex(a => a.id === selectedId)
-      const activeIdx = selectedIdx >= 0 ? selectedIdx : Math.max(0, snapshot.accounts.findIndex(a => a.windows.length > 0 || a.credits != null))
+      const maxRows = grouped ? Infinity : agyLink ? 10 : source.type === 'subscriptions' ? 6 : 4
+      const multi = !grouped && snapshot.accounts.length > 1
+      const selectedIdx = snapshot.accounts.findIndex(a => a.id === (manualId ?? readGatewayAccountLS(source.id)))
+      const manualIdx = manualId ? selectedIdx : -1
+      const focusIdx = focusProvider ? snapshot.accounts.findIndex(a => a.provider === focusProvider) : -1
+      const activeIdx = manualIdx >= 0 ? manualIdx : focusIdx >= 0 ? focusIdx : selectedIdx >= 0 ? selectedIdx : Math.max(0, snapshot.accounts.findIndex(a => a.windows.length > 0 || a.credits != null))
       const currentAccount = snapshot.accounts[activeIdx] ?? snapshot.accounts[0]
       const currentAccountName = currentAccount?.label || currentAccount?.id || ''
       const prefix = account => multi && !agyLink ? (GATEWAY_PROVIDER_LABELS[account.provider] ?? account.provider) + ' · ' : ''
@@ -3422,18 +3454,24 @@
       const rows = []
       for (const account of accountsToRender) {
         if (rows.length >= maxRows) break
+        if (grouped) rows.push({ name: account.label || account.id, heading: true })
         for (const win of account.windows) {
           if (rows.length >= maxRows) break
-          const name = prefix(account) + (win.label || win.id || t('gatewaySourceUnknown'))
-          rows.push({ win, name, view: miniMaxRow(name, win, direction, t) })
+          const name = prefix(account) + (labelOf(win.label) || codingPlanWindowLabel(win.id, t))
+          rows.push(win.reading ? { name, text: labelOf(win.reading) } : { win, name, view: miniMaxRow(name, win, direction, t) })
         }
         if (account.windows.length === 0 && account.credits != null) {
-          rows.push({ win: null, name: prefix(account) + (account.credits.unit || 'credits'), text: (account.credits.used ?? '—') + ' / ' + (account.credits.limit ?? '—') })
+          const c = account.credits
+          const creditText = c.used == null && c.limit == null
+            ? (c.remaining != null ? (c.unit === 'USD' ? '$' + c.remaining : String(c.remaining)) : (account.plan || '—'))
+            : (c.used ?? '—') + ' / ' + (c.limit ?? '—')
+          rows.push({ win: null, name: prefix(account) + (labelOf(c.unit) || t('credits')), text: creditText })
         }
       }
       if (rows.length === 0) rows.push({ name: t('gatewayQuotaEmpty'), text: '—' })
       const level = rows.some(r => r.view?.level === 'over') ? 'over' : rows.some(r => r.view?.level === 'warn') ? 'warn' : 'ok'
       const detailParts = rows.map(r => {
+        if (r.heading) return r.name
         if (r.text != null) return r.name + ' ' + r.text
         const reset = miniMaxResetText(r.win, t)
         return r.name + ' ' + quotaValueText(r.view.label, direction, t) + (reset ? ' · ' + reset : '')
@@ -3444,7 +3482,7 @@
         ? `${source.label || source.id} (${activeIdx + 1}/${snapshot.accounts.length} · ${currentAccountName})`
         : (source.label || source.id)
       const detail = [accHeader, ...detailParts].join('\n')
-      const bodyRows = rows.map((r, i) => r.text != null
+      const bodyRows = rows.map((r, i) => r.heading ? el('div', { key: i, className: 'cm-gw-sub' }, r.name) : r.text != null
         ? el('div', { key: i, className: 'cm-mm-row wide' }, el('span', { className: 'cm-bbox-label' }, r.name), el('span', { className: 'cm-mm-text cm-num' }, r.text))
         : el(Fragment, { key: i }, r.view.row))
 
@@ -3453,8 +3491,8 @@
           e.stopPropagation()
           e.preventDefault?.()
           const next = snapshot.accounts[(activeIdx + 1) % snapshot.accounts.length]
-          writeGatewayAccountLS(source.id, next.id)
-          setSelection({ source: source.id, id: next.id })
+          if (!scope) writeGatewayAccountLS(source.id, next.id)
+          setManual({ source: source.id, sessionId: scope, provider: focusProvider, id: next.id })
         }
       }
 
@@ -3471,14 +3509,18 @@
         ? el('div', { className: 'cm-bbox-head' }, el('div', { className: 'cm-mm-title' }, source.label || source.id), switchBtn)
         : el('div', { className: 'cm-mm-title' }, source.label || source.id)
       const accSub = multi && currentAccountName
-        ? el('div', { className: 'cm-gw-sub' }, currentAccountName)
+        ? el('div', { className: 'cm-gw-sub' }, (focusIdx >= 0 && activeIdx === focusIdx ? '★ ' : '') + currentAccountName)
         : null
 
-      const body = el(Fragment, null, titleRow, accSub, ...bodyRows)
+      const unresolved = routePending && !grouped
+      const routeLabel = resolveLocale(state.config) === 'en' ? 'Route provider unavailable' : '路由供应商未确认'
+      const body = unresolved
+        ? el(Fragment, null, el('div', { className: 'cm-mm-title' }, source.label || source.id), el('div', { className: 'cm-gw-sub' }, routeLabel))
+        : el(Fragment, null, titleRow, accSub, ...bodyRows)
       const pcts = rows.filter(r => r.view).map(r => r.view.label).filter(p => p !== null)
       const railText = pcts.length > 0 ? pcts.slice(0, 2).map(p => p + '%').join(' ') : (rows[0].text ?? '—')
-      const rail = el('div', { className: 'cm-bbox-rail cm-num' }, railText)
-      return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, detail), side: 'right', delayMs: 300 },
+      const rail = el('div', { className: 'cm-bbox-rail cm-num' }, unresolved ? '—' : railText)
+      return el(Tooltip, { portal: true, label: el('span', { style: { whiteSpace: 'pre-line' } }, unresolved ? routeLabel : detail), side: 'right', delayMs: 300 },
         el('div', {
           ...hoverProps, 'data-cm-display': 'gateway', 'data-cm-source': source.id, className: 'cm-bbox cm-mm clickable' + (level === 'ok' ? '' : ' ' + level) + (wide === false ? ' rail' : '') + (refresh.busy ? ' busy' : ''),
           ...clickableRefreshProps(refresh.busy, refresh.run),
@@ -3486,14 +3528,26 @@
     }
 
     /** 侧边栏网关卡片列表:按来源配置(display/enabled)与快照状态过滤,见 GatewayQuotaBox 注释。 */
-    function gatewaySidebarCards(state, config, wide, api) {
+    function gatewaySidebarCards(state, config, wide, api, session) {
       const snaps = Array.isArray(state.gatewayQuotas) ? state.gatewayQuotas : []
       const nodes = []
       for (const source of config.gatewayQuotas?.sources ?? []) {
         if (source.enabled === false || (source.display !== 'sidebar' && source.display !== 'both')) continue
         const live = snaps.find(q => q.id === source.id)
         if (!live || (live.status !== 'ok' && live.status !== 'partial' && live.status !== 'stale') || live.accounts.length === 0) continue
-        nodes.push(el(GatewayQuotaBox, { key: 'gateway:' + source.id, source, snapshot: live, state, wide, api }))
+        const follow = source.type === 'magpie' && config.sidebarFocusProvider !== false && session
+        const direct = gwFocusKey(follow?.provider)
+        const owner = direct === 'routing' && follow?.model?.split('/')[0]
+        const routed = owner === 'group' || owner === 'auto'
+        const actual = follow?.route?.requestedModel === follow?.model && follow?.route?.provider
+        const target = gwFocusKey(routed ? actual : owner || direct)
+        let match = target && live.accounts.find(a => gwFocusKey(a.provider) === target)
+        if (!match && target && !routed) match = live.accounts.find(a => {
+          const provider = gwFocusKey(a.provider)
+          return provider && (provider.startsWith(target + '-') || target.startsWith(provider + '-'))
+        })
+        nodes.push(el(GatewayQuotaBox, { key: 'gateway:' + source.id, source, snapshot: live, state, wide, api,
+          focusProvider: match?.provider, sessionId: follow?.id, routePending: routed && !match }))
       }
       return nodes
     }
@@ -3514,6 +3568,7 @@
       qwen: 'Qwen',
       mimo: 'MiMo',
       'baidu-coding': '千帆',
+      trae: 'Trae',
       factory: 'Factory', opendesign: 'OpenDesign',
     }
 
@@ -3578,8 +3633,7 @@
         }
       }
       // Go chip:主窗口一档(与右下角 chips 的主窗口口径一致)。
-      if (quotaInComposer(config.goQuota, strip, 'go')) {
-        const goQuota = state.goQuota
+      if (quotaInComposer(config.goQuota, strip, 'go')) for (const goQuota of [state.goQuota, ...(state.goQuota?.accountQuotas ?? []).map(row => ({ ...row, ...row.windows }))]) {
         if (config?.goQuota?.enabled !== false && goQuota?.status === 'ok') {
           const mainKey = config.goQuota.main === 'weekly' || config.goQuota.main === 'monthly' ? config.goQuota.main : 'rolling'
           const win = mainKey === 'rolling' ? goQuota.rolling : mainKey === 'weekly' ? goQuota.weekly : goQuota.monthly
@@ -3589,8 +3643,8 @@
             const resets = typeof win.resetsAt === 'string' && win.resetsAt.length > 0
               ? ' · ' + t('goResetAt', { time: new Date(win.resetsAt).toLocaleString() }) : ''
             chips.push({
-              key: 'go',
-              label: 'Go ' + t(mainKey === 'rolling' ? 'goShortRolling' : mainKey === 'weekly' ? 'goShortWeekly' : 'goShortMonthly'),
+              key: goQuota.accountId ? 'go@' + goQuota.accountId : 'go',
+              label: 'Go ' + (goQuota.accountLabel ? goQuota.accountLabel + ' ' : '') + t(mainKey === 'rolling' ? 'goShortRolling' : mainKey === 'weekly' ? 'goShortWeekly' : 'goShortMonthly'),
               level,
               tip: goQuotaDetail(goQuota, config, t),
               segs: [{ name: 'main', pct: Math.round(simpleBarByDirection(pct, barDirectionOf(config, 'go')).width) }],
@@ -3600,8 +3654,7 @@
       }
       // Coding Plan chip:每家厂商一条(多窗口融合为段,竖线分隔;点击刷新整家,issue #52)。
       {
-        for (const rowDef of CODING_PLAN_ROWS) {
-          const live = state.codingPlans?.[rowDef.id]
+        for (const rowDef of CODING_PLAN_ROWS) for (const live of [state.codingPlans?.[rowDef.id], ...(state.codingPlans?.[rowDef.id]?.accountQuotas ?? [])]) {
           if (!quotaInComposer(config.codingPlans?.[rowDef.id], strip, 'plans') || !live || live.status !== 'ok') continue
           const windows = live.windows !== null && typeof live.windows === 'object' ? live.windows : {}
           const allEntries = codingPlanWindowEntries(windows, rowDef.id)
@@ -3637,8 +3690,8 @@
           if (live.fetchedAt > 0) detailParts.push(t('goQuotaFetchedAt', { time: new Date(live.fetchedAt).toLocaleTimeString() }))
           if (segs.length === 0) continue
           chips.push({
-            key: rowDef.id + (group ? ':core' : ''),
-            label: vendor + (rowDef.id === 'factory' ? group ? ' Core' : ' Standard' : ''),
+            key: rowDef.id + (live.accountId ? '@' + live.accountId : '') + (group ? ':core' : ''),
+            label: vendor + (live.accountLabel ? ' · ' + live.accountLabel : '') + (rowDef.id === 'factory' ? group ? ' Core' : ' Standard' : ''),
             level: ['ok', 'warn', 'over'][worst],
             tip: detailParts.join('; '),
             segs,
@@ -3683,7 +3736,7 @@
           .then(() => (key === 'budget' ? api.reload()
             : key === 'go' ? api.refreshGoQuota()
               : key === 'codex' ? fetchCodexQuota(true, config.codexQuotaEnabled === true, config.codexQuotaSource)
-                : key === 'factory:core' ? api.refreshCodingPlan('factory') : api.refreshCodingPlan(key)))
+                : key.endsWith(':core') ? api.refreshCodingPlan(key.slice(0, -5)) : api.refreshCodingPlan(key)))
           .catch(error => { setErrs(m => ({ ...m, [key]: error?.message ?? String(error) })) })
           .finally(() => setBusyKey(null))
       }
@@ -3960,8 +4013,43 @@
       return target
     }
 
+    function isMobileSidebarLayout() {
+      const pocket = typeof document !== 'undefined' ? document.body?.getAttribute?.('data-dsh-pocket-layout') : null
+      if (pocket === 'desktop') return false
+      if (pocket === 'mobile') return true
+      return typeof window !== 'undefined' && window.matchMedia?.('(max-width:1023px), (pointer:coarse)')?.matches === true
+    }
+
+    function useMobileSidebarLayout() {
+      const [mobile, setMobile] = useState(isMobileSidebarLayout)
+      useEffect(() => {
+        const media = typeof window !== 'undefined' ? window.matchMedia?.('(max-width:1023px), (pointer:coarse)') : null
+        const update = () => setMobile(isMobileSidebarLayout())
+        if (media?.addEventListener) media.addEventListener('change', update)
+        else media?.addListener?.(update)
+        const MO = typeof MutationObserver === 'function' ? MutationObserver : null
+        const observer = MO && typeof document !== 'undefined' && document.body ? new MO(update) : null
+        observer?.observe(document.body, { attributes: true, attributeFilter: ['data-dsh-pocket-layout'] })
+        update()
+        return () => {
+          if (media?.removeEventListener) media.removeEventListener('change', update)
+          else media?.removeListener?.(update)
+          observer?.disconnect()
+        }
+      }, [])
+      return mobile
+    }
+
+    let footerChipPage
+    const loadFooterChip = () => footerChipPage ??= require.async('./client.footer-chip.js').then(module => module.mount({ WalletIcon, gatewayLabels: GATEWAY_PROVIDER_LABELS })).catch(error => { footerChipPage = null; throw error })
+
+    // Root slots read the same session list as dsh-quota. Older hosts expose current.
+    const visibleSessionId = list => list.byId?.[list.current]?.retainedBy?.mainView > 0 ? list.current
+      : Object.values(list.byId ?? {}).find(row => row?.retainedBy?.mainView > 0)?.id ?? list.current
+
     function SidebarFooter(props) {
       const botTarget = useBotFooterTarget()
+      const mobile = useMobileSidebarLayout()
       const costStore = props.useCost ? props.useCost(s => s) : undefined
       useCodexQuota(costStore?.state?.config?.codexQuotaEnabled === true && costStore?.state?.config?.codexQuotaSidebar !== false, costStore?.state?.config?.codexQuotaSource)
       // 侧边栏页脚非会话作用域插槽:useProjection 在部分宿主/页面可能不可用或
@@ -3971,19 +4059,45 @@
         try { projectionUsage = props.useProjection('costUsage') } catch { projectionUsage = undefined }
       }
       useProjectionRefresh(props, projectionUsage)
+      const id = props.useSessions?.(visibleSessionId)
+      const model = props.useSessions?.(list => {
+        const selection = list.projectionsBySession?.[id]?.values?.modelSelection
+        return selection?.next ?? selection?.lastUsed
+      })
+      const sp = model?.provider ?? projectionUsage?.provider
+      const route = props.useSessions?.(list => list.projectionsBySession?.[id]?.values?.costUsage?.magpieRoute)
+      const session = id && { id, ...model, route }
       const current = costStore?.state
-      const state = current ? { ...current, config: peakConfigForState(current, projectionUsage?.provider) } : null
+      const state = current ? { ...current, config: peakConfigForState(current, sp) } : null
       if (!state) return null
       if (botTarget) {
         let portal
         try { portal = require('react-dom')?.createPortal } catch {}
-        if (portal) return portal(renderSidebarFooter(state, true, props.api, false, projectionUsage?.provider), botTarget)
+        if (portal) return portal(renderSidebarFooter(state, true, props.api, false, sp, false, false, session), botTarget)
       }
-      return renderSidebarFooter(state, !!props.wide, props.api, false, projectionUsage?.provider)
+      const simple = state.config?.sidebarSimple === true
+      const entryMode = !simple && state.config?.sidebarStyle === 'entry'
+      const explicitIcons = !simple && state.config?.sidebarStyle === 'icons'
+      const fallback = renderSidebarFooter(state, !!props.wide, props.api, false, sp, false, entryMode, session)
+      if (fallback && (entryMode || (mobile && !explicitIcons))) {
+        return el(BillingStatistics, {
+          load: loadFooterChip,
+          quiet: true,
+          entryMode,
+          mobile,
+          wide: !!props.wide,
+          label: makeT(resolveLocale(state.config))('sidebarChip'),
+          locale: resolveLocale(state.config),
+          magpieOverview: state.config.sidebarMagpieOverview,
+          renderCard: (cardWide, filterGateways) => renderSidebarFooter(state, cardWide, props.api, false, sp, false, true, session, filterGateways),
+          fallback,
+        })
+      }
+      return fallback
     }
 
     // Shared presentation only: no store, projection or quota subscription.
-    function renderSidebarFooter(state, wide, api, preview = false, provider, examples = preview) {
+    function renderSidebarFooter(state, wide, api, preview = false, provider, examples = preview, bare = false, session, filterGateways) {
       const config = peakConfigForState(state)
       const t = makeT(resolveLocale(config))
       const showBalance = (config.balance?.display === 'sidebar' || config.balance?.display === 'both')
@@ -4006,11 +4120,11 @@
           const entry = config.codingPlans?.[id]
           if (entry?.enabled !== true) return false
           if (entry.display !== 'sidebar' && entry.display !== 'both') return false
-          return entry.sidebarAfterSuccess !== true || state.codingPlans?.[id]?.status === 'ok'
+          return entry.sidebarAfterSuccess !== true || state.codingPlans?.[id]?.status === 'ok' || state.codingPlans?.[id]?.accountQuotas?.length > 0
         })
-      const plansOn = sidebarPlanIds.length > 0
+      const plansOn = sidebarPlanIds.length > 0 || Boolean(state.goQuota?.accountQuotas?.length && ['sidebar', 'both'].includes(config.goQuota?.display))
       // 网关额度侧边栏卡片(issue #96):按来源 display 门控,卡片本体见 GatewayQuotaBox。
-      const gatewayNodes = gatewaySidebarCards(state, config, wide, api)
+      const gatewayNodes = gatewaySidebarCards(state, config, wide, api, session)
       // 启用后始终保留卡片,避免未登录/接口失败时没有提示和手动重试入口。
       const codexOn = config.codexQuotaSidebar !== false && (config.codexQuotaEnabled === true || state.codexCompat?.enabled === true)
       const budgetOn = (config.budget ?? {}).enabled === true && config.hideBudget !== true
@@ -4045,12 +4159,19 @@
       if (showCustomBalanceBar) nodes.push(el(CustomBalanceBox, { key: 'customBalance', state, wide, api: api }))
       else if (showCustomBalance) nodes.push(el(CustomBalanceRowContent, { key: 'customBalance', state, wide, api: api }))
       const afterBalance = nodes.length
-      if (plansOn) nodes.push(...sidebarPlanIds.map(id => id === 'minimax'
+      if (plansOn) nodes.push(...sidebarPlanIds.map(id => state.codingPlans?.[id]?.accountQuotas?.length
+        ? el(Fragment, { key: 'plan:' + id }, ...[state.codingPlans[id], ...state.codingPlans[id].accountQuotas]
+          .map(row => el(CodingPlanBox, { key: row.accountId ?? 'selected', account: row, id, state, wide, api })))
+        : id === 'minimax'
         ? el(MiniMaxPlanBox, { key: 'plan:' + id, state, wide, api: api })
         : el(CodingPlanBox, { key: 'plan:' + id, id, state, wide, api: api })))
-      nodes.push(...gatewayNodes)
+      nodes.push(...(filterGateways ? filterGateways(gatewayNodes) : gatewayNodes))
       if (codexOn) nodes.push(el(CodexPlanBox, { key: 'codex', state, wide, api, preview }))
-      if (goOk && budgetOn && wide && !simple) {
+      // 上游 v1.9.x 多账户 Go 额度:accountQuotas 有值时逐账户追加 CodingPlanBox 行。
+      const goAccounts = ['sidebar', 'both'].includes(config.goQuota?.display) ? (state.goQuota?.accountQuotas ?? []) : []
+      const goOn = goOk || goAccounts.length > 0
+      // fork 的 Go+预算合并卡只在单一 Go 账户时成立;多账户时让位给上游的逐账户布局。
+      if (goOn && budgetOn && wide && !simple && goAccounts.length === 0) {
         // 同时出现:合并为一张卡片(Go 在上、预算在下,细分隔线),各自保留预警色与自己的详细信息开关。
         const goView = goBoxBody(state, config, t)
         const budgetView = budgetBoxBody(state, config, t)
@@ -4061,7 +4182,8 @@
           el('div', { className: 'cm-bbox-divider' }),
           el('div', { 'data-cm-display': 'budget', className: 'cm-bbox-section' + (budgetView.level === 'ok' ? '' : ' ' + budgetView.level) }, budgetView.body)))
       } else {
-        if (goOk) nodes.push(el(GoQuotaBox, { key: 'go', state, wide }))
+        if (goOn) nodes.push(el(Fragment, { key: 'go' },
+          el(GoQuotaBox, { state, wide }), ...goAccounts.map(row => el(CodingPlanBox, { key: row.accountId, account: row, id: 'go', state, wide, api }))))
         if (budgetOn) nodes.push(el(BudgetBoxContent, { key: 'budget', state, wide, summary: simple && wide }))
       }
       // fork:标准宽栏用合并信息卡承载今日费用/余额/峰谷条;它与 TodayBalanceCard 内部的
@@ -4081,5 +4203,6 @@
         const rank = node => { const index = order.indexOf(node.key); return index < 0 ? 999 : index }
         nodes.sort((a, b) => rank(a) - rank(b))
       }
-      return el('div', { ...(!preview ? { 'data-cm-sidebar-card': '' } : {}), ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (config.sidebarTodayBalanceInline ? ' same-line' : '') + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : config.sidebarStyle === 'summary' && wide ? ' summary' : '') + (config.sidebarTextOnly ? ' text-only' : '') }, ...(!simple && wide && config.sidebarStyle === 'icons' ? [el(BillingStatistics, { load: loadSidebarIcons, state: { ...state, config }, preview, nodes, fallback: nodes })] : nodes))
+      const showIcons = !simple && config.sidebarStyle === 'icons' && (wide || (!preview && isMobileSidebarLayout()))
+      return el('div', { ...(!preview && !bare ? { 'data-cm-sidebar-card': '' } : {}), ...(simple ? { tabIndex: 0, role: 'region', 'aria-label': t('sidebarSimple') } : {}), className: 'cm-footer-stack' + (config.sidebarTodayBalanceInline ? ' same-line' : '') + (wide ? '' : ' rail') + (compactWide ? ' compact' : '') + (simple ? ' simple' : config.sidebarStyle === 'summary' && wide ? ' summary' : '') + (config.sidebarTextOnly ? ' text-only' : '') }, ...(showIcons ? [el(BillingStatistics, { load: loadSidebarIcons, state: { ...state, config }, preview, nodes, fallback: nodes })] : nodes))
     }

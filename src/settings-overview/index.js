@@ -32,14 +32,17 @@ window.__ModuleLoader__.load({
       }
       if (config.goQuota?.enabled !== false && config.goQuota?.display !== 'off') {
         const live = state.goQuota
-        cards.push(section('go', t('goQuotaTitle'), status(live, windows({
+        for (const row of live?.accountQuotas ?? []) cards.push(section('go@' + row.accountId, t('goQuotaTitle') + ' · ' + row.accountLabel, status(row, windows(row.windows, 'go'))))
+        cards.push(section('go', [t('goQuotaTitle'), live?.accountLabel].filter(Boolean).join(' · '), status(live, windows({
           [t('goWindowRolling')]: live?.rolling, [t('goWindowWeekly')]: live?.weekly, [t('goWindowMonthly')]: live?.monthly,
         }))))
       }
       if (config.codexQuotaEnabled === true) cards.push(section('codex', t('codexQuotaTitle'), status(codex, windows(codex.windows))))
       for (const { id, labelKey } of h.CODING_PLAN_ROWS) {
         const cfg = config.codingPlans?.[id], live = state.codingPlans?.[id]
-        if (cfg?.enabled === true && cfg.display !== 'off') cards.push(section(id, t(labelKey), status(live, windows(live?.windows, id))))
+        if (cfg?.enabled === true && cfg.display !== 'off') for (const row of [live, ...(live?.accountQuotas ?? [])]) {
+          cards.push(section(id + (row?.accountId ? '@' + row.accountId : ''), [t(labelKey), row?.accountLabel].filter(Boolean).join(' · '), status(row, windows(row?.windows, id))))
+        }
       }
       const customEntries = config.customBalances?.length ? config.customBalances : config.customBalance ? [config.customBalance] : []
       customEntries.forEach((entry, index) => {
@@ -48,16 +51,19 @@ window.__ModuleLoader__.load({
         cards.push(section('custom-' + index, (locale === 'en' ? entry.labelEn || entry.label : entry.label) || t('customBalanceTitle'), status(live,
           el('div', { className: 'cm-card-value cm-num' }, live?.remaining == null ? '—' : h.formatCustomBalanceMoney(live.remaining, config, live, entry)))))
       })
+      const labelOf = value => h.quotaLabel(value, t, config.translateGatewayQuotaLabels, config.activeLocale)
       for (const source of config.gatewayQuotas?.sources ?? []) {
         if (!source.enabled || source.display === 'off') continue
         const live = state.gatewayQuotas?.find(item => item.id === source.id)
         const creditRow = (value, key) => value ? el('p', { key, className: 'cm-note cm-num' },
-          (value.label || value.unit || 'Credits') + ' · ' + text('剩余 ', 'Remaining ') + (value.remaining ?? '—') + ' / ' + (value.limit ?? '—')) : null
+          (labelOf(value.label) || labelOf(value.unit) || t('credits')) + ' · ' + text('剩余 ', 'Remaining ') + (value.remaining ?? '—') + ' / ' + (value.limit ?? '—')) : null
         cards.push(section('gateway-' + source.id, source.label || source.id, status(live,
           live?.accounts?.length ? live.accounts.map((account, i) => el('div', { key: account.id || i },
             el('h4', { className: 'cm-h' }, account.label || account.provider),
             account.message ? note(account.message) : null,
-            windows(Object.fromEntries((account.windows ?? []).map((win, j) => [win.id || j, win]))),
+            windows(Object.fromEntries((account.windows ?? []).map((win, j) => [win.id || j, {
+              ...win, label: labelOf(win.label), ...(win.reading ? { text: labelOf(win.reading), percent: undefined } : {}),
+            }]))),
             creditRow(account.credits), (account.credits?.packages ?? []).map((pkg, j) => creditRow(pkg, pkg.id || j)))) : note(t('gatewaySourceNoAccounts')))))
       }
       return el('div', { className: 'cm-section', 'data-settings-overview': true },
